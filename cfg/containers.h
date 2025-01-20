@@ -36,7 +36,7 @@ public:
     static constexpr auto make(const char (&c)[N]) { return ConstStr<N>(c); } // Convenient wrapper for CStr constructor
 
     template<std::size_t N>
-    constexpr auto concat(const ConstStr<N>& rhs)
+    constexpr auto concat(const ConstStr<N>& rhs) const
     {
         constexpr std::size_t new_size = SIZE + N - 1; // Account for '\0'
         char c[new_size];
@@ -54,7 +54,9 @@ public:
 
     // Overloads
     template<std::size_t N>
-    constexpr auto operator+(const ConstStr<N>& rhs) { return concat(rhs); }
+    constexpr auto operator+(const ConstStr<N>& rhs) const { return concat(rhs); }
+
+    constexpr const ConstStr<SIZE>& bake(auto... args) const { return *this; } // Baking operation on a string always returns string
 };
 
 

@@ -15,56 +15,186 @@
   * @tparam CStr Const string class
   */
 template<class CStr>
-class BaseNTerm
+class NTerm
 {
 public:
     CStr name;
-    constexpr explicit BaseNTerm(const CStr& n) : name(n) {}
+    constexpr explicit NTerm(const CStr& n) : name(n) {}
 
-    constexpr BaseNTerm() : name("\0") {}
+    constexpr NTerm() : name("\0") {}
 
     template<class BNFRules>
     constexpr auto bake(const BNFRules& rules) const { return rules.bake_nonterminal(this->name); }
 };
 
+ /**
+  * @brief Base terminal class (literal)
+  * @tparam CStr Const string class
+  */
 template<class CStr>
-class BaseTerm
+class Term
 {
 public:
     CStr name;
-    constexpr explicit BaseTerm(const CStr& n) : name(n) {}
+    constexpr explicit Term(const CStr& n) : name(n) {}
 
-    constexpr BaseTerm() : name("\0") {}
+    constexpr Term() : name("\0") {}
 
     template<class BNFRules>
     constexpr auto bake(const BNFRules& rules) const { return rules.bake_terminal(this->name); }
 };
 
-
  /**
-  * @brief Base operator with 2 arguments
-  * @tparam NTerm Base nonterminal class
+  * @brief Enum containing ebnf binary operations
   */
-template<class NTerm>
-class BaseBinaryOP
+enum BinOpType
 {
-public:
-    NTerm left;
-    NTerm right;
-    constexpr BaseBinaryOP(const NTerm& l, const NTerm& r) : left(l), right(r) {}
+    Concat,
+    Alter,
+    Except
 };
 
  /**
-  * @brief Base operator with multiple args, fixed-size implementation
-  * @tparam NTerm Base nonterminal class
-  * @tparam N Deduced number of arguments
+  * @brief Base operator with 2 arguments
+  * @tparam TSymbolA Left symbol
+  * @tparam TSymbolB Right symbol
   */
-template<class NTerm>
+template<BinOpType Operator, class TSymbolA, class TSymbolB>
+class BinaryOP
+{
+public:
+    TSymbolA left;
+    TSymbolB right;
+    constexpr BinaryOP(const TSymbolA& l, const TSymbolB& r) : left(l), right(r) {}
+
+    template<class BNFRules>
+    constexpr auto bake(const BNFRules& rules) const
+    {
+        if constexpr (Operator == BinOpType::Concat) return rules.bake_concat(left.bake(rules), right.bake(rules));
+        if constexpr (Operator == BinOpType::Alter) return rules.bake_alter(left.bake(rules), right.bake(rules));
+        if constexpr (Operator == BinOpType::Except) return rules.bake_except(left.bake(rules), right.bake(rules));
+        /*switch (Operator)
+        {
+            case BinOpType::Concat:
+                return rules.bake_concat(left.bake(rules), right.bake(rules));
+            case BinOpType::Alter:
+                return rules.bake_alter(left.bake(rules), right.bake(rules));
+            case BinOpType::Except:
+                return rules.bake_except(left.bake(rules), right.bake(rules));
+        }*/
+    }
+};
+
+
+/*template<class TSymbolA, class TSymbolB>   using Concat = BinaryOP<BinOpType::Concat, TSymbolA, TSymbolB>;
+template<class TSymbolA, class TSymbolB>   using Alter  = BinaryOP<BinOpType::Alter, TSymbolA, TSymbolB>;
+template<class TSymbolA, class TSymbolB>   using Except = BinaryOP<BinOpType::Except, TSymbolA, TSymbolB>;*/
+
+/**
+ * @brief Enum containing ebnf multi-operand operations
+ */
+enum MultiOpType
+{
+    Optional,
+    Repeat,
+    Group,
+    SpecialSeq
+};
+
+template<class Operator>
+struct TypeWrapper { Operator type; };
+
+/**
+ * @brief Base operator with multiple args
+ * @tparam TSymbols A pack of symbols
+ */
+template<MultiOpType Operator, class... TSymbols>
+class MultiOp
+{
+public:
+    std::tuple<TSymbols...> terms;
+
+    constexpr explicit MultiOp(const TSymbols&... t) : terms(t...) {}
+
+    constexpr void each_elem(auto& func)
+    {
+        for (size_t i = 0; i < sizeof...(TSymbols); i++)
+        {
+            func(std::get<i>(terms));
+        }
+    }
+
+    template<class BNFRules>
+    constexpr auto bake(const BNFRules& rules) const
+    {
+        return exec_bake_rule(rules, do_bake<1>(rules, std::get<0>(terms)));
+    }
+
+protected:
+    template<std::size_t depth, class BNFRules, class TBuf>
+    constexpr auto do_bake(const BNFRules& rules, TBuf last) const
+    {
+        auto res = exec_bake_rule(rules, last, std::get<depth>(terms));
+        if constexpr (depth + 1 < sizeof...(TSymbols))
+            return do_bake<depth + 1>(rules, res);
+        return res;
+    }
+
+    template<class BNFRules, class... TSymbolPack>
+    constexpr auto exec_bake_rule(const BNFRules& rules, const TSymbolPack&... symbols) const
+    {
+        if constexpr (Operator == MultiOpType::Optional) return rules.bake_optional(symbols.bake(rules)...);
+        if constexpr (Operator == MultiOpType::Repeat) return rules.bake_repeat(symbols.bake(rules)...);
+        if constexpr (Operator == MultiOpType::Group) return rules.bake_group(symbols.bake(rules)...);
+        if constexpr (Operator == MultiOpType::SpecialSeq) return rules.bake_special_seq(symbols.bake(rules)...);
+        /*switch (Operator)
+        {
+            case MultiOpType::Optional:
+                return rules.bake_optional(rules.bake(symbols)...);
+            case MultiOpType::Repeat:
+                return rules.bake_repeat(rules.bake(symbols)...);
+            case MultiOpType::Group:
+                return rules.bake_group(rules.bake(symbols)...);
+            case MultiOpType::SpecialSeq:
+                return rules.bake_special_seq(rules.bake(symbols)...);
+        }*/
+    }
+};
+
+
+template<BinOpType op, class TSymbolA, class TSymbolB>
+constexpr auto make_op(const TSymbolA& a, const TSymbolB& b) { return BinaryOP<op, TSymbolA, TSymbolB>(a, b); }
+
+template<MultiOpType op, class... TSymbols>
+constexpr auto make_op(const TSymbols&... symbols) { return MultiOp<op, TSymbols...>(symbols...); }
+
+
+/*template<class... TSymbols>   using Optional   = MultiOp<MultiOpType::Optional, TSymbols...>;
+template<class... TSymbols>   using Repeat     = MultiOp<MultiOpType::Repeat, TSymbols...>;
+template<class... TSymbols>   using Group      = MultiOp<MultiOpType::Group, TSymbols...>;
+template<class... TSymbols>   using SpecialSeq = MultiOp<MultiOpType::SpecialSeq, TSymbols...>;*/
+
+ /**
+  * @brief Base ending (termination) operator
+  */
+/*class BaseEndOP
+{
+public:
+    template<class BNFRules>
+    constexpr auto bake(const BNFRules& rules) { return rules.bake_end(); }
+};*/
+
+/**
+ * @brief Base operator with multiple args, fixed-size implementation
+ * @tparam TTerm Base nonterminal class
+ * @tparam N Deduced number of arguments
+ */
+template<class TTerm>
 class BaseMultiOPBuf
 {
 public:
     static constexpr std::size_t NTermsMax = 16;
-    NTerm terms[NTermsMax];
+    TTerm terms[NTermsMax];
     std::size_t N;
 
     template<class... NTerms>
@@ -73,68 +203,21 @@ public:
         init(0, t...);
     }
 
-    //constexpr explicit BaseMultiOP(BaseNTerm t) {}
+    //constexpr explicit MultiOp(NTerm t) {}
 
 protected:
     template<class... NTerms>
-    constexpr void init(const std::size_t i, const NTerm& term, const NTerms&... t)
+    constexpr void init(const std::size_t i, const TTerm& term, const NTerms&... t)
     {
         terms[i] = term;
         init(i+1, t...);
     }
 
-    constexpr void init(const std::size_t i, const NTerm& term)
+    constexpr void init(const std::size_t i, const TTerm& term)
     {
         terms[i] = term;
-        for (std::size_t j = i+1; j < NTermsMax; j++) { terms[j] = NTerm(); }
+        for (std::size_t j = i+1; j < NTermsMax; j++) { terms[j] = TTerm(); }
     }
 };
-
-
-/**
- * @brief Base operator with multiple args
- * @tparam NTerm Base nonterminal class
- * @tparam N Deduced number of arguments
- */
-template<class... NTerms>
-class BaseMultiOP
-{
-public:
-    std::tuple<NTerms...> terms;
-
-    constexpr explicit BaseMultiOP(const NTerms&... t) : terms(t...) {}
-
-    constexpr void each_elem(auto& func)
-    {
-        for (size_t i = 0; i < sizeof...(NTerms); i++)
-        {
-            func(std::get<i>(terms));
-        }
-    }
-
-    //constexpr explicit BaseMultiOP(BaseNTerm t) {}
-};
-
-
-
- /**
-  * @brief Base ending (termination) operator
-  */
-class BaseEndOP
-{
-
-};
-
-constexpr void bake()
-{
-//    constexpr BaseNTerm<char> a('a'), b('b');
-    constexpr auto a("abc"), b("abcd");
-    //constexpr auto op = BaseMultiOP<BaseNTerm<char>>(a, b);
-    constexpr auto op = BaseMultiOP(a, b);
-}
-
-//template<template<class> class NTerm, class CStr>
-//constexpr auto make_term(const CStr& name) => NTerm<CStr>()
-
 
 #endif //SUPERCFG_BASE_H
