@@ -4,7 +4,12 @@
 
 #include "cfg/tgrammar.h"
 
+#include "tests/bnf.h"
+
 int main()
 {
+    auto res = test_gbnf();
+    if (!res) { std::cout << "main() : tests failed" << std::endl; return 1; }
+    std::cout << "main() : passed" << std::endl;
     return 0;
 }
