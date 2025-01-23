@@ -47,10 +47,8 @@ public:
  /**
   * @brief Enum containing ebnf binary operations
   */
-enum BinOpType
+enum class BinOpType
 {
-    Concat,
-    Alter,
     Except
 };
 
@@ -70,8 +68,6 @@ public:
     template<class BNFRules>
     constexpr auto bake(const BNFRules& rules) const
     {
-        if constexpr (Operator == BinOpType::Concat) return rules.bake_concat(left.bake(rules), right.bake(rules));
-        if constexpr (Operator == BinOpType::Alter) return rules.bake_alter(left.bake(rules), right.bake(rules));
         if constexpr (Operator == BinOpType::Except) return rules.bake_except(left.bake(rules), right.bake(rules));
     }
 };
@@ -91,14 +87,17 @@ public:
 /**
  * @brief Enum containing ebnf multi-operand operations
  */
-enum MultiOpType
+enum class MultiOpType
 {
+    Concat,
+    Alter,
     Define,
     Optional,
     Repeat,
     Group,
     Comment,
-    SpecialSeq
+    SpecialSeq,
+    Root
 };
 
 
@@ -112,7 +111,7 @@ class MultiOp
 public:
     std::tuple<TSymbols...> terms;
 
-    constexpr explicit MultiOp(const TSymbols&... t) : terms(t...) {}
+    constexpr explicit MultiOp(const TSymbols&... t) : terms(t...) { validate(); }
 
     constexpr void each_elem(auto& func)
     {
@@ -125,7 +124,6 @@ public:
     template<class BNFRules>
     constexpr auto bake(const BNFRules& rules) const
     {
-        validate();
         // Definition operator rules
         if constexpr (Operator == MultiOpType::Define) return do_bake_define(rules);
         else // Other operators
@@ -143,31 +141,44 @@ protected:
         auto res = exec_bake_rule(rules, last, std::get<depth>(terms));
         if constexpr (depth + 1 < sizeof...(TSymbols))
             return do_bake<depth + 1>(rules, res);
-        return res;
+        else return res;
     }
 
+    /**
+     * @brief Execute rules baking function
+     * @param symbols List of symbols which are passed to the baking function
+     */
     template<class BNFRules, class... TSymbolPack>
     constexpr auto exec_bake_rule(const BNFRules& rules, const TSymbolPack&... symbols) const
     {
+        if constexpr (Operator == MultiOpType::Concat) return rules.bake_concat(symbols.bake(rules)...);
+        if constexpr (Operator == MultiOpType::Alter) return rules.bake_alter(symbols.bake(rules)...);
         if constexpr (Operator == MultiOpType::Define) return rules.bake_define(symbols.bake(rules)...);
         if constexpr (Operator == MultiOpType::Optional) return rules.bake_optional(symbols.bake(rules)...);
         if constexpr (Operator == MultiOpType::Repeat) return rules.bake_repeat(symbols.bake(rules)...);
         if constexpr (Operator == MultiOpType::Group) return rules.bake_group(symbols.bake(rules)...);
         if constexpr (Operator == MultiOpType::Comment) return rules.bake_comment(symbols.bake(rules)...);
         if constexpr (Operator == MultiOpType::SpecialSeq) return rules.bake_special_seq(symbols.bake(rules)...);
+        if constexpr (Operator == MultiOpType::Root) return rules.bake_root_elem(symbols.bake(rules)...);
     }
 
+    /**
+     * @brief Sanity check for the passed arguments
+     */
     constexpr void validate() const
     {
         if constexpr (Operator == MultiOpType::Define)
         {
             static_assert(sizeof...(TSymbols) == 2 || sizeof...(TSymbols) == 3, "Definition should only take 2 or 3 operators");
-            static_assert(std::is_same_v<std::tuple_element<0, decltype(terms)>, NTerm<decltype(std::get<0>(terms).name)>>, "Definition must have a non-terminal on lhs");
+            static_assert(std::is_same_v<std::remove_cvref_t<decltype(std::get<0>(terms))>, NTerm<decltype(std::get<0>(terms).name)>>, "Definition must have a non-terminal on lhs");
             if constexpr (sizeof...(TSymbols) == 3)
-                static_assert(std::is_same_v<std::tuple_element<2, decltype(terms)>, EndOP>, "Definition might only have a termination operator at the end");
+                static_assert(std::is_same_v<std::remove_cvref_t<decltype(std::get<2>(terms))>, EndOP>, "Definition might only have a termination operator at the end");
         }
     }
 
+    /**
+     * @brief Bake definition operator
+     */
     template<class BNFRules>
     constexpr auto do_bake_define(const BNFRules& rules) const
     {
@@ -182,6 +193,19 @@ constexpr auto make_op(const TSymbolA& a, const TSymbolB& b) { return BinaryOP<o
 
 template<MultiOpType op, class... TSymbols>
 constexpr auto make_op(const TSymbols&... symbols) { return MultiOp<op, TSymbols...>(symbols...); }
+
+// Operators definition
+template<class TSymbolA, class TSymbolB> constexpr auto Except(const TSymbolA& a, const TSymbolB& b) { return BinaryOP<BinOpType::Except, TSymbolA, TSymbolB>(a, b); }
+
+template<class... TSymbols> constexpr auto Concat(const TSymbols&... symbols) { return MultiOp<MultiOpType::Concat, TSymbols...>(symbols...); }
+template<class... TSymbols> constexpr auto Alter(const TSymbols&... symbols) { return MultiOp<MultiOpType::Alter, TSymbols...>(symbols...); }
+template<class... TSymbols> constexpr auto Define(const TSymbols&... symbols) { return MultiOp<MultiOpType::Define, TSymbols...>(symbols...); }
+template<class... TSymbols> constexpr auto Optional(const TSymbols&... symbols) { return MultiOp<MultiOpType::Optional, TSymbols...>(symbols...); }
+template<class... TSymbols> constexpr auto Repeat(const TSymbols&... symbols) { return MultiOp<MultiOpType::Repeat, TSymbols...>(symbols...); }
+template<class... TSymbols> constexpr auto Group(const TSymbols&... symbols) { return MultiOp<MultiOpType::Group, TSymbols...>(symbols...); }
+template<class... TSymbols> constexpr auto Comment(const TSymbols&... symbols) { return MultiOp<MultiOpType::Comment, TSymbols...>(symbols...); }
+template<class... TSymbols> constexpr auto SpecialSeq(const TSymbols&... symbols) { return MultiOp<MultiOpType::SpecialSeq, TSymbols...>(symbols...); }
+template<class... TSymbols> constexpr auto Root(const TSymbols&... symbols) { return MultiOp<MultiOpType::Root, TSymbols...>(symbols...); }
 
 
 /**

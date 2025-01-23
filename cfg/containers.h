@@ -59,5 +59,8 @@ public:
     constexpr const ConstStr<SIZE>& bake(auto... args) const { return *this; } // Baking operation on a string always returns string
 };
 
+template<std::size_t SIZE>
+[[nodiscard]] constexpr auto cs(const char (&c)[SIZE]) { return ConstStr(c); }
+
 
 #endif //SUPERCFG_CONTAINERS_H

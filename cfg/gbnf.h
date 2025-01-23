@@ -18,10 +18,17 @@ public:
     constexpr auto bake_terminal(const CStr& term) const { return CStr::make("\"") + term + CStr::make("\""); }
 
     template<class CStrA, class CStrB>
-    constexpr auto bake_alter(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make("|") + rhs; }
+    constexpr auto bake_alter(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make(" | ") + rhs; }
+
+    template<class CStr>
+    constexpr auto bake_alter(const CStr& str) const { return str; }
+
 
     template<class CStrA, class CStrB>
     constexpr auto bake_concat(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make(", ") + rhs; }
+
+    template<class CStr>
+    constexpr auto bake_concat(const CStr& str) const { return str; }
 
     template<class CStrA, class CStrB>
     constexpr auto bake_except(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make(" - ") + rhs; }
@@ -35,7 +42,7 @@ public:
 
 
     template<class CStrA, class CStrB>
-    constexpr auto bake_define(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make(" := ") + rhs; }
+    constexpr auto bake_define(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make(" = ") + rhs; }
 
 
     template<class CStrA, class CStrB>
@@ -63,7 +70,15 @@ public:
     template<class CStr>
     constexpr auto bake_special_seq(const CStr& str) const { return CStr::make("? ") + str + CStr::make(" ?") ; }
 
-    [[nodiscard]] constexpr auto bake_end() const { return ConstStr(";"); }
+
+    [[nodiscard]] constexpr auto bake_end() const { return ConstStr(" ;"); }
+
+
+    template<class CStrA, class CStrB>
+    constexpr auto bake_root_elem(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make("\n") + rhs; }
+
+    template<class CStr>
+    constexpr auto bake_root_elem(const CStr& str) const { return str; }
 };
 
 
