@@ -73,36 +73,34 @@ public:
         if constexpr (Operator == BinOpType::Concat) return rules.bake_concat(left.bake(rules), right.bake(rules));
         if constexpr (Operator == BinOpType::Alter) return rules.bake_alter(left.bake(rules), right.bake(rules));
         if constexpr (Operator == BinOpType::Except) return rules.bake_except(left.bake(rules), right.bake(rules));
-        /*switch (Operator)
-        {
-            case BinOpType::Concat:
-                return rules.bake_concat(left.bake(rules), right.bake(rules));
-            case BinOpType::Alter:
-                return rules.bake_alter(left.bake(rules), right.bake(rules));
-            case BinOpType::Except:
-                return rules.bake_except(left.bake(rules), right.bake(rules));
-        }*/
     }
 };
 
 
-/*template<class TSymbolA, class TSymbolB>   using Concat = BinaryOP<BinOpType::Concat, TSymbolA, TSymbolB>;
-template<class TSymbolA, class TSymbolB>   using Alter  = BinaryOP<BinOpType::Alter, TSymbolA, TSymbolB>;
-template<class TSymbolA, class TSymbolB>   using Except = BinaryOP<BinOpType::Except, TSymbolA, TSymbolB>;*/
+/**
+ * @brief Base ending (termination) operator
+ */
+class EndOP
+{
+public:
+    template<class BNFRules>
+    constexpr auto bake(const BNFRules& rules) { return rules.bake_end(); }
+};
+
 
 /**
  * @brief Enum containing ebnf multi-operand operations
  */
 enum MultiOpType
 {
+    Define,
     Optional,
     Repeat,
     Group,
+    Comment,
     SpecialSeq
 };
 
-template<class Operator>
-struct TypeWrapper { Operator type; };
 
 /**
  * @brief Base operator with multiple args
@@ -127,7 +125,15 @@ public:
     template<class BNFRules>
     constexpr auto bake(const BNFRules& rules) const
     {
-        return exec_bake_rule(rules, do_bake<1>(rules, std::get<0>(terms)));
+        validate();
+        // Definition operator rules
+        if constexpr (Operator == MultiOpType::Define) return do_bake_define(rules);
+        else // Other operators
+        {
+            if constexpr (sizeof...(TSymbols) == 1) // Singular symbol check
+                return exec_bake_rule(rules, std::get<0>(terms));
+            else return exec_bake_rule(rules, do_bake<1>(rules, std::get<0>(terms)));
+        }
     }
 
 protected:
@@ -143,21 +149,30 @@ protected:
     template<class BNFRules, class... TSymbolPack>
     constexpr auto exec_bake_rule(const BNFRules& rules, const TSymbolPack&... symbols) const
     {
+        if constexpr (Operator == MultiOpType::Define) return rules.bake_define(symbols.bake(rules)...);
         if constexpr (Operator == MultiOpType::Optional) return rules.bake_optional(symbols.bake(rules)...);
         if constexpr (Operator == MultiOpType::Repeat) return rules.bake_repeat(symbols.bake(rules)...);
         if constexpr (Operator == MultiOpType::Group) return rules.bake_group(symbols.bake(rules)...);
+        if constexpr (Operator == MultiOpType::Comment) return rules.bake_comment(symbols.bake(rules)...);
         if constexpr (Operator == MultiOpType::SpecialSeq) return rules.bake_special_seq(symbols.bake(rules)...);
-        /*switch (Operator)
+    }
+
+    constexpr void validate() const
+    {
+        if constexpr (Operator == MultiOpType::Define)
         {
-            case MultiOpType::Optional:
-                return rules.bake_optional(rules.bake(symbols)...);
-            case MultiOpType::Repeat:
-                return rules.bake_repeat(rules.bake(symbols)...);
-            case MultiOpType::Group:
-                return rules.bake_group(rules.bake(symbols)...);
-            case MultiOpType::SpecialSeq:
-                return rules.bake_special_seq(rules.bake(symbols)...);
-        }*/
+            static_assert(sizeof...(TSymbols) == 2 || sizeof...(TSymbols) == 3, "Definition should only take 2 or 3 operators");
+            static_assert(std::is_same_v<std::tuple_element<0, decltype(terms)>, NTerm<decltype(std::get<0>(terms).name)>>, "Definition must have a non-terminal on lhs");
+            if constexpr (sizeof...(TSymbols) == 3)
+                static_assert(std::is_same_v<std::tuple_element<2, decltype(terms)>, EndOP>, "Definition might only have a termination operator at the end");
+        }
+    }
+
+    template<class BNFRules>
+    constexpr auto do_bake_define(const BNFRules& rules) const
+    {
+        EndOP end;
+        return exec_bake_rule(rules, std::get<0>(terms), std::get<1>(terms)) + end.bake(rules);
     }
 };
 
@@ -168,21 +183,6 @@ constexpr auto make_op(const TSymbolA& a, const TSymbolB& b) { return BinaryOP<o
 template<MultiOpType op, class... TSymbols>
 constexpr auto make_op(const TSymbols&... symbols) { return MultiOp<op, TSymbols...>(symbols...); }
 
-
-/*template<class... TSymbols>   using Optional   = MultiOp<MultiOpType::Optional, TSymbols...>;
-template<class... TSymbols>   using Repeat     = MultiOp<MultiOpType::Repeat, TSymbols...>;
-template<class... TSymbols>   using Group      = MultiOp<MultiOpType::Group, TSymbols...>;
-template<class... TSymbols>   using SpecialSeq = MultiOp<MultiOpType::SpecialSeq, TSymbols...>;*/
-
- /**
-  * @brief Base ending (termination) operator
-  */
-/*class BaseEndOP
-{
-public:
-    template<class BNFRules>
-    constexpr auto bake(const BNFRules& rules) { return rules.bake_end(); }
-};*/
 
 /**
  * @brief Base operator with multiple args, fixed-size implementation

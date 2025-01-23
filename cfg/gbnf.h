@@ -35,6 +35,10 @@ public:
 
 
     template<class CStrA, class CStrB>
+    constexpr auto bake_define(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make(" := ") + rhs; }
+
+
+    template<class CStrA, class CStrB>
     constexpr auto bake_optional(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make(" ") + rhs; }
 
     template<class CStr>
@@ -47,12 +51,19 @@ public:
     template<class CStr>
     constexpr auto bake_group(const CStr& str) const { return CStr::make("( ") + str + CStr::make(" )") ; }
 
+    template<class CStrA, class CStrB>
+    constexpr auto bake_comment(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make(" ") + rhs; }
+
+    template<class CStr>
+    constexpr auto bake_comment(const CStr& str) const { return CStr::make("(* ") + str + CStr::make(" *)") ; }
 
     template<class CStrA, class CStrB>
     constexpr auto bake_special_seq(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make(" ") + rhs; }
 
     template<class CStr>
     constexpr auto bake_special_seq(const CStr& str) const { return CStr::make("? ") + str + CStr::make(" ?") ; }
+
+    [[nodiscard]] constexpr auto bake_end() const { return ConstStr(";"); }
 };
 
 
