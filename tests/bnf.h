@@ -43,7 +43,7 @@ bool test_gbnf_complex1()
     constexpr auto term5 = Term(cs("!"));
 
     constexpr auto res = Optional(
-        Concat(Group(Repeat(term1, term5), term2), term3), term4
+        Concat(Group(Repeat(Except(term1, term5)), term2), term3), term4
     ).bake(rules);
 
     std::cout << res.c_str() << std::endl;
