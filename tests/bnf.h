@@ -63,10 +63,26 @@ bool test_gbnf_complex1()
     return true;
 }
 
+bool test_gbnf_extended()
+{
+    std::cout << "test_gbnf_extended()" << std::endl;
+
+    constexpr EBNFRules rules;
+    constexpr ExtEBNFRules rules_ext;
+    constexpr auto ex1 = RepeatExact<5>(Term(cs("abc"))).bake(rules);
+    constexpr auto ex1e = RepeatExact<5>(Term(cs("abc"))).bake(rules_ext);
+    std::cout << ex1.c_str() << std::endl << ex1e.c_str() << std::endl;
+
+    constexpr auto ex2 = RepeatGE<4>(Term(cs("abcd"))).bake(rules);
+    constexpr auto ex2e = RepeatGE<4>(Term(cs("abcd"))).bake(rules_ext);
+    std::cout << ex2.c_str() << std::endl << ex2e.c_str() << std::endl;
+    return true;
+}
+
 
 bool test_gbnf()
 {
-    return test_gbnf_basic() && test_gbnf_complex1();
+    return test_gbnf_basic() && test_gbnf_complex1() && test_gbnf_extended();
 }
 
 #endif //SUPERCFG_BNF_H

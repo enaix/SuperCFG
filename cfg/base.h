@@ -49,11 +49,12 @@ public:
 };
 
 
-/**
- * @brief Enum containing ebnf multi-operand operations
- */
+ /**
+  * @brief Enum containing ebnf multi-operand operations
+  */
 enum class OpType
 {
+    // Basic operators (EBNF)
     Concat,
     Alter,
     Define,
@@ -64,7 +65,12 @@ enum class OpType
     SpecialSeq,
     Except,
     End,
-    Root
+    Root, // Base element
+
+    // Extended operators
+    RepeatExact, // Repeat exactly M times
+    RepeatGE, // Repeat greater or equal than times
+    RepeatRange // Repeat from M to N times
 };
 
  /**
@@ -77,11 +83,11 @@ template<OpType T> struct op_type_t
 };
 
 
-/**
- * @brief Base operator class
- * @tparam OpType Operator type
- * @tparam TSymbols Symbols contained in the operator
- */
+ /**
+  * @brief Base operator class
+  * @tparam Operator Operator enum type
+  * @tparam TSymbols Symbols contained in the operator
+  */
 template<OpType Operator, class... TSymbols>
 class BaseOp
 {
@@ -90,8 +96,12 @@ public:
 
     constexpr explicit BaseOp(const TSymbols&... t) : terms(t...) { validate(); }
 
+    constexpr explicit BaseOp(auto validator, const TSymbols&... t) : terms(t...) { validator(); }
+
     using is_operator = std::true_type;
     using get_operator = op_type_t<Operator>;
+
+    static constexpr std::size_t size() { return sizeof...(TSymbols); }
 
     template<class BNFRules>
     constexpr auto bake(const BNFRules& rules) const
@@ -106,6 +116,16 @@ public:
                 return exec_bake_rule(rules, std::get<0>(terms));
             else return exec_bake_rule(rules, do_bake<1>(rules, std::get<0>(terms)));
         }
+    }
+
+    /**
+     * @brief Flatten operators A(A(...A(B))) to A(B, A(B, A(B,...))). Stops if A(B,C,...) is encountered or an operator is different
+     */
+    constexpr auto flatten() const
+    {
+        static_assert(Operator == OpType::Concat || Operator == OpType::Alter, "Operation does not support flatten()");
+        static_assert(sizeof...(TSymbols) == 1, "Cannot flatten operator of more than 1 symbol");
+        return do_flatten(*this);
     }
 
 protected:
@@ -136,13 +156,17 @@ protected:
         if constexpr (Operator == OpType::Except) return rules.bake_except(symbols.bake(rules)...);
         if constexpr (Operator == OpType::End) return rules.bake_end();
         if constexpr (Operator == OpType::Root) return rules.bake_root_elem(symbols.bake(rules)...);
+        if constexpr (Operator == OpType::RepeatExact) return rules.bake_repeat_exact(symbols.bake(rules)...);
+        if constexpr (Operator == OpType::RepeatGE) return rules.bake_repeat_ge(symbols.bake(rules)...);
+        if constexpr (Operator == OpType::RepeatRange) return rules.bake_repeat_range(symbols.bake(rules)...);
     }
 
     /**
-     * @brief Sanity check for the passed arguments
+     * @brief Sanity check for the passed arguments for the base class
      */
     constexpr void validate() const
     {
+        static_assert(int(Operator) <= int(OpType::Root), "Invalid operator type for class BaseOP");
         if constexpr (Operator == OpType::Define)
         {
             static_assert(sizeof...(TSymbols) == 2 || sizeof...(TSymbols) == 3, "Definition should only take 2 or 3 operators");
@@ -190,10 +214,26 @@ protected:
     {
         return exec_bake_rule(rules, std::get<0>(terms), std::get<1>(terms));
     }
+
+    template<class TSymbol>
+    constexpr auto do_flatten(const TSymbol& symbol) const
+    {
+        // Check if the value is not an operator, the operator is different or it has >1 element
+        if constexpr (!std::remove_cvref_t<TSymbol>::is_operator::value) return symbol;
+        else if constexpr (std::remove_cvref_t<TSymbol>::get_operator::value != Operator
+                                            || std::remove_cvref_t<TSymbol>::size() != 1) return symbol;
+        else
+        {
+            auto res = do_flatten(std::get<0>(symbol.terms));
+            return BaseOp<Operator, std::remove_cvref_t<TSymbol>, decltype(res)>(symbol, res);
+        }
+    }
 };
 
 
-// Operators definition
+// Basic operators definition
+// ==========================
+
 template<class... TSymbols> constexpr auto Concat(const TSymbols&... symbols) { return BaseOp<OpType::Concat, TSymbols...>(symbols...); }
 template<class... TSymbols> constexpr auto Alter(const TSymbols&... symbols) { return BaseOp<OpType::Alter, TSymbols...>(symbols...); }
 template<class... TSymbols> constexpr auto Define(const TSymbols&... symbols) { return BaseOp<OpType::Define, TSymbols...>(symbols...); }
@@ -205,6 +245,71 @@ template<class... TSymbols> constexpr auto SpecialSeq(const TSymbols&... symbols
 template<class... TSymbols> constexpr auto Except(const TSymbols&... symbols) { return BaseOp<OpType::Except, TSymbols...>(symbols...); }
 template<class... TSymbols> constexpr auto End(const TSymbols&... symbols) { return BaseOp<OpType::End, TSymbols...>(symbols...); }
 template<class... TSymbols> constexpr auto Root(const TSymbols&... symbols) { return BaseOp<OpType::Root, TSymbols...>(symbols...); }
+
+
+ /**
+  * @brief Base extended operator class for RepeatExact and RepeatGT
+  * @tparam Operator Operator enum type
+  * @tparam Times How many times to repeat (M)
+  * @tparam TSymbols Symbols contained in the operator
+  */
+template<OpType Operator, std::size_t Times, class... TSymbols>
+class BaseExtRepeat : public BaseOp<Operator, TSymbols...>
+{
+public:
+    using typename BaseOp<Operator, TSymbols...>::is_operator;
+    using typename BaseOp<Operator, TSymbols...>::get_operator;
+    constexpr explicit BaseExtRepeat(const TSymbols&... t) : BaseOp<Operator, TSymbols...>([&](){ this->validate(); }, t...) { }
+
+    template<class BNFRules>
+    constexpr auto bake(const BNFRules& rules) const
+    {
+        auto symbol = to_bnf_flavor(rules);
+        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(symbol)>, std::remove_cvref_t<decltype(*this)>>)
+            return this->exec_bake_rule(rules, std::get<0>(this->terms));
+        else return symbol.bake(rules);
+    }
+
+protected:
+     /**
+      * @brief Cast extended repeat operator to compatible bnf operators
+      */
+    template<class BNFRules>
+    constexpr auto to_bnf_flavor(const BNFRules& rules) const
+    {
+        if constexpr (Operator == OpType::RepeatExact)
+        {
+            if constexpr (BNFRules::feature_repeat_exact()) return *this;
+            else return unwrap_repeat_exact<Times>(rules).flatten();
+        }
+        if constexpr (Operator == OpType::RepeatGE)
+        {
+            if constexpr (BNFRules::feature_repeat_ge()) return *this;
+            else return Concat(unwrap_repeat_exact<Times>(rules).flatten(), Repeat(std::get<0>(this->terms)));
+        }
+    }
+
+    template<std::size_t repeat, class BNFRules>
+    constexpr auto unwrap_repeat_exact(const BNFRules& rules) const
+    {
+        if constexpr (repeat == 1) return std::get<0>(this->terms);
+        else return Concat(unwrap_repeat_exact<repeat - 1>(rules));
+    }
+
+    constexpr void validate() const
+    {
+        static_assert(int(Operator) >= int(OpType::RepeatExact) && int(Operator) <= int(OpType::RepeatGE), "Invalid operator type for class BaseExtRepeat");
+        static_assert(sizeof...(TSymbols) == 1, "Extended repeat may only take singular symbol");
+        static_assert(Times >= 1, "Invalid number of repeat times");
+    }
+};
+
+
+// Extended operators definition
+// =============================
+
+template<std::size_t M, class... TSymbols> constexpr auto RepeatExact(const TSymbols&... symbols) { return BaseExtRepeat<OpType::RepeatExact, M, TSymbols...>(symbols...); }
+template<std::size_t M, class... TSymbols> constexpr auto RepeatGE(const TSymbols&... symbols) { return BaseExtRepeat<OpType::RepeatGE, M, TSymbols...>(symbols...); }
 
 
 #endif //SUPERCFG_BASE_H

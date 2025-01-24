@@ -11,6 +11,15 @@
 class EBNFRules
 {
 public:
+    // Rules options
+    // =============
+    [[nodiscard]] constexpr static bool feature_repeat_exact() { return false; }
+    [[nodiscard]] constexpr static bool feature_repeat_ge() { return false; }
+    [[nodiscard]] constexpr static bool feature_repeat_range() { return false; }
+
+    // Baking functions
+    // ================
+
     template<class CStr>
     constexpr auto bake_nonterminal(const CStr& term) const { return term; }
 
@@ -81,6 +90,22 @@ public:
     constexpr auto bake_root_elem(const CStr& str) const { return str; }
 };
 
+
+class ExtEBNFRules : public EBNFRules
+{
+public:
+    // Rules options
+    // =============
+    [[nodiscard]] constexpr static bool feature_repeat_exact() { return true; }
+    [[nodiscard]] constexpr static bool feature_repeat_ge() { return true; }
+    [[nodiscard]] constexpr static bool feature_repeat_range() { return true; }
+
+    template<class CStr>
+    constexpr auto bake_repeat_exact(const CStr& str) const { return str + CStr::make("{m}") ; }
+
+    template<class CStr>
+    constexpr auto bake_repeat_ge(const CStr& str) const { return str + CStr::make("{m,}") ; }
+};
 
 
 #endif //SUPERCFG_GBNF_H
