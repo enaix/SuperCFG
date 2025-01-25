@@ -88,13 +88,14 @@ template<std::size_t SIZE>
 template<std::size_t N>
 constexpr auto itoc()
 {
-    char s[digits<N>() + 1]; // store N digits + '\0'
-    for (std::size_t d = 1, i = 0; d <= N; d *= 10, i++)
+    constexpr std::size_t D = digits<N>();
+    char s[D + 1]; // store N digits + '\0'
+    for (std::size_t d = 1, i = 0; i < D; d *= 10, i++)
     {
         auto digit = (std::int8_t)(N % (d * 10) / d);
         s[i] = digit + '0';
     }
-    s[digits<N>()] = '\0';
+    s[D] = '\0';
     return ConstStr(s);
 }
 

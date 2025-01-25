@@ -27,6 +27,8 @@ public:
 
     template<class BNFRules>
     constexpr auto bake(const BNFRules& rules) const { return rules.bake_nonterminal(this->name); }
+
+    constexpr auto flatten() const { return *this; } // flatten() operation on a term always returns term
 };
 
  /**
@@ -46,6 +48,8 @@ public:
 
     template<class BNFRules>
     constexpr auto bake(const BNFRules& rules) const { return rules.bake_terminal(this->name); }
+
+    constexpr auto flatten() const { return *this; } // flatten() operation on a term always returns term
 };
 
 
@@ -58,8 +62,8 @@ enum class OpType
     Concat,
     Alter,
     Define,
-    Optional,
-    Repeat,
+    Optional, // 0 or 1 times
+    Repeat, // 0 or inf times
     Group,
     Comment,
     SpecialSeq,
@@ -261,6 +265,8 @@ public:
     using typename BaseOp<Operator, TSymbols...>::get_operator;
     constexpr explicit BaseExtRepeat(const TSymbols&... t) : BaseOp<Operator, TSymbols...>([&](){ this->validate(); }, t...) { }
 
+    constexpr explicit BaseExtRepeat(auto validator, const TSymbols&... t) : BaseOp<Operator, TSymbols...>(validator, t...) { }
+
     template<class BNFRules>
     constexpr auto bake(const BNFRules& rules) const
     {
@@ -280,21 +286,37 @@ protected:
         if constexpr (Operator == OpType::RepeatExact)
         {
             if constexpr (BNFRules::feature_repeat_exact()) return *this;
-            else return unwrap_repeat_exact<Times>(rules).flatten();
+            else return unwrap_repeat_exact<Times>(rules, std::get<0>(this->terms)).flatten();
         }
         if constexpr (Operator == OpType::RepeatGE)
         {
             if constexpr (BNFRules::feature_repeat_ge()) return *this;
-            else return Concat(unwrap_repeat_exact<Times>(rules).flatten(), Repeat(std::get<0>(this->terms)));
+            else return Concat(unwrap_repeat_exact<Times>(rules, std::get<0>(this->terms)).flatten(), Repeat(std::get<0>(this->terms)));
+
+//            else return unwrap_repeat_exact<Times>(rules, Repeat(std::get<0>(this->terms))).flatten();
         }
     }
 
-    template<std::size_t repeat, class BNFRules>
-    constexpr auto unwrap_repeat_exact(const BNFRules& rules) const
+    template<std::size_t repeat, class BNFRules, class TSymbol>
+    constexpr auto unwrap_repeat_exact(const BNFRules& rules, const TSymbol& symbol) const
     {
-        if constexpr (repeat == 1) return std::get<0>(this->terms);
-        else return Concat(unwrap_repeat_exact<repeat - 1>(rules));
+        if constexpr (repeat == 1) return symbol;
+        else return Concat(unwrap_repeat_exact<repeat - 1>(rules, symbol));
     }
+
+    template<class integral_const, class BNFRules, class TSymbol>
+    constexpr auto unwrap_repeat_exact(const integral_const& repeat, const BNFRules& rules, const TSymbol& symbol) const { return unwrap_repeat_exact<integral_const::value>(rules, symbol); }
+
+
+    template<std::size_t repeat, class BNFRules, class TSymbol>
+    constexpr auto unwrap_repeat_le(const BNFRules& rules, const TSymbol& symbol) const
+    {
+        if constexpr (repeat == 1) return Optional(symbol);
+        else return Optional(Concat(symbol, unwrap_repeat_le<repeat - 1>(rules, symbol)));
+    }
+
+    template<class integral_const, class BNFRules, class TSymbol>
+    constexpr auto unwrap_repeat_le(const integral_const& repeat, const BNFRules& rules, const TSymbol& symbol) const { return unwrap_repeat_le<integral_const::value>(rules, symbol); }
 
     constexpr void validate() const
     {
@@ -305,11 +327,63 @@ protected:
 };
 
 
+ /**
+  * @brief Base extended operator class for RepeatRange
+  * @tparam Operator Operator enum type
+  * @tparam From Range start (incl)
+  * @tparam To Range end (incl)
+  * @tparam TSymbols Symbols contained in the operator
+  */
+template<OpType Operator, std::size_t From, std::size_t To, class... TSymbols>
+class BaseExtRepeatRange : public BaseExtRepeat<Operator, From, TSymbols...>
+{
+public:
+    using typename BaseOp<Operator, TSymbols...>::is_operator;
+    using typename BaseOp<Operator, TSymbols...>::get_operator;
+protected:
+    using BaseExtRepeat<Operator, From, TSymbols...>::unwrap_repeat_exact;
+    using BaseExtRepeat<Operator, From, TSymbols...>::unwrap_repeat_le;
+
+public:
+    constexpr explicit BaseExtRepeatRange(const TSymbols&... t) : BaseExtRepeat<Operator, From, TSymbols...>([&](){ validate(); }, t...) { }
+
+    template<class BNFRules>
+    constexpr auto bake(const BNFRules& rules) const
+    {
+        auto symbol = to_bnf_flavor(rules);
+        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(symbol)>, std::remove_cvref_t<decltype(*this)>>)
+            return this->exec_bake_rule(rules, IntegralWrapper<From>(), IntegralWrapper<To>(), std::get<0>(this->terms));
+        else return symbol.bake(rules);
+    }
+
+protected:
+    template<class BNFRules>
+    constexpr auto to_bnf_flavor(const BNFRules& rules) const
+    {
+        if constexpr (Operator == OpType::RepeatRange)
+        {
+            if constexpr (BNFRules::feature_repeat_range()) return *this;
+            else if constexpr (From == 0) return unwrap_repeat_le(IntegralWrapper<To>(), rules, std::get<0>(this->terms));
+            else return Concat(unwrap_repeat_exact(IntegralWrapper<From>(), rules, std::get<0>(this->terms)).flatten(),
+                               unwrap_repeat_le(IntegralWrapper<To - From>(), rules, std::get<0>(this->terms)));
+        }
+    }
+
+    constexpr void validate() const
+    {
+        static_assert(Operator == OpType::RepeatRange, "Invalid operator type for class BaseExtRepeatRange");
+        static_assert(sizeof...(TSymbols) == 1, "Extended repeat may only take singular symbol");
+        static_assert(From >= 0 && From < To, "Invalid repeat range");
+    }
+};
+
+
 // Extended operators definition
 // =============================
 
 template<std::size_t M, class... TSymbols> constexpr auto RepeatExact(const TSymbols&... symbols) { return BaseExtRepeat<OpType::RepeatExact, M, TSymbols...>(symbols...); }
 template<std::size_t M, class... TSymbols> constexpr auto RepeatGE(const TSymbols&... symbols) { return BaseExtRepeat<OpType::RepeatGE, M, TSymbols...>(symbols...); }
+template<std::size_t M, std::size_t N, class... TSymbols> constexpr auto RepeatRange(const TSymbols&... symbols) { return BaseExtRepeatRange<OpType::RepeatRange, M, N, TSymbols...>(symbols...); }
 
 
 #endif //SUPERCFG_BASE_H

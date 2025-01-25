@@ -101,10 +101,13 @@ public:
     [[nodiscard]] constexpr static bool feature_repeat_range() { return true; }
 
     template<class CStrInt, class CStr>
-    constexpr auto bake_repeat_exact(const CStrInt& m, const CStr& str) const { return str + CStr::make("{") + m + CStr::make("}") ; }
+    constexpr auto bake_repeat_exact(const CStrInt& m, const CStr& str) const { return str + CStr::make("{") + m + CStr::make("}"); }
 
     template<class CStrInt, class CStr>
-    constexpr auto bake_repeat_ge(const CStrInt& m, const CStr& str) const { return str + CStr::make("{") + m + CStr::make(",}") ; }
+    constexpr auto bake_repeat_ge(const CStrInt& m, const CStr& str) const { return str + CStr::make("{") + m + CStr::make(",}"); }
+
+    template<class CStrIntA, class CStrIntB, class CStr>
+    constexpr auto bake_repeat_range(const CStrIntA& m, const CStrIntB& n, const CStr& str) const { return str + CStr::make("{") + m + CStr::make(",") + n + CStr::make("}"); }
 };
 
 

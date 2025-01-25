@@ -76,6 +76,17 @@ bool test_gbnf_extended()
     constexpr auto ex2 = RepeatGE<4>(Term(cs("abcd"))).bake(rules);
     constexpr auto ex2e = RepeatGE<4>(Term(cs("abcd"))).bake(rules_ext);
     std::cout << ex2.c_str() << std::endl << ex2e.c_str() << std::endl;
+
+    constexpr auto ex_r1 = RepeatRange<2, 5>(Term(cs("a")));
+    constexpr auto ex_r1a = ex_r1.bake(rules);
+    constexpr auto ex_r1b = ex_r1.bake(rules_ext);
+    std::cout << ex_r1a.c_str() << std::endl << ex_r1b.c_str() << std::endl;
+
+    constexpr auto ex_r2 = RepeatRange<0, 7>(Term(cs("42")));
+    constexpr auto ex_r2a = ex_r2.bake(rules);
+    constexpr auto ex_r2b = ex_r2.bake(rules_ext);
+    std::cout << ex_r2a.c_str() << std::endl << ex_r2b.c_str() << std::endl;
+
     return true;
 }
 
