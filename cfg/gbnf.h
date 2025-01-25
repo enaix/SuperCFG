@@ -100,11 +100,11 @@ public:
     [[nodiscard]] constexpr static bool feature_repeat_ge() { return true; }
     [[nodiscard]] constexpr static bool feature_repeat_range() { return true; }
 
-    template<class CStr>
-    constexpr auto bake_repeat_exact(const CStr& str) const { return str + CStr::make("{m}") ; }
+    template<class CStrInt, class CStr>
+    constexpr auto bake_repeat_exact(const CStrInt& m, const CStr& str) const { return str + CStr::make("{") + m + CStr::make("}") ; }
 
-    template<class CStr>
-    constexpr auto bake_repeat_ge(const CStr& str) const { return str + CStr::make("{m,}") ; }
+    template<class CStrInt, class CStr>
+    constexpr auto bake_repeat_ge(const CStrInt& m, const CStr& str) const { return str + CStr::make("{") + m + CStr::make(",}") ; }
 };
 
 

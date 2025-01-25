@@ -20,7 +20,24 @@ constexpr bool equal(const char (&lhs)[N], const char (&rhs)[N])
 
 // constexpr std::size_t get_full_chunks(std::size_t chunk_bytes, std::size_t N) { return (N / chunk_bytes) + int(N % chunk_bytes != 0); }
 
+constexpr std::size_t digits(std::size_t N)
+{
+    if (N / 10 == 0) return 1;
+    else return 1 + digits(N / 10);
+}
 
+template<std::size_t N>
+constexpr std::size_t digits()
+{
+    if (N / 10 == 0) return 1;
+    else return 1 + digits<N / 10>();
+}
+
+
+ /**
+  * @brief Constexpr string class. Not advised to use in runtime
+  * @tparam SIZE Deduced string length, including '\0'
+  */
 template<std::size_t SIZE>
 class ConstStr
 {
@@ -31,6 +48,8 @@ public:
 
     constexpr explicit ConstStr(const char (&c)[SIZE]) { std::copy_n(c, SIZE, str); }
     // https://ctrpeach.io/posts/cpp20-string-literal-template-parameters/
+
+    // constexpr explicit ConstStr(std::size_t num) : str(itoc(num)) {}
 
     template<std::size_t N>
     static constexpr auto make(const char (&c)[N]) { return ConstStr<N>(c); } // Convenient wrapper for CStr constructor
@@ -61,6 +80,41 @@ public:
 
 template<std::size_t SIZE>
 [[nodiscard]] constexpr auto cs(const char (&c)[SIZE]) { return ConstStr(c); }
+
+ /**
+  * @brief Int to ConstStr (itoa)
+  * @tparam N Num to convert
+  */
+template<std::size_t N>
+constexpr auto itoc()
+{
+    char s[digits<N>() + 1]; // store N digits + '\0'
+    for (std::size_t d = 1, i = 0; d <= N; d *= 10, i++)
+    {
+        auto digit = (std::int8_t)(N % (d * 10) / d);
+        s[i] = digit + '0';
+    }
+    s[digits<N>()] = '\0';
+    return ConstStr(s);
+}
+
+ /**
+  * @brief std::integral_constant to ConstStr
+  */
+template<class integral_const>
+[[nodiscard]] constexpr auto int2str(const integral_const NUM) { return itoc<integral_const::value>(); }
+
+
+ /**
+  * integral_constant<size_t, ...> wrapper which converts N to ConstStr
+  * @tparam N
+  */
+template<std::size_t N>
+class IntegralWrapper : public std::integral_constant<size_t, N>
+{
+public:
+    constexpr auto bake(auto... args) const { return int2str(*this); }
+};
 
 
 #endif //SUPERCFG_CONTAINERS_H

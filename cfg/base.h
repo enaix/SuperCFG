@@ -266,7 +266,7 @@ public:
     {
         auto symbol = to_bnf_flavor(rules);
         if constexpr (std::is_same_v<std::remove_cvref_t<decltype(symbol)>, std::remove_cvref_t<decltype(*this)>>)
-            return this->exec_bake_rule(rules, std::get<0>(this->terms));
+            return this->exec_bake_rule(rules, IntegralWrapper<Times>(), std::get<0>(this->terms));
         else return symbol.bake(rules);
     }
 
