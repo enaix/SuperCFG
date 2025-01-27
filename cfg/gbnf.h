@@ -84,10 +84,10 @@ public:
 
 
     template<class CStrA, class CStrB>
-    constexpr auto bake_root_elem(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make("\n") + rhs; }
+    constexpr auto bake_rules_def(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make("\n") + rhs; }
 
     template<class CStr>
-    constexpr auto bake_root_elem(const CStr& str) const { return str; }
+    constexpr auto bake_rules_def(const CStr& str) const { return str; }
 };
 
 

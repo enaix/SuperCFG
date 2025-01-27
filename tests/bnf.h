@@ -52,7 +52,7 @@ bool test_gbnf_complex1()
     constexpr auto d_nozero = Define(nozero, Alter(Term(cs("1")), Term(cs("2")), Term(cs("3")), Term(cs("4")), Term(cs("5")),
                                              Term(cs("6")), Term(cs("7")), Term(cs("8")), Term(cs("9"))));
     constexpr auto d_digit = Define(NTerm(cs("digit")), Alter(Term(cs("0")), nozero));
-    constexpr auto root = Root(d_nozero, d_digit).bake(rules);
+    constexpr auto root = RulesDef(d_nozero, d_digit).bake(rules);
 
     constexpr char digit_check[] = "digit excluding zero = \"1\" | \"2\" | \"3\" | \"4\" | \"5\" | \"6\" | \"7\" | \"8\" | \"9\" ;\n"
                                    "digit = \"0\" | digit excluding zero ;";

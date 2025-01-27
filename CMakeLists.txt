@@ -12,4 +12,6 @@ add_executable(SuperCFG tests/main.cpp ${SUPERCFG_FILES}
         cfg/gbnf.cpp
         cfg/gbnf.h
         cfg/containers.h
-        tests/bnf.h)
+        tests/bnf.h
+        cfg/tokenizer.cpp
+        cfg/tokenizer.h)

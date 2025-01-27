@@ -69,7 +69,7 @@ enum class OpType
     SpecialSeq,
     Except,
     End,
-    Root, // Base element
+    RulesDef, // Base element
 
     // Extended operators
     RepeatExact, // Repeat exactly M times
@@ -85,6 +85,32 @@ template<OpType T> struct op_type_t
     static constexpr OpType value = T;
     constexpr auto operator()() const { return value; }
 };
+
+template<class TSymbol>
+constexpr inline bool is_operator(const TSymbol& s)
+{
+    return TSymbol::is_operator::value;
+}
+
+template<class TSymbol>
+constexpr inline OpType get_operator(const TSymbol& s)
+{
+    return TSymbol::get_operator::value;
+}
+
+template<class TSymbol>
+constexpr inline bool is_term(const TSymbol& s)
+{
+    if constexpr (is_operator(s)) return false;
+    else return std::is_same_v<std::remove_cvref_t<decltype(s)>, Term<decltype(s.name)>>;
+}
+
+template<class TSymbol>
+constexpr inline bool is_nterm(const TSymbol& s)
+{
+    if constexpr (is_operator(s)) return false;
+    else return std::is_same_v<std::remove_cvref_t<decltype(s)>, NTerm<decltype(s.name)>>;
+}
 
 
  /**
@@ -105,7 +131,12 @@ public:
     using is_operator = std::true_type;
     using get_operator = op_type_t<Operator>;
 
-    static constexpr std::size_t size() { return sizeof...(TSymbols); }
+    [[nodiscard]] static constexpr std::size_t size() { return sizeof...(TSymbols); }
+
+    template<class integral_const>
+    [[nodiscard]] constexpr const auto operator[] (const integral_const N) const { return std::get<integral_const::value>(terms); }
+
+    constexpr void each(auto func) const { each_symbol<0>(func); }
 
     template<class BNFRules>
     constexpr auto bake(const BNFRules& rules) const
@@ -159,7 +190,7 @@ protected:
         if constexpr (Operator == OpType::SpecialSeq) return rules.bake_special_seq(symbols.bake(rules)...);
         if constexpr (Operator == OpType::Except) return rules.bake_except(symbols.bake(rules)...);
         if constexpr (Operator == OpType::End) return rules.bake_end();
-        if constexpr (Operator == OpType::Root) return rules.bake_root_elem(symbols.bake(rules)...);
+        if constexpr (Operator == OpType::RulesDef) return rules.bake_rules_def(symbols.bake(rules)...);
         if constexpr (Operator == OpType::RepeatExact) return rules.bake_repeat_exact(symbols.bake(rules)...);
         if constexpr (Operator == OpType::RepeatGE) return rules.bake_repeat_ge(symbols.bake(rules)...);
         if constexpr (Operator == OpType::RepeatRange) return rules.bake_repeat_range(symbols.bake(rules)...);
@@ -170,7 +201,7 @@ protected:
      */
     constexpr void validate() const
     {
-        static_assert(int(Operator) <= int(OpType::Root), "Invalid operator type for class BaseOP");
+        static_assert(int(Operator) <= int(OpType::RulesDef), "Invalid operator type for class BaseOP");
         if constexpr (Operator == OpType::Define)
         {
             static_assert(sizeof...(TSymbols) == 2 || sizeof...(TSymbols) == 3, "Definition should only take 2 or 3 operators");
@@ -189,14 +220,14 @@ protected:
     template<std::size_t depth>
     constexpr void validate_each_param() const
     {
-        // Check non-root elements which contain operators
-        if constexpr (Operator != OpType::Root && std::tuple_element_t<depth, decltype(terms)>::is_operator::value)
+        // Check non top level elements which contain operators
+        if constexpr (Operator != OpType::RulesDef && std::tuple_element_t<depth, decltype(terms)>::is_operator::value)
         {
-            static_assert(std::tuple_element_t<depth, decltype(terms)>::get_operator::value != OpType::Define, "Definitions are only allowed in root elements");
-            static_assert(std::tuple_element_t<depth, decltype(terms)>::get_operator::value != OpType::Root, "Root elements are only allowed in top-level elements");
+            static_assert(std::tuple_element_t<depth, decltype(terms)>::get_operator::value != OpType::Define, "Definitions are only allowed in top level elements");
+            static_assert(std::tuple_element_t<depth, decltype(terms)>::get_operator::value != OpType::RulesDef, "RulesDef elements are only allowed in top-level elements");
         }
-        // Check root elements for Term/NTerm
-        //else static_assert(!std::tuple_element_t<depth, decltype(terms)>::is_operator::value, "Root elements may only contain operators");
+        // Check top level elements for Term/NTerm
+        //else static_assert(!std::tuple_element_t<depth, decltype(terms)>::is_operator::value, "RulesDef elements may only contain operators");
         if constexpr (depth + 1 < sizeof...(TSymbols)) validate_each_param<depth + 1>();
     }
 
@@ -232,6 +263,13 @@ protected:
             return BaseOp<Operator, std::remove_cvref_t<TSymbol>, decltype(res)>(symbol, res);
         }
     }
+
+    template<std::size_t i, class TSymbol>
+    constexpr void each_symbol(auto func) const
+    {
+        func(std::get<i>(terms));
+        if constexpr (i + 1 < sizeof...(TSymbols)) each_symbol<i + 1>(func);
+    }
 };
 
 
@@ -248,7 +286,7 @@ template<class... TSymbols> constexpr auto Comment(const TSymbols&... symbols) {
 template<class... TSymbols> constexpr auto SpecialSeq(const TSymbols&... symbols) { return BaseOp<OpType::SpecialSeq, TSymbols...>(symbols...); }
 template<class... TSymbols> constexpr auto Except(const TSymbols&... symbols) { return BaseOp<OpType::Except, TSymbols...>(symbols...); }
 template<class... TSymbols> constexpr auto End(const TSymbols&... symbols) { return BaseOp<OpType::End, TSymbols...>(symbols...); }
-template<class... TSymbols> constexpr auto Root(const TSymbols&... symbols) { return BaseOp<OpType::Root, TSymbols...>(symbols...); }
+template<class... TSymbols> constexpr auto RulesDef(const TSymbols&... symbols) { return BaseOp<OpType::RulesDef, TSymbols...>(symbols...); }
 
 
  /**
