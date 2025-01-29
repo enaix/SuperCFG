@@ -13,5 +13,5 @@ add_executable(SuperCFG tests/main.cpp ${SUPERCFG_FILES}
         cfg/gbnf.h
         cfg/containers.h
         tests/bnf.h
-        cfg/tokenizer.cpp
-        cfg/tokenizer.h)
+        cfg/parser.cpp
+        cfg/parser.h)

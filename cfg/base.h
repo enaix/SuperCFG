@@ -10,6 +10,21 @@
 #include "cfg/containers.h"
 
 
+template<class CStr>
+class TreeNode
+{
+public:
+    CStr name;
+    // Add custom data
+    std::vector<TreeNode<CStr>> nodes;
+
+    explicit TreeNode(const CStr& n) : name(n) {}
+
+    void add(const TreeNode<CStr>& node) { nodes.push_back(node); }
+};
+
+
+
  /**
   * @brief Base nonterminal class
   * @tparam CStr Const string class
@@ -19,6 +34,7 @@ class NTerm
 {
 public:
     CStr name;
+    // TODO add type
     constexpr explicit NTerm(const CStr& n) : name(n) {}
     //static constexpr bool is_operator() { return false; };
     using is_operator = std::false_type;
@@ -29,6 +45,8 @@ public:
     constexpr auto bake(const BNFRules& rules) const { return rules.bake_nonterminal(this->name); }
 
     constexpr auto flatten() const { return *this; } // flatten() operation on a term always returns term
+
+    auto get_tree() const { return TreeNode(name); }
 };
 
  /**
@@ -131,6 +149,9 @@ public:
     using is_operator = std::true_type;
     using get_operator = op_type_t<Operator>;
 
+    using term_types_tuple = std::tuple<TSymbols...>;
+    using term_ptr_tuple = std::tuple<const TSymbols* const...>;
+
     [[nodiscard]] static constexpr std::size_t size() { return sizeof...(TSymbols); }
 
     template<class integral_const>
@@ -141,6 +162,7 @@ public:
     template<class BNFRules>
     constexpr auto bake(const BNFRules& rules) const
     {
+        // TODO add Group operators if the order of operations requires so
         // Definition operator rules
         if constexpr (Operator == OpType::Define) return do_bake_define(rules);
         else if constexpr (Operator == OpType::Except) return do_bake_except(rules);
@@ -162,6 +184,11 @@ public:
         static_assert(sizeof...(TSymbols) == 1, "Cannot flatten operator of more than 1 symbol");
         return do_flatten(*this);
     }
+
+    /**
+     * @brief A helper method for constructing a tuple of const pointers
+     */
+     constexpr term_ptr_tuple get_ptr_tuple() const { return construct_ptr_tuple<0>(); }
 
 protected:
     template<std::size_t depth, class BNFRules, class TBuf>
@@ -269,6 +296,15 @@ protected:
     {
         func(std::get<i>(terms));
         if constexpr (i + 1 < sizeof...(TSymbols)) each_symbol<i + 1>(func);
+    }
+
+    template<std::size_t i>
+    constexpr auto construct_ptr_tuple() const
+    {
+        const auto elem = std::get<i>(terms);
+        auto elem_ptr = static_cast<const std::remove_cvref_t<decltype(elem)>* const>(&elem); // Convert elem ref to ptr
+        if constexpr (i + 1 < sizeof...(TSymbols)) return std::tuple_cat(std::make_tuple(elem_ptr), construct_ptr_tuple<i+1>());
+        else return std::make_tuple(elem_ptr);
     }
 };
 

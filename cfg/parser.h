@@ -2,13 +2,14 @@
 // Created by Flynn on 27.01.2025.
 //
 
-#ifndef SUPERCFG_TOKENIZER_H
-#define SUPERCFG_TOKENIZER_H
+#ifndef SUPERCFG_PARSER_H
+#define SUPERCFG_PARSER_H
 
 #include <vector>
 #include <cstdint>
 #include <cassert>
 #include <unordered_map>
+#include <queue>
 
 #include "cfg/base.h"
 
@@ -105,6 +106,40 @@ protected:
 };
 
 
+template<class TokenType, class RulesSymbol>
+class NTermsStorage
+{
+public:
+    using TDefsTuple = RulesSymbol::term_ptr_tuple;
+    TokenType types[std::tuple_size<TDefsTuple>()];
+    TDefsTuple defs; // Pointers to defines
+
+    constexpr explicit NTermsStorage(const RulesSymbol& rules) : defs(rules.get_ptr_tuple())
+    {
+        std::size_t i = 0;
+        // Iterate over each definition
+        rules.each([&](const auto& def){
+            auto type = std::get<0>(def.terms).type;
+            types[i] = type;
+            i++;
+        });
+    }
+
+    // TODO implement get in O(1)
+    constexpr auto get(const TokenType& type) const { return do_get<0>(type); }
+
+protected:
+    template<std::size_t i>
+    constexpr auto do_get(const TokenType& type) const
+    {
+        if (type == types[i]) return std::get<i>(defs);
+
+        if constexpr (i + 1 < std::tuple_size<TDefsTuple>()) return do_get<i+1>(type);
+        else return nullptr;
+    }
+};
+
+
 template<std::size_t TERMS_MAX, class VStr, class TokenType>
 class Tokenizer
 {
@@ -119,7 +154,7 @@ public:
     hashtable init_hashtable() { return storage.compile_hashmap(); }
 
     template<class VText>
-    std::vector<Token<VStr, TokenType>> parse(const hashtable& ht, const VText& text) const
+    std::vector<Token<VStr, TokenType>> run(const hashtable& ht, const VText& text) const
     {
         std::vector<Token<VStr, TokenType>> tokens;
         std::size_t pos = 0;
@@ -144,4 +179,38 @@ public:
 };
 
 
-#endif //SUPERCFG_TOKENIZER_H
+template<class VStr, class TokenType, class RulesSymbol>
+class Parser
+{
+protected:
+    NTermsStorage<TokenType, RulesSymbol> storage;
+    using TokenV = Token<VStr, TokenType>;
+
+public:
+    constexpr explicit Parser(const RulesSymbol& rules) : storage(rules) {}
+
+    template<class RootSymbol>
+    auto run(const RulesSymbol& symbols, const RootSymbol& root, const std::vector<TokenV>& tokens) const
+    {
+
+    }
+
+protected:
+    template<class TSymbol, class Tree>
+    auto parse(const RulesSymbol& symbols, const TSymbol& symbol, const Tree& tree, std::size_t index, const std::vector<TokenV>& tokens) const
+    {
+        // Iterate over each operator
+        if constexpr (is_operator(symbol))
+        {
+            if constexpr (get_operator(symbol) == OpType::Concat)
+            {
+                symbol.each([&](const auto s){
+                    //tree.add(parse(symbols, ))
+                });
+            }
+        }
+    }
+};
+
+
+#endif //SUPERCFG_PARSER_H
