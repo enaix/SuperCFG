@@ -179,37 +179,27 @@ public:
 };
 
 
-template<class VStr, class TokenType, class RulesSymbol>
+template<class VStr, class TokenType, class RulesSymbol, class Tree>
 class Parser
 {
 protected:
     NTermsStorage<TokenType, RulesSymbol> storage;
     using TokenV = Token<VStr, TokenType>;
 
+    Tree tree;
+
 public:
     constexpr explicit Parser(const RulesSymbol& rules) : storage(rules) {}
 
     template<class RootSymbol>
-    auto run(const RulesSymbol& symbols, const RootSymbol& root, const std::vector<TokenV>& tokens) const
+    auto run(const RulesSymbol& symbols, const RootSymbol& root, const std::vector<TokenV>& tokens)
     {
 
     }
 
 protected:
-    template<class TSymbol, class Tree>
-    auto parse(const RulesSymbol& symbols, const TSymbol& symbol, const Tree& tree, std::size_t index, const std::vector<TokenV>& tokens) const
-    {
-        // Iterate over each operator
-        if constexpr (is_operator(symbol))
-        {
-            if constexpr (get_operator(symbol) == OpType::Concat)
-            {
-                symbol.each([&](const auto s){
-                    //tree.add(parse(symbols, ))
-                });
-            }
-        }
-    }
+    template<class TSymbol>
+    bool parse(const RulesSymbol& symbols, const TSymbol& symbol, const Tree& node, std::size_t& index, const std::vector<TokenV>& tokens);
 };
 
 

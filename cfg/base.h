@@ -16,11 +16,14 @@ class TreeNode
 public:
     CStr name;
     // Add custom data
+    TreeNode<CStr>* parent;
     std::vector<TreeNode<CStr>> nodes;
 
-    explicit TreeNode(const CStr& n) : name(n) {}
+    TreeNode() : name("\0") {}
 
-    void add(const TreeNode<CStr>& node) { nodes.push_back(node); }
+    TreeNode(const CStr& name, TreeNode<CStr>* parent = nullptr) : name(name), parent(parent) {}
+
+    TreeNode<CStr>& add(const TreeNode<CStr>& node) { nodes.push_back(std::move(node)); return nodes.back; }
 };
 
 
@@ -46,7 +49,9 @@ public:
 
     constexpr auto flatten() const { return *this; } // flatten() operation on a term always returns term
 
-    auto get_tree() const { return TreeNode(name); }
+    TreeNode<CStr>& create_node(TreeNode<CStr>& parent) const { return parent.add(TreeNode(name)); }
+
+    TreeNode<CStr> create_node() const { return TreeNode(name); }
 };
 
  /**
