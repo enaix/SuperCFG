@@ -68,7 +68,7 @@ public:
     constexpr auto bake_group(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make(" ") + rhs; }
 
     template<class CStr>
-    constexpr auto bake_group(const CStr& str) const { return CStr::make("( ") + str + CStr::make(" )") ; }
+    constexpr auto bake_group(const CStr& str) const { return CStr::make("(") + str + CStr::make(")") ; }
 
     template<class CStrA, class CStrB>
     constexpr auto bake_comment(const CStrA& lhs, const CStrB& rhs) const { return lhs + CStrA::make(" ") + rhs; }

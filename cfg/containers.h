@@ -75,7 +75,10 @@ public:
     template<std::size_t N>
     constexpr auto operator+(const ConstStr<N>& rhs) const { return concat(rhs); }
 
+    template<class... TArgs>
     constexpr const ConstStr<SIZE>& bake(auto... args) const { return *this; } // Baking operation on a string always returns string
+
+    //template<class... Args>
 };
 
 template<std::size_t SIZE>
@@ -114,6 +117,7 @@ template<std::size_t N>
 class IntegralWrapper : public std::integral_constant<size_t, N>
 {
 public:
+    template<class... TArgs>
     constexpr auto bake(auto... args) const { return int2str(*this); }
 };
 

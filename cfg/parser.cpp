@@ -70,7 +70,7 @@ bool Parser<VStr, TokenType, RulesSymbol, Tree>::parse(const RulesSymbol& symbol
         else
         {
             // Implement RepeatExact, GE, Range and handle exceptions
-            static_assert(false, "Operator not implemented");
+            // static_assert(false, "Operator not implemented");
         }
 
     } else if constexpr (is_nterm(symbol)) {
