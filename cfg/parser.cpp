@@ -6,8 +6,8 @@
 
 template<class VStr, class TokenType, class RulesSymbol, class Tree>
 template<class TSymbol>
-bool Parser<VStr, TokenType, RulesSymbol, Tree>::parse(const RulesSymbol& symbols, const TSymbol& symbol, const Tree& node,
-                                                  size_t& index, const std::vector<TokenV>& tokens)
+bool Parser<VStr, TokenType, RulesSymbol, Tree>::parse(const TSymbol& symbol, Tree& node,
+                                                  size_t& index, const std::vector<TokenV>& tokens) const
 {
     // Iterate over each operator
     if constexpr (is_operator(symbol))
@@ -16,7 +16,7 @@ bool Parser<VStr, TokenType, RulesSymbol, Tree>::parse(const RulesSymbol& symbol
         {
             // Iterate over each node, index is moved each time. No need to copy node on stack
             symbol.each([&](const auto& s){
-                if (!parse(symbols, s, node, index, tokens)) return false;
+                if (!parse(s, node, index, tokens)) return false;
             });
         }
         else if constexpr (get_operator(symbol) == OpType::Alter)
@@ -26,7 +26,7 @@ bool Parser<VStr, TokenType, RulesSymbol, Tree>::parse(const RulesSymbol& symbol
             symbol.each([&](const auto& s){
                 // Apply index and return
                 Tree node_stack = node;
-                if (parse(symbols, s, node_stack, i, tokens))
+                if (parse(s, node_stack, i, tokens))
                 {
                     node = node_stack; // Apply changes
                     index = i;
@@ -39,27 +39,27 @@ bool Parser<VStr, TokenType, RulesSymbol, Tree>::parse(const RulesSymbol& symbol
         {
             // Try to match if we can, just return true anyway
             Tree node_stack = node;
-            if (parse(symbols, std::get<0>(symbol.terms), node_stack, index, tokens)) node = node_stack;
+            if (parse(std::get<0>(symbol.terms), node_stack, index, tokens)) node = node_stack;
             return true;
         }
         else if constexpr (get_operator(symbol) == OpType::Repeat)
         {
             Tree node_stack = node;
-            while (parse(symbols, std::get<0>(symbol.terms), node_stack, index, tokens)) node = node_stack;
+            while (parse(std::get<0>(symbol.terms), node_stack, index, tokens)) node = node_stack;
             return true;
         }
         else if constexpr (get_operator(symbol) == OpType::Group)
         {
-            return parse(symbols, std::get<0>(symbol.terms), node, index, tokens);
+            return parse(std::get<0>(symbol.terms), node, index, tokens);
         }
         else if constexpr (get_operator(symbol) == OpType::Except)
         {
             std::size_t i = index;
             Tree node_stack = node;
-            if (parse(symbols, std::get<0>(symbol.terms), node_stack, index, tokens))
+            if (parse(std::get<0>(symbol.terms), node_stack, index, tokens))
             {
                 // Check if the symbol is an exception
-                if (!parse(symbols, std::get<1>(symbol.terms), Tree(), i, tokens))
+                if (!parse(std::get<1>(symbol.terms), Tree(), i, tokens))
                 {
                     node = node_stack;
                     return true;
@@ -77,7 +77,7 @@ bool Parser<VStr, TokenType, RulesSymbol, Tree>::parse(const RulesSymbol& symbol
         // Get definition and get rules for the non-terminal
         const auto& s = std::get<1>(storage.get(tokens[index].type)->terms);
         // Create and pass a new leaf node
-        return parse(symbols, s, s.create_node(node), index, tokens);
+        return parse(s, s.create_node(node), index, tokens);
 
     } else if constexpr (is_term(symbol)) {
         if (index >= tokens.size()) [[unlikely]] abort();

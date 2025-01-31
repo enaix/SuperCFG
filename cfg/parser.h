@@ -14,6 +14,11 @@
 #include "cfg/base.h"
 
 
+ /**
+  * @brief Token class
+  * @tparam VStr Token string container
+  * @tparam TokenType Related nonterminal type (name) container
+  */
 template<class VStr, class TokenType>
 class Token
 {
@@ -32,6 +37,13 @@ public:
     Token<VStr, TokenType>& operator+= (const Token<VStr, TokenType>& rhs) { value += rhs.value; return *this; }
 };
 
+
+ /**
+  * @brief Container of tokens (terminals), handles the mapping between string and its related type
+  * @tparam TERMS_MAX Container size
+  * @tparam VStr Token string container
+  * @tparam TokenType Related nonterminal type (name) container
+  */
 template<std::size_t TERMS_MAX, class VStr, class TokenType>
 class TermsStorage
 {
@@ -106,6 +118,11 @@ protected:
 };
 
 
+ /**
+  * @brief Nonterminal type to definition mapping. Currently is suboptimal and searches in O(N)
+  * @tparam TokenType Nonterminal type (name) container
+  * @tparam RulesSymbol Top-level operator object
+  */
 template<class TokenType, class RulesSymbol>
 class NTermsStorage
 {
@@ -140,6 +157,12 @@ protected:
 };
 
 
+ /**
+  * @brief Single-pass tokenizer class
+  * @tparam TERMS_MAX Maximum number of terminals
+  * @tparam VStr Variable string class
+  * @tparam TokenType Nonterminal type (name) container
+  */
 template<std::size_t TERMS_MAX, class VStr, class TokenType>
 class Tokenizer
 {
@@ -179,6 +202,13 @@ public:
 };
 
 
+ /**
+  * @brief Tokens parser class
+  * @tparam VStr Variable string class
+  * @tparam TokenType Nonterminal type (name) container
+  * @tparam RulesSymbol Rules class
+  * @tparam Tree Parser tree node class
+  */
 template<class VStr, class TokenType, class RulesSymbol, class Tree>
 class Parser
 {
@@ -186,20 +216,25 @@ protected:
     NTermsStorage<TokenType, RulesSymbol> storage;
     using TokenV = Token<VStr, TokenType>;
 
-    Tree tree;
-
 public:
     constexpr explicit Parser(const RulesSymbol& rules) : storage(rules) {}
 
+    /**
+     * @brief Recursively parse tokens and build parse tree
+     * @param node Empty tree to populate
+     * @param root Rules starting point
+     * @param tokens List of tokens from Tokenizer
+     */
     template<class RootSymbol>
-    auto run(const RulesSymbol& symbols, const RootSymbol& root, const std::vector<TokenV>& tokens)
+    bool run(Tree& node, const RootSymbol& root, const std::vector<TokenV>& tokens) const
     {
-
+        std::size_t index = 0;
+        return parse(root, node, index, tokens);
     }
 
 protected:
     template<class TSymbol>
-    bool parse(const RulesSymbol& symbols, const TSymbol& symbol, const Tree& node, std::size_t& index, const std::vector<TokenV>& tokens);
+    bool parse(const TSymbol& symbol, Tree& node, std::size_t& index, const std::vector<TokenV>& tokens) const;
 };
 
 
