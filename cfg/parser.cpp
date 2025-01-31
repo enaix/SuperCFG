@@ -14,10 +14,12 @@ bool Parser<VStr, TokenType, RulesSymbol, Tree>::parse(const TSymbol& symbol, Tr
     {
         if constexpr (get_operator(symbol) == OpType::Concat)
         {
+            std::size_t index_stack = index;
             // Iterate over each node, index is moved each time. No need to copy node on stack
             symbol.each([&](const auto& s){
-                if (!parse(s, node, index, tokens)) return false;
+                if (!parse(s, node, index, tokens)) { index = index_stack; return false; }
             });
+            return true;
         }
         else if constexpr (get_operator(symbol) == OpType::Alter)
         {
@@ -45,7 +47,11 @@ bool Parser<VStr, TokenType, RulesSymbol, Tree>::parse(const TSymbol& symbol, Tr
         else if constexpr (get_operator(symbol) == OpType::Repeat)
         {
             Tree node_stack = node;
-            while (parse(std::get<0>(symbol.terms), node_stack, index, tokens)) node = node_stack;
+            while (parse(std::get<0>(symbol.terms), node_stack, index, tokens))
+            {
+                // Update stack when we succeed
+                node = node_stack;
+            }
             return true;
         }
         else if constexpr (get_operator(symbol) == OpType::Group)
@@ -67,10 +73,51 @@ bool Parser<VStr, TokenType, RulesSymbol, Tree>::parse(const TSymbol& symbol, Tr
             }
             return false;
         }
+        else if constexpr (get_operator(symbol) == OpType::RepeatExact)
+        {
+            std::size_t index_stack = index;
+            for (std::size_t i = 0; i < get_repeat_times(symbol); i++)
+            {
+                if (!parse(std::get<0>(symbol.terms), node, index, tokens)) { index = index_stack; return false; }
+            }
+            // We don't need to check the next operator, since it may start from this token
+            return true;
+        }
+        else if constexpr (get_operator(symbol) == OpType::RepeatGE)
+        {
+            std::size_t index_stack = index;
+            for (std::size_t i = 0; i < get_repeat_times(symbol); i++)
+            {
+                if (!parse(std::get<0>(symbol.terms), node, index, tokens)) { index = index_stack; return false; }
+            }
+            Tree node_stack = node;
+            while (parse(std::get<0>(symbol.terms), node_stack, index, tokens))
+            {
+                // Update stack when we succeed
+                node = node_stack;
+            }
+            return true;
+        }
+        else if constexpr (get_operator(symbol) == OpType::RepeatRange)
+        {
+            std::size_t index_stack = index;
+            for (std::size_t i = 0; i < get_range_from(symbol); i++)
+            {
+                if (!parse(std::get<0>(symbol.terms), node, index, tokens)) { index = index_stack; return false; }
+            }
+            Tree node_stack = node;
+            for (std::size_t i = get_range_from(symbol); i < get_range_to(symbol); i++)
+            {
+                if (!parse(std::get<0>(symbol.terms), node, index, tokens)) return true;
+                else node = node_stack; // Update symbol
+            }
+            // We don't need to check the next operator, since it may start from this token
+            return true;
+        }
         else
         {
             // Implement RepeatExact, GE, Range and handle exceptions
-            // static_assert(false, "Operator not implemented");
+            static_assert(get_operator(symbol) == OpType::Comment || get_operator(symbol) == OpType::SpecialSeq, "Wrong operator type");
         }
 
     } else if constexpr (is_nterm(symbol)) {

@@ -121,19 +121,13 @@ template<OpType T> struct op_type_t
   * @brief Helper function that returns whether an object is an operator
   */
 template<class TSymbol>
-constexpr inline bool is_operator(const TSymbol& s)
-{
-    return TSymbol::_is_operator::value;
-}
+constexpr inline bool is_operator(const TSymbol& s) { return TSymbol::_is_operator::value; }
 
  /**
   * @brief Helper function that returns an operator enum
   */
 template<class TSymbol>
-constexpr inline OpType get_operator(const TSymbol& s)
-{
-    return TSymbol::_get_operator::value;
-}
+constexpr inline OpType get_operator(const TSymbol& s) { return TSymbol::_get_operator::value; }
 
  /**
   * @brief Helper function that returns whether an object is an terminal
@@ -154,6 +148,18 @@ constexpr inline bool is_nterm(const TSymbol& s)
     if constexpr (is_operator(s)) return false;
     else return std::is_same_v<std::remove_cvref_t<decltype(s)>, NTerm<decltype(s.name)>>;
 }
+
+// Repeat* helper operators
+
+template<class TSymbol>
+constexpr inline std::size_t get_repeat_times(const TSymbol& s) { return TSymbol::_times::value; }
+
+template<class TSymbol>
+constexpr inline std::size_t get_range_from(const TSymbol& s) { return TSymbol::_from::value; }
+
+template<class TSymbol>
+constexpr inline std::size_t get_range_to(const TSymbol& s) { return TSymbol::_to::value; }
+
 
 
  /**
@@ -412,6 +418,8 @@ class BaseExtRepeat : public BaseOp<Operator, TSymbols...>
 public:
     using typename BaseOp<Operator, TSymbols...>::_is_operator;
     using typename BaseOp<Operator, TSymbols...>::_get_operator;
+    using _times = IntegralWrapper<Times>;
+
     constexpr explicit BaseExtRepeat(const TSymbols&... t) : BaseOp<Operator, TSymbols...>([&](){ this->validate(); }, t...) { }
 
     constexpr explicit BaseExtRepeat(auto validator, const TSymbols&... t) : BaseOp<Operator, TSymbols...>(validator, t...) { }
@@ -447,8 +455,8 @@ public:
             return this->template exec_bake_rule<max_precedence_t>(rules, IntegralWrapper<Times>(), std::get<0>(this->terms));
         else return symbol.template bake<max_precedence_t>(rules);
     }
-protected:
 
+protected:
     /**
      * @brief Cast extended repeat operator to compatible bnf operators
      */
@@ -525,6 +533,9 @@ class BaseExtRepeatRange : public BaseExtRepeat<Operator, From, TSymbols...>
 public:
     using typename BaseOp<Operator, TSymbols...>::_is_operator;
     using typename BaseOp<Operator, TSymbols...>::_get_operator;
+    using _from = IntegralWrapper<From>;
+    using _to = IntegralWrapper<To>;
+
 protected:
     using BaseExtRepeat<Operator, From, TSymbols...>::unwrap_repeat_exact;
     using BaseExtRepeat<Operator, From, TSymbols...>::unwrap_repeat_le;
@@ -563,8 +574,8 @@ public:
             return this->template exec_bake_rule<max_precedence_t>(rules, IntegralWrapper<From>(), IntegralWrapper<To>(), std::get<0>(this->terms));
         else return symbol.template bake<max_precedence_t>(rules);
     }
-protected:
 
+protected:
     template<class BNFRules>
     constexpr auto to_bnf_flavor(const BNFRules& rules) const
     {
