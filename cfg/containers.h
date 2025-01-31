@@ -118,4 +118,48 @@ public:
 };
 
 
+ /**
+  * @brief Map enum to its index in increasing order
+  * @tparam Max Maximum (last) value of enum
+  * @tparam TArg List of enum arguments of the same type
+  */
+template<class T, T Max>
+class EnumMap
+{
+public:
+    std::size_t storage[static_cast<std::size_t>(Max) + 1];
+
+    template<class... TArg>
+    constexpr explicit EnumMap(bool increasing, const TArg&... args) : storage { SIZE_T_MAX }
+    {
+        if (increasing) init<0>(increasing, args...);
+        else init<sizeof...(TArg) - 1>(increasing, args...);
+    }
+
+    constexpr bool has(T arg) const { return get(arg) != SIZE_T_MAX; }
+
+    constexpr size_t get(T arg) const { return storage[static_cast<std::size_t>(arg)]; }
+
+    constexpr T max(T lhs, T rhs) const { return (get(lhs) > get(rhs) ? lhs : rhs); }
+
+    constexpr bool less(T lhs, T rhs) const { return get(lhs) < get(rhs); }
+
+protected:
+    template<std::size_t i, class Arg, class... Args>
+    constexpr void init(bool increasing, const Arg& arg, const Args&... args)
+    {
+        storage[static_cast<std::size_t>(arg)] = i;
+        if (increasing) init<i+1>(increasing, args...);
+        else init<i-1>(increasing, args...);
+    }
+
+    template<std::size_t i, class Arg>
+    constexpr void init(bool increasing, const Arg& arg)
+    {
+        storage[static_cast<std::size_t>(arg)] = i;
+    }
+};
+
+
+
 #endif //SUPERCFG_CONTAINERS_H

@@ -17,6 +17,9 @@ public:
     [[nodiscard]] constexpr static bool feature_repeat_ge() { return false; }
     [[nodiscard]] constexpr static bool feature_repeat_range() { return false; }
 
+    // Operator precedence
+    static constexpr auto precedence() { return EnumMap<OpType, OpType::None>(false, OpType::Repeat, OpType::Except, OpType::Concat, OpType::Alter, OpType::End); }
+
     // Baking functions
     // ================
 

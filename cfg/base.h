@@ -97,7 +97,9 @@ enum class OpType
     // Extended operators
     RepeatExact, // Repeat exactly M times
     RepeatGE, // Repeat greater or equal than times
-    RepeatRange // Repeat from M to N times
+    RepeatRange, // Repeat from M to N times
+
+    None // Last element for internal purposes
 };
 
  /**
@@ -165,19 +167,9 @@ public:
     constexpr void each(auto func) const { each_symbol<0>(func); }
 
     template<class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const
+    constexpr auto bake(const BNFRules& rules, OpType max_precedence = OpType::None) const
     {
-        // TODO add Group operators if the order of operations requires so
-        // Definition operator rules
-        if constexpr (Operator == OpType::Define) return do_bake_define(rules);
-        else if constexpr (Operator == OpType::Except) return do_bake_except(rules);
-        else if constexpr (Operator == OpType::End) return exec_bake_rule(rules);
-        else // Other operators
-        {
-            if constexpr (sizeof...(TSymbols) == 1) // Singular symbol check
-                return exec_bake_rule(rules, std::get<0>(terms));
-            else return exec_bake_rule(rules, do_bake<1>(rules, std::get<0>(terms)));
-        }
+        return process_precedence(rules, max_precedence, [&](const auto&... args) { return preprocess_bake<BNFRules>(args...); } );
     }
 
     /**
@@ -190,14 +182,33 @@ public:
         return do_flatten(*this);
     }
 
-    /**
-     * @brief A helper method for constructing a tuple of const pointers
-     */
+     /**
+      * @brief A helper method for constructing a tuple of const pointers
+      */
      constexpr term_ptr_tuple get_ptr_tuple() const { return construct_ptr_tuple<0>(); }
 
 protected:
+    template<class BNFRules>
+    constexpr auto preprocess_bake(const BNFRules& rules, OpType max_precedence) const
+    {
+        // TODO add Group operators if the order of operations requires so
+        // Definition operator rules
+        if constexpr (Operator == OpType::Define) return do_bake_define(rules, max_precedence);
+        else if constexpr (Operator == OpType::Except) return do_bake_except(rules, max_precedence);
+        else if constexpr (Operator == OpType::End) return exec_bake_rule(rules, max_precedence);
+        else // Other operators
+        {
+            if constexpr (sizeof...(TSymbols) == 1) // Singular symbol check
+                return exec_bake_rule(rules, max_precedence, std::get<0>(terms));
+            else return exec_bake_rule(rules, max_precedence, do_bake<1>(rules, max_precedence, std::get<0>(terms)));
+        }
+    }
+
+    /*
+     * @brief Recursibely bake each argument in terms tuple
+     */
     template<std::size_t depth, class BNFRules, class TBuf>
-    constexpr auto do_bake(const BNFRules& rules, TBuf last) const
+    constexpr auto do_bake(const BNFRules& rules, OpType max_precedence, TBuf last) const
     {
         auto res = exec_bake_rule(rules, last, std::get<depth>(terms));
         if constexpr (depth + 1 < sizeof...(TSymbols))
@@ -210,22 +221,22 @@ protected:
      * @param symbols List of symbols which are passed to the baking function
      */
     template<class BNFRules, class... TSymbolPack>
-    constexpr auto exec_bake_rule(const BNFRules& rules, const TSymbolPack&... symbols) const
+    constexpr auto exec_bake_rule(const BNFRules& rules, OpType max_precedence, const TSymbolPack&... symbols) const
     {
-        if constexpr (Operator == OpType::Concat) return rules.bake_concat(symbols.bake(rules)...);
-        if constexpr (Operator == OpType::Alter) return rules.bake_alter(symbols.bake(rules)...);
-        if constexpr (Operator == OpType::Define) return rules.bake_define(symbols.bake(rules)...);
-        if constexpr (Operator == OpType::Optional) return rules.bake_optional(symbols.bake(rules)...);
-        if constexpr (Operator == OpType::Repeat) return rules.bake_repeat(symbols.bake(rules)...);
-        if constexpr (Operator == OpType::Group) return rules.bake_group(symbols.bake(rules)...);
-        if constexpr (Operator == OpType::Comment) return rules.bake_comment(symbols.bake(rules)...);
-        if constexpr (Operator == OpType::SpecialSeq) return rules.bake_special_seq(symbols.bake(rules)...);
-        if constexpr (Operator == OpType::Except) return rules.bake_except(symbols.bake(rules)...);
+        if constexpr (Operator == OpType::Concat) return rules.bake_concat(symbols.bake(rules, max_precedence)...);
+        if constexpr (Operator == OpType::Alter) return rules.bake_alter(symbols.bake(rules, max_precedence)...);
+        if constexpr (Operator == OpType::Define) return rules.bake_define(symbols.bake(rules, max_precedence)...);
+        if constexpr (Operator == OpType::Optional) return rules.bake_optional(symbols.bake(rules, max_precedence)...);
+        if constexpr (Operator == OpType::Repeat) return rules.bake_repeat(symbols.bake(rules, max_precedence)...);
+        if constexpr (Operator == OpType::Group) return rules.bake_group(symbols.bake(rules, max_precedence)...);
+        if constexpr (Operator == OpType::Comment) return rules.bake_comment(symbols.bake(rules, max_precedence)...);
+        if constexpr (Operator == OpType::SpecialSeq) return rules.bake_special_seq(symbols.bake(rules, max_precedence)...);
+        if constexpr (Operator == OpType::Except) return rules.bake_except(symbols.bake(rules, max_precedence)...);
         if constexpr (Operator == OpType::End) return rules.bake_end();
-        if constexpr (Operator == OpType::RulesDef) return rules.bake_rules_def(symbols.bake(rules)...);
-        if constexpr (Operator == OpType::RepeatExact) return rules.bake_repeat_exact(symbols.bake(rules)...);
-        if constexpr (Operator == OpType::RepeatGE) return rules.bake_repeat_ge(symbols.bake(rules)...);
-        if constexpr (Operator == OpType::RepeatRange) return rules.bake_repeat_range(symbols.bake(rules)...);
+        if constexpr (Operator == OpType::RulesDef) return rules.bake_rules_def(symbols.bake(rules, max_precedence)...);
+        if constexpr (Operator == OpType::RepeatExact) return rules.bake_repeat_exact(symbols.bake(rules, max_precedence)...);
+        if constexpr (Operator == OpType::RepeatGE) return rules.bake_repeat_ge(symbols.bake(rules, max_precedence)...);
+        if constexpr (Operator == OpType::RepeatRange) return rules.bake_repeat_range(symbols.bake(rules, max_precedence)...);
     }
 
     /**
@@ -244,6 +255,7 @@ protected:
         if constexpr (Operator == OpType::Except) static_assert(sizeof...(TSymbols) == 2, "Exception may only contain 2 elements");
         if constexpr (Operator == OpType::End) static_assert(sizeof...(TSymbols) == 0, "End operator must not contain elements");
         else validate_each_param<0>(); // Do not validate params for the end operator
+        // TODO add stricter check on the number of symbols
     }
 
     /**
@@ -267,19 +279,19 @@ protected:
      * @brief Bake definition operator
      */
     template<class BNFRules>
-    constexpr auto do_bake_define(const BNFRules& rules) const
+    constexpr auto do_bake_define(const BNFRules& rules, OpType max_precedence) const
     {
         BaseOp<OpType::End> end;
-        return exec_bake_rule(rules, std::get<0>(terms), std::get<1>(terms)) + end.bake(rules);
+        return exec_bake_rule(rules, max_precedence, std::get<0>(terms), std::get<1>(terms)) + end.bake(rules, max_precedence);
     }
 
     /**
      * @brief Bake exception operator
      */
     template<class BNFRules>
-    constexpr auto do_bake_except(const BNFRules& rules) const
+    constexpr auto do_bake_except(const BNFRules& rules, OpType max_precedence) const
     {
-        return exec_bake_rule(rules, std::get<0>(terms), std::get<1>(terms));
+        return exec_bake_rule(rules, max_precedence, std::get<0>(terms), std::get<1>(terms));
     }
 
     template<class TSymbol>
@@ -310,6 +322,14 @@ protected:
         auto elem_ptr = static_cast<const std::remove_cvref_t<decltype(elem)>* const>(&elem); // Convert elem ref to ptr
         if constexpr (i + 1 < sizeof...(TSymbols)) return std::tuple_cat(std::make_tuple(elem_ptr), construct_ptr_tuple<i+1>());
         else return std::make_tuple(elem_ptr);
+    }
+
+    template<class BNFRules>
+    constexpr auto process_precedence(const BNFRules& rules, OpType max_precedence, auto bake_func) const
+    {
+        // If our precedence is lower than previous, we add grouping operator an recursively parse
+        if (rules.precedence().get(Operator) && rules.precedence().less(Operator, max_precedence)) return BaseOp<OpType::Group, decltype(*this)>(*this).bake(rules, OpType::None);
+        else return bake_func(rules, rules.precendence().max(max_precedence, Operator));
     }
 };
 
@@ -347,15 +367,21 @@ public:
     constexpr explicit BaseExtRepeat(auto validator, const TSymbols&... t) : BaseOp<Operator, TSymbols...>(validator, t...) { }
 
     template<class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const
+    constexpr auto bake(const BNFRules& rules, OpType max_precedence = OpType::None) const
     {
-        auto symbol = to_bnf_flavor(rules);
-        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(symbol)>, std::remove_cvref_t<decltype(*this)>>)
-            return this->exec_bake_rule(rules, IntegralWrapper<Times>(), std::get<0>(this->terms));
-        else return symbol.bake(rules);
+        this->process_precedence(rules, max_precedence, [&](const auto&... args) { return preprocess_bake<BNFRules>(args...); });
     }
 
 protected:
+    template<class BNFRules>
+    constexpr auto preprocess_bake(const BNFRules& rules, OpType max_precedence) const
+    {
+        auto symbol = to_bnf_flavor(rules);
+        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(symbol)>, std::remove_cvref_t<decltype(*this)>>)
+            return this->exec_bake_rule(rules, max_precedence, IntegralWrapper<Times>(), std::get<0>(this->terms));
+        else return symbol.bake(rules, max_precedence);
+    }
+
      /**
       * @brief Cast extended repeat operator to compatible bnf operators
       */
@@ -427,15 +453,21 @@ public:
     constexpr explicit BaseExtRepeatRange(const TSymbols&... t) : BaseExtRepeat<Operator, From, TSymbols...>([&](){ validate(); }, t...) { }
 
     template<class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const
+    constexpr auto bake(const BNFRules& rules, OpType max_precedence = OpType::None) const
     {
-        auto symbol = to_bnf_flavor(rules);
-        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(symbol)>, std::remove_cvref_t<decltype(*this)>>)
-            return this->exec_bake_rule(rules, IntegralWrapper<From>(), IntegralWrapper<To>(), std::get<0>(this->terms));
-        else return symbol.bake(rules);
+        this->process_precedence(rules, max_precedence, [&](const auto&... args) { return preprocess_bake<BNFRules>(args...); });
     }
 
 protected:
+    template<class BNFRules>
+    constexpr auto preprocess_bake(const BNFRules& rules, OpType max_precedence) const
+    {
+        auto symbol = to_bnf_flavor(rules);
+        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(symbol)>, std::remove_cvref_t<decltype(*this)>>)
+            return this->exec_bake_rule(rules, max_precedence, IntegralWrapper<From>(), IntegralWrapper<To>(), std::get<0>(this->terms));
+        else return symbol.bake(rules, max_precedence);
+    }
+
     template<class BNFRules>
     constexpr auto to_bnf_flavor(const BNFRules& rules) const
     {
