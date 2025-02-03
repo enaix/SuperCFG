@@ -205,6 +205,47 @@ public:
     }
 };
 
+template<class TokenType, class RulesSymbol>
+class NTermsConstHashTable
+{
+public:
+    using TDefsTuple = RulesSymbol::term_types_tuple;
+    using TDefsPtrTuple = RulesSymbol::term_ptr_tuple;
+    using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>();
+    // Morph tuple of definitions operators into a tuple of NTerms
+    using NTermsTuple = decltype(type_morph_t<std::tuple>(
+            []<std::size_t index>(){ return std::tuple_element_t<index, TDefsTuple>::first(); },
+            TupleLen()));
+
+    NTermsTuple nterms;
+    TDefsPtrTuple defs;
+
+    constexpr NTermsConstHashTable(const RulesSymbol& rules) :
+    nterms(type_morph(
+            [&]<std::size_t index>(const auto& src){ return std::get<0>(std::get<index>(src.terms)); }
+            , TupleLen(), rules)),
+    defs(rules.get_ptr_tuple()) {}
+
+    template<class TSymbol>
+    auto get(const TSymbol& symbol) const
+    {
+        return do_get<0, TSymbol>(symbol);
+    }
+
+protected:
+    template<std::size_t depth, class TSymbol>
+    auto do_get(const TSymbol& symbol) const
+    {
+        static_assert(depth < std::tuple_size_v<TDefsTuple>, "NTerm type not found");
+        if constexpr (std::is_same_v<std::remove_cvref_t<TSymbol>, std::tuple_element_t<depth, NTermsTuple>>)
+        {
+            return std::get<depth>(defs);
+        }
+        else return do_get<depth + 1, TSymbol>(symbol);
+    }
+};
+
+
 
  /**
   * @brief Single-pass tokenizer class
