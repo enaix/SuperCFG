@@ -10,6 +10,8 @@
 #include "cfg/gbnf.h"
 #include "cfg/containers.h"
 #include "cfg/base.h"
+#include "cfg/parser.h"
+
 
 bool test_gbnf_basic()
 {
@@ -90,10 +92,26 @@ bool test_gbnf_extended()
     return true;
 }
 
+bool test_gbnf_parse_1()
+{
+    std::cout << "test_gbnf_parse_1()" << std::endl;
+
+    constexpr EBNFRules rules;
+    constexpr auto nozero = NTerm(cs("digit excluding zero"));
+    constexpr auto d_nozero = Define(nozero, Alter(Term(cs("1")), Term(cs("2")), Term(cs("3")), Term(cs("4")), Term(cs("5")),
+                                                   Term(cs("6")), Term(cs("7")), Term(cs("8")), Term(cs("9"))));
+    constexpr auto d_digit = Define(NTerm(cs("digit")), Alter(Term(cs("0")), nozero));
+    constexpr auto root = RulesDef(d_nozero, d_digit).bake(rules);
+
+    constexpr Tokenizer<64, std::string, std::string> lexer(root);
+
+    return true;
+}
+
 
 bool test_gbnf()
 {
-    return test_gbnf_basic() && test_gbnf_complex1() && test_gbnf_extended();
+    return test_gbnf_basic() && test_gbnf_complex1() && test_gbnf_extended() && test_gbnf_parse_1();
 }
 
 #endif //SUPERCFG_BNF_H

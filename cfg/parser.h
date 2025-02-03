@@ -10,8 +10,11 @@
 #include <cassert>
 #include <unordered_map>
 #include <queue>
+#include <typeindex>
+#include <variant>
 
 #include "cfg/base.h"
+#include "cfg/helpers.h"
 
 
  /**
@@ -153,6 +156,52 @@ protected:
 
         if constexpr (i + 1 < std::tuple_size<TDefsTuple>()) return do_get<i+1>(type);
         else return nullptr;
+    }
+};
+
+
+template<class TRulesDefOp>
+class NTermHTItem
+{
+public:
+    const std::remove_cvref_t<typename TRulesDefOp::second>* const ptr;
+    //constexpr NTermHTItem(const TRulesDef* const addr) : ptr(addr) {}
+
+    constexpr NTermHTItem() : ptr(nullptr) {}
+
+    constexpr NTermHTItem(const TRulesDefOp& op) : ptr(&std::get<1>(op)) {}
+};
+
+
+template<class TokenType, class RulesSymbol>
+class NTermsHashTable
+{
+public:
+    using TDefsTuple = RulesSymbol::term_types_tuple;
+    using TDefsPtrTuple = RulesSymbol::term_ptr_tuple;
+    using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>();
+
+    // Morph tuple into std::variant type
+    using NTermVariant = decltype(type_morph_t<std::variant>(
+            []<std::size_t index>(){ return NTermHTItem<std::tuple_element_t<index, TDefsTuple>()>(); },
+            TupleLen()));
+
+    std::unordered_map<TokenType, NTermVariant> storage;
+
+    constexpr NTermsHashTable(const RulesSymbol& rules)
+    {
+        std::size_t i = 0;
+        // Iterate over each definition
+        rules.each([&](const auto& def){
+            NTermHTItem term(def);
+            TokenType t(std::get<0>(def.terms).type());
+            storage.insert(t, term);
+        });
+    }
+
+    auto get(const TokenType& type) const
+    {
+        return std::visit([](const auto& ht_item){ return ht_item.ptr; }, storage[type]);
     }
 };
 

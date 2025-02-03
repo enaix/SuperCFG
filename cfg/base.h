@@ -180,8 +180,10 @@ public:
     using _is_operator = std::true_type;
     using _get_operator = op_type_t<Operator>;
 
-    using term_types_tuple = std::tuple<TSymbols...>;
+    using term_types_tuple = std::tuple<std::remove_cvref_t<TSymbols>...>;
     using term_ptr_tuple = std::tuple<const std::remove_cvref_t<TSymbols>* const...>;
+    using first = std::tuple_element_t<0, std::tuple<TSymbols...>>;
+    using second = std::tuple_element_t<1, std::tuple<TSymbols...>>;
 
     [[nodiscard]] static constexpr std::size_t size() { return sizeof...(TSymbols); }
 

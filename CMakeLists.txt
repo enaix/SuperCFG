@@ -7,4 +7,5 @@ file(GLOB_RECURSE SUPERCFG_FILES base/*.h base/*.cpp cfg/*.h cfg/*.cpp elemtree/
 
 include_directories(".")
 
-add_executable(SuperCFG tests/main.cpp ${SUPERCFG_FILES})
+add_executable(SuperCFG tests/main.cpp ${SUPERCFG_FILES}
+        cfg/helpers.h)
