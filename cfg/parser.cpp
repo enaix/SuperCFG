@@ -122,7 +122,7 @@ bool Parser<VStr, TokenType, RulesSymbol, Tree>::parse(const TSymbol& symbol, Tr
 
     } else if constexpr (is_nterm(symbol)) {
         // Get definition and get rules for the non-terminal
-        const auto& s = std::get<1>(storage.get(tokens[index].type)->terms);
+        const auto& s = std::get<1>(storage.get(symbol)->terms);
         // Create and pass a new leaf node
         return parse(s, s.create_node(node), index, tokens);
 
@@ -139,3 +139,6 @@ bool Parser<VStr, TokenType, RulesSymbol, Tree>::parse(const TSymbol& symbol, Tr
 
     return true;
 }
+
+
+// Unneeded classes, but they might help later.

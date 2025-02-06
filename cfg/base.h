@@ -160,6 +160,16 @@ constexpr inline std::size_t get_range_from(const TSymbol& s) { return TSymbol::
 template<class TSymbol>
 constexpr inline std::size_t get_range_to(const TSymbol& s) { return TSymbol::_to::value; }
 
+// Tuple helper operators
+
+template<class TSymbol>
+struct get_first { typedef std::tuple_element_t<0, typename TSymbol::term_types_tuple> type; };
+
+template<class TSymbol>
+struct get_second { typedef std::tuple_element_t<1, typename TSymbol::term_types_tuple> type; };
+
+template<class TSymbol> using get_first_t = get_first<TSymbol>::type;
+template<class TSymbol> using get_second_t = get_second<TSymbol>::type;
 
 
  /**
@@ -182,8 +192,6 @@ public:
 
     using term_types_tuple = std::tuple<std::remove_cvref_t<TSymbols>...>;
     using term_ptr_tuple = std::tuple<const std::remove_cvref_t<TSymbols>* const...>;
-    using first = std::tuple_element_t<0, std::tuple<TSymbols...>>;
-    using second = std::tuple_element_t<1, std::tuple<TSymbols...>>;
 
     [[nodiscard]] static constexpr std::size_t size() { return sizeof...(TSymbols); }
 

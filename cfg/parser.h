@@ -54,12 +54,13 @@ public:
     Token<VStr, TokenType> storage[TERMS_MAX];
     std::size_t N;
 
-    using hashtable = std::unordered_map<VStr, TokenType, typename VStr::hash>;
+    using hashtable = std::unordered_map<VStr, TokenType>; //, typename VStr::hash>; // Should be injected in std
 
     template<class RulesSymbol>
     constexpr explicit TermsStorage(const RulesSymbol& rules_def)
     {
         N = iterate(rules_def, 0);
+        for (std::size_t i = N; i < TERMS_MAX; i++) { storage[i] = Token<VStr, TokenType>(); }
     }
 
 protected:
@@ -145,7 +146,6 @@ public:
         });
     }
 
-    // TODO implement get in O(1)
     constexpr auto get(const TokenType& type) const { return do_get<0>(type); }
 
 protected:
@@ -160,52 +160,12 @@ protected:
 };
 
 
-template<class TRulesDefOp>
-class NTermHTItem
-{
-public:
-    const std::remove_cvref_t<typename TRulesDefOp::second>* const ptr;
-    //constexpr NTermHTItem(const TRulesDef* const addr) : ptr(addr) {}
-
-    constexpr NTermHTItem() : ptr(nullptr) {}
-
-    constexpr NTermHTItem(const TRulesDefOp& op) : ptr(&std::get<1>(op)) {}
-};
-
-
-template<class TokenType, class RulesSymbol>
-class NTermsHashTable
-{
-public:
-    using TDefsTuple = RulesSymbol::term_types_tuple;
-    using TDefsPtrTuple = RulesSymbol::term_ptr_tuple;
-    using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>();
-
-    // Morph tuple into std::variant type
-    using NTermVariant = decltype(type_morph_t<std::variant>(
-            []<std::size_t index>(){ return NTermHTItem<std::tuple_element_t<index, TDefsTuple>()>(); },
-            TupleLen()));
-
-    std::unordered_map<TokenType, NTermVariant> storage;
-
-    constexpr NTermsHashTable(const RulesSymbol& rules)
-    {
-        std::size_t i = 0;
-        // Iterate over each definition
-        rules.each([&](const auto& def){
-            NTermHTItem term(def);
-            TokenType t(std::get<0>(def.terms).type());
-            storage.insert(t, term);
-        });
-    }
-
-    auto get(const TokenType& type) const
-    {
-        return std::visit([](const auto& ht_item){ return ht_item.ptr; }, storage[type]);
-    }
-};
-
-template<class TokenType, class RulesSymbol>
+ /**
+  * @brief Constant NTerm -> definition mapping
+  * @tparam TokenType
+  * @tparam RulesSymbol
+  */
+template<class RulesSymbol>
 class NTermsConstHashTable
 {
 public:
@@ -214,7 +174,7 @@ public:
     using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>();
     // Morph tuple of definitions operators into a tuple of NTerms
     using NTermsTuple = decltype(type_morph_t<std::tuple>(
-            []<std::size_t index>(){ return std::tuple_element_t<index, TDefsTuple>::first(); },
+            []<std::size_t index>(){ return get_first<std::tuple_element_t<index, TDefsTuple>()>(); },
             TupleLen()));
 
     NTermsTuple nterms;
@@ -227,14 +187,14 @@ public:
     defs(rules.get_ptr_tuple()) {}
 
     template<class TSymbol>
-    auto get(const TSymbol& symbol) const
+    constexpr auto get(const TSymbol& symbol) const
     {
         return do_get<0, TSymbol>(symbol);
     }
 
 protected:
     template<std::size_t depth, class TSymbol>
-    auto do_get(const TSymbol& symbol) const
+    constexpr auto do_get(const TSymbol& symbol) const
     {
         static_assert(depth < std::tuple_size_v<TDefsTuple>, "NTerm type not found");
         if constexpr (std::is_same_v<std::remove_cvref_t<TSymbol>, std::tuple_element_t<depth, NTermsTuple>>)
@@ -244,7 +204,6 @@ protected:
         else return do_get<depth + 1, TSymbol>(symbol);
     }
 };
-
 
 
  /**
@@ -303,7 +262,8 @@ template<class VStr, class TokenType, class RulesSymbol, class Tree>
 class Parser
 {
 protected:
-    NTermsStorage<TokenType, RulesSymbol> storage;
+    //NTermsStorage<TokenType, RulesSymbol> storage;
+    NTermsConstHashTable<RulesSymbol> storage;
     using TokenV = Token<VStr, TokenType>;
 
 public:
@@ -326,6 +286,58 @@ protected:
     template<class TSymbol>
     bool parse(const TSymbol& symbol, Tree& node, std::size_t& index, const std::vector<TokenV>& tokens) const;
 };
+
+// Unneeded classes
+// ================
+
+template<class TRulesDefOp>
+class NTermHTItem
+{
+public:
+    const std::remove_cvref_t<get_second<TRulesDefOp>>* const ptr;
+    //constexpr NTermHTItem(const TRulesDef* const addr) : ptr(addr) {}
+
+    constexpr NTermHTItem() : ptr(nullptr) {}
+
+    constexpr NTermHTItem(const TRulesDefOp& op) : ptr(&std::get<1>(op)) {}
+};
+
+
+ /**
+  * @brief TokenType (str) to nterm definition mapping. Uses std::variant to store pointers
+  */
+template<class TokenType, class RulesSymbol>
+class NTermsHashTable
+{
+public:
+    using TDefsTuple = RulesSymbol::term_types_tuple;
+    using TDefsPtrTuple = RulesSymbol::term_ptr_tuple;
+    using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>();
+
+    // Morph tuple into std::variant type
+    using NTermVariant = decltype(type_morph_t<std::variant>(
+            []<std::size_t index>(){ return NTermHTItem<std::tuple_element_t<index, TDefsTuple>()>(); },
+            TupleLen()));
+
+    std::unordered_map<TokenType, NTermVariant> storage;
+
+    constexpr NTermsHashTable(const RulesSymbol& rules)
+    {
+        std::size_t i = 0;
+        // Iterate over each definition
+        rules.each([&](const auto& def){
+            NTermHTItem term(def);
+            TokenType t(std::get<0>(def.terms).type());
+            storage.insert(t, term);
+        });
+    }
+
+    auto get(const TokenType& type) const
+    {
+        return std::visit([](const auto& ht_item){ return ht_item.ptr; }, storage[type]);
+    }
+};
+
 
 
 #endif //SUPERCFG_PARSER_H

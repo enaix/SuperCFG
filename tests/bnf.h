@@ -11,6 +11,7 @@
 #include "cfg/containers.h"
 #include "cfg/base.h"
 #include "cfg/parser.h"
+#include "cfg/str.h"
 
 
 bool test_gbnf_basic()
@@ -103,7 +104,7 @@ bool test_gbnf_parse_1()
     constexpr auto d_digit = Define(NTerm(cs("digit")), Alter(Term(cs("0")), nozero));
     constexpr auto root = RulesDef(d_nozero, d_digit).bake(rules);
 
-    constexpr Tokenizer<64, std::string, std::string> lexer(root);
+    constexpr Tokenizer<64, StdStr<char>, StdStr<char>> lexer(root);
 
     return true;
 }
