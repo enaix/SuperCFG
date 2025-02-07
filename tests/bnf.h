@@ -95,16 +95,31 @@ bool test_gbnf_extended()
 
 bool test_gbnf_parse_1()
 {
-    std::cout << "test_gbnf_parse_1()" << std::endl;
+    std::cout << "test_gbnf_parse_1():" << std::endl;
 
     constexpr EBNFRules rules;
     constexpr auto nozero = NTerm(cs("digit excluding zero"));
     constexpr auto d_nozero = Define(nozero, Alter(Term(cs("1")), Term(cs("2")), Term(cs("3")), Term(cs("4")), Term(cs("5")),
                                                    Term(cs("6")), Term(cs("7")), Term(cs("8")), Term(cs("9"))));
     constexpr auto d_digit = Define(NTerm(cs("digit")), Alter(Term(cs("0")), nozero));
-    constexpr auto root = RulesDef(d_nozero, d_digit).bake(rules);
+    constexpr auto root = RulesDef(d_nozero, d_digit);
 
-    constexpr Tokenizer<64, StdStr<char>, StdStr<char>> lexer(root);
+    Tokenizer<64, StdStr<char>, StdStr<char>> lexer(root);
+    StdStr<char> in("1452");
+    bool ok;
+    auto ht = lexer.init_hashtable();
+    std::cout << "======" << std::endl << "terminals hashtable : " << std::endl;
+    for (const auto& kv : ht)
+        std::cout << kv.first << ": " << kv.second << std::endl;
+
+    auto res = lexer.run(ht, in, ok);
+
+    std::cout << "======" << std::endl << "lexer output : " << std::endl;
+    for (const auto& tok : res)
+    {
+        std::cout << "<" << tok.type << ">(" << tok.value << "), ";
+    }
+    std::cout << std::endl;
 
     return true;
 }

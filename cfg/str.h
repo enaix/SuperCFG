@@ -14,13 +14,17 @@ template<class TChar>
 class StdStr : public std::basic_string<TChar>
 {
 public:
-    StdStr() = default;
+    //StdStr() = default;
+
+    using std::basic_string<TChar>::basic_string;
+
+    using std::basic_string<TChar>::operator+=;
 
     template<std::size_t N>
-    explicit StdStr(const char (&a)[N]) : std::basic_string<TChar>(a, N) {}
+    constexpr explicit StdStr(const char (&a)[N]) : std::basic_string<TChar>(a, N) {}
 
     template<std::size_t N>
-    explicit StdStr(const ConstStr<N>& c) : std::basic_string<TChar>(c.c_str(), N) {}
+    constexpr explicit StdStr(const ConstStr<N>& c) : std::basic_string<TChar>(c.c_str(), N-1) {} // Excluding \0
 
     /**
      * @brief Construct a new StdStr from a slice of a string
@@ -31,6 +35,15 @@ public:
     static StdStr<TChar> from_slice(const StdStr<TChar>& src, std::size_t start, std::size_t end)
     {
         return StdStr<TChar>(src.c_str() + start, end - start);
+    }
+
+    /**
+     * @brief Check if one string starts with another (abc, abcdef returns true)
+     */
+    static constexpr bool is_substr(const StdStr<TChar>& lhs, const StdStr<TChar>& rhs)
+    {
+        std::size_t len = std::min(lhs.size(), lhs.size());
+        return lhs.compare(0, len, rhs, 0) == 0;
     }
 };
 

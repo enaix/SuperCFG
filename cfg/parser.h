@@ -31,6 +31,8 @@ public:
 
     constexpr Token(const VStr& v, const TokenType& t) : value(v), type(t) {}
 
+    constexpr Token() = default;
+
     constexpr friend Token<VStr, TokenType> operator+ (const Token<VStr, TokenType>& lhs, const Token<VStr, TokenType>& rhs)
     {
         // We assume that type is identical
@@ -60,7 +62,31 @@ public:
     constexpr explicit TermsStorage(const RulesSymbol& rules_def)
     {
         N = iterate(rules_def, 0);
-        for (std::size_t i = N; i < TERMS_MAX; i++) { storage[i] = Token<VStr, TokenType>(); }
+        //for (std::size_t i = N; i < TERMS_MAX; i++) { storage[i] = Token<VStr, TokenType>(); }
+    }
+
+    hashtable compile_hashmap() const
+    {
+        // TODO create optimal implementation for the hash function
+        hashtable map;
+        for (std::size_t i = 0; i < N; i++)
+        {
+            map.insert({storage[i].value, storage[i].type});
+        }
+        return map;
+    }
+
+    [[nodiscard]] constexpr bool validate() const
+    {
+        // Naive implementation in O*log(n)
+        for (std::size_t i = 0; i < N; i++)
+        {
+            for (std::size_t j = i + 1; j < N; j++)
+            {
+                if (VStr::is_substr(storage[i].value, storage[j].value)) return false;
+            }
+        }
+        return true;
     }
 
 protected:
@@ -68,7 +94,7 @@ protected:
     constexpr std::size_t iterate(const TSymbol& s, std::size_t ind)
     {
         s.each([&](const auto& symbol){
-            if constexpr (is_operator(symbol))
+            if constexpr (is_operator<TSymbol>())
             {
                 ind = iterate(symbol, symbol, ind); // Will always return bigger index
             }
@@ -80,44 +106,20 @@ protected:
     constexpr std::size_t iterate(const TSymbol& s, const TDef& def, std::size_t ind)
     {
         s.each([&](const auto& symbol){
-            if constexpr (is_operator(symbol))
+            if constexpr (is_operator<decltype(symbol)>())
             {
                 ind = iterate(symbol, def, ind); // Will always return bigger index
             } else {
-                if constexpr (is_term(symbol))
+                if constexpr (is_term<decltype(symbol)>())
                 {
                     // Found a terminal symbol
-                    storage[ind] = Token<VStr, TokenType>(VStr(symbol.name), TokenType(def));
+                    storage[ind] = Token<VStr, TokenType>(VStr(symbol.name), TokenType(std::get<0>(def.terms).type()));
                     assert(ind + 1 < TERMS_MAX && "Maximum terminals limit reached");
                     ind++;
                 }
             }
         });
         return ind; // Maximum index at this iteration
-    }
-
-    [[nodiscard]] constexpr bool validate() const
-    {
-        // Naive implementation in O*log(n)
-        for (std::size_t i = 0; i < N; i++)
-        {
-            for (std::size_t j = i + 1; j < N; j++)
-            {
-                if (VStr::is_substr(storage[i].value == storage[j].value)) return false;
-            }
-        }
-        return true;
-    }
-
-    hashtable compile_hashmap() const
-    {
-        // TODO create optimal implementation for the hash function
-        hashtable map;
-        for (std::size_t i = 0; i < N; i++)
-        {
-            map.insert(storage[i].value, storage[i].type);
-        }
-        return map;
     }
 };
 
@@ -221,12 +223,12 @@ protected:
 
 public:
     template<class RulesSymbol>
-    constexpr explicit Tokenizer(const RulesSymbol& root) : storage(root) { static_assert(storage.validate(), "Duplicate terminals found, cannot build tokens storage"); }
+    constexpr explicit Tokenizer(const RulesSymbol& root) : storage(root) { assert(storage.validate() && "Duplicate terminals found, cannot build tokens storage"); }
 
     hashtable init_hashtable() { return storage.compile_hashmap(); }
 
     template<class VText>
-    std::vector<Token<VStr, TokenType>> run(const hashtable& ht, const VText& text) const
+    std::vector<Token<VStr, TokenType>> run(const hashtable& ht, const VText& text, bool& ok) const
     {
         std::vector<Token<VStr, TokenType>> tokens;
         std::size_t pos = 0;
@@ -239,13 +241,14 @@ public:
             {
                 // Terminal found
                 std::size_t n = tokens.size();
-                if (n > 0 && tokens[n - 1].type == it->second) tokens[n - 1] += it->first;
+                if (n > 0 && tokens[n - 1].type == it->second) tokens[n - 1].value += it->first;
                 else tokens.push_back(Token<VStr, TokenType>(it->first, it->second));
                 pos = i + 1;
             }
         }
 
-        assert(pos == text.size() && "Tokenization error: found unrecognized tokens");
+//        assert(pos == text.size() && "Tokenization error: found unrecognized tokens");
+        ok = (pos == text.size());
         return tokens;
     }
 };

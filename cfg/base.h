@@ -37,12 +37,14 @@ class NTerm
 {
 public:
     CStr name;
-    // TODO add type
     constexpr explicit NTerm(const CStr& n) : name(n) {}
     //static constexpr bool is_operator() { return false; };
     using _is_operator = std::false_type;
+    using _name_type = CStr;
 
     constexpr NTerm() : name("\0") {}
+
+    constexpr auto type() const { return name; }
 
     template<class BNFRules>
     constexpr auto bake(const BNFRules& rules) const { return rules.bake_nonterminal(this->name); }
@@ -69,6 +71,7 @@ public:
     constexpr explicit Term(const CStr& n) : name(n) {}
     //static constexpr bool is_operator() { return false; };
     using _is_operator = std::false_type;
+    using _name_type = CStr;
 
     constexpr Term() : name("\0") {}
 
@@ -121,33 +124,45 @@ template<OpType T> struct op_type_t
   * @brief Helper function that returns whether an object is an operator
   */
 template<class TSymbol>
-constexpr inline bool is_operator(const TSymbol& s) { return TSymbol::_is_operator::value; }
+constexpr inline bool is_operator(const TSymbol& s) { return std::remove_cvref_t<TSymbol>::_is_operator::value; }
+
+template<class TSymbol>
+constexpr inline bool is_operator() { return std::remove_cvref_t<TSymbol>::_is_operator::value; }
 
  /**
   * @brief Helper function that returns an operator enum
   */
 template<class TSymbol>
-constexpr inline OpType get_operator(const TSymbol& s) { return TSymbol::_get_operator::value; }
+constexpr inline OpType get_operator(const TSymbol& s) { return std::remove_cvref_t<TSymbol>::_get_operator::value; }
+
+template<class TSymbol>
+constexpr inline OpType get_operator() { return std::remove_cvref_t<TSymbol>::_get_operator::value; }
 
  /**
   * @brief Helper function that returns whether an object is an terminal
   */
 template<class TSymbol>
-constexpr inline bool is_term(const TSymbol& s)
+constexpr inline bool is_term()
 {
-    if constexpr (is_operator(s)) return false;
-    else return std::is_same_v<std::remove_cvref_t<decltype(s)>, Term<decltype(s.name)>>;
+    if constexpr (is_operator<TSymbol>()) return false;
+    else return std::is_same_v<std::remove_cvref_t<TSymbol>, Term<typename std::remove_cvref_t<TSymbol>::_name_type>>;
 }
+
+template<class TSymbol>
+constexpr inline bool is_term(const TSymbol& s) { return is_term<TSymbol>(); }
 
  /**
   * @brief Helper function that returns whether an object is an nonterminal
   */
 template<class TSymbol>
-constexpr inline bool is_nterm(const TSymbol& s)
+constexpr inline bool is_nterm()
 {
-    if constexpr (is_operator(s)) return false;
-    else return std::is_same_v<std::remove_cvref_t<decltype(s)>, NTerm<decltype(s.name)>>;
+    if constexpr (is_operator<TSymbol>()) return false;
+    else return std::is_same_v<std::remove_cvref_t<TSymbol>, NTerm<typename std::remove_cvref_t<TSymbol>::_name_type>>;
 }
+
+template<class TSymbol>
+constexpr inline bool is_nterm(const TSymbol& s) { return is_nterm<TSymbol>(); }
 
 // Repeat* helper operators
 
@@ -367,7 +382,7 @@ protected:
         }
     }
 
-    template<std::size_t i, class TSymbol>
+    template<std::size_t i>
     constexpr void each_symbol(auto func) const
     {
         func(std::get<i>(terms));
