@@ -46,6 +46,8 @@ public:
     static constexpr std::size_t size() { return SIZE; };
     [[nodiscard]] constexpr const char* c_str() const { return str; }
 
+    constexpr explicit ConstStr() : str {} {}
+
     constexpr explicit ConstStr(const char (&c)[SIZE]) { std::copy_n(c, SIZE, str); }
     // https://ctrpeach.io/posts/cpp20-string-literal-template-parameters/
 

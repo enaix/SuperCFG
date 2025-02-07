@@ -173,18 +173,18 @@ class NTermsConstHashTable
 public:
     using TDefsTuple = RulesSymbol::term_types_tuple;
     using TDefsPtrTuple = RulesSymbol::term_ptr_tuple;
-    using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>();
+    using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>;
     // Morph tuple of definitions operators into a tuple of NTerms
     using NTermsTuple = decltype(type_morph_t<std::tuple>(
-            []<std::size_t index>(){ return get_first<std::tuple_element_t<index, TDefsTuple>()>(); },
+            []<std::size_t index>(){ return typename get_first<std::tuple_element_t<index, TDefsTuple>>::type(); },
             TupleLen()));
 
     NTermsTuple nterms;
     TDefsPtrTuple defs;
 
     constexpr NTermsConstHashTable(const RulesSymbol& rules) :
-    nterms(type_morph(
-            [&]<std::size_t index>(const auto& src){ return std::get<0>(std::get<index>(src.terms)); }
+    nterms(type_morph<std::tuple>(
+            [&]<std::size_t index>(const auto& src){ return std::get<0>(std::get<index>(src.terms).terms); }
             , TupleLen(), rules)),
     defs(rules.get_ptr_tuple()) {}
 
@@ -232,7 +232,7 @@ public:
     {
         std::vector<Token<VStr, TokenType>> tokens;
         std::size_t pos = 0;
-        for (std::size_t i = 0; i + 1 < text.size(); i++)
+        for (std::size_t i = 0; i < text.size(); i++)
         {
             VStr tok = VStr::from_slice(text, pos, i + 1);
             const auto it = ht.find(tok);
@@ -261,7 +261,7 @@ public:
   * @tparam RulesSymbol Rules class
   * @tparam Tree Parser tree node class
   */
-template<class VStr, class TokenType, class RulesSymbol, class Tree>
+template<class VStr, class TokenType, class Tree, class RulesSymbol>
 class Parser
 {
 protected:
@@ -287,7 +287,141 @@ public:
 
 protected:
     template<class TSymbol>
-    bool parse(const TSymbol& symbol, Tree& node, std::size_t& index, const std::vector<TokenV>& tokens) const;
+    bool parse(const TSymbol& symbol, Tree& node, std::size_t& index, const std::vector<TokenV>& tokens) const
+    {
+        // Iterate over each operator
+        if constexpr (is_operator<TSymbol>())
+        {
+            if constexpr (get_operator<TSymbol>() == OpType::Concat)
+            {
+                std::size_t index_stack = index;
+                // Iterate over each node, index is moved each time. No need to copy node on stack
+                bool found = true;
+                symbol.each([&](const auto& s){
+                    if (!parse(s, node, index, tokens)) { index = index_stack; found = false; }
+                });
+                return found;
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Alter)
+            {
+                // Check any of these nodes
+                std::size_t i = index;
+                bool found = false;
+                symbol.each([&](const auto& s){
+                    // Apply index and return
+                    Tree node_stack = node;
+                    if (parse(s, node_stack, i, tokens))
+                    {
+                        node = node_stack; // Apply changes
+                        index = i;
+                        found = true;
+                    }
+                });
+
+                return found;
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Optional)
+            {
+                // Try to match if we can, just return true anyway
+                Tree node_stack = node;
+                if (parse(std::get<0>(symbol.terms), node_stack, index, tokens)) node = node_stack;
+                return true;
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Repeat)
+            {
+                Tree node_stack = node;
+                while (parse(std::get<0>(symbol.terms), node_stack, index, tokens))
+                {
+                    // Update stack when we succeed
+                    node = node_stack;
+                }
+                return true;
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Group)
+            {
+                return parse(std::get<0>(symbol.terms), node, index, tokens);
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Except)
+            {
+                std::size_t i = index;
+                Tree node_stack = node;
+                if (parse(std::get<0>(symbol.terms), node_stack, index, tokens))
+                {
+                    // Check if the symbol is an exception
+                    if (!parse(std::get<1>(symbol.terms), Tree(), i, tokens))
+                    {
+                        node = node_stack;
+                        return true;
+                    }
+                }
+                return false;
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::RepeatExact)
+            {
+                std::size_t index_stack = index;
+                for (std::size_t i = 0; i < get_repeat_times(symbol); i++)
+                {
+                    if (!parse(std::get<0>(symbol.terms), node, index, tokens)) { index = index_stack; return false; }
+                }
+                // We don't need to check the next operator, since it may start from this token
+                return true;
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::RepeatGE)
+            {
+                std::size_t index_stack = index;
+                for (std::size_t i = 0; i < get_repeat_times(symbol); i++)
+                {
+                    if (!parse(std::get<0>(symbol.terms), node, index, tokens)) { index = index_stack; return false; }
+                }
+                Tree node_stack = node;
+                while (parse(std::get<0>(symbol.terms), node_stack, index, tokens))
+                {
+                    // Update stack when we succeed
+                    node = node_stack;
+                }
+                return true;
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::RepeatRange)
+            {
+                std::size_t index_stack = index;
+                for (std::size_t i = 0; i < get_range_from(symbol); i++)
+                {
+                    if (!parse(std::get<0>(symbol.terms), node, index, tokens)) { index = index_stack; return false; }
+                }
+                Tree node_stack = node;
+                for (std::size_t i = get_range_from(symbol); i < get_range_to(symbol); i++)
+                {
+                    if (!parse(std::get<0>(symbol.terms), node, index, tokens)) return true;
+                    else node = node_stack; // Update symbol
+                }
+                // We don't need to check the next operator, since it may start from this token
+                return true;
+            }
+            else
+            {
+                // Implement RepeatExact, GE, Range and handle exceptions
+                static_assert(get_operator<TSymbol>() == OpType::Comment || get_operator<TSymbol>() == OpType::SpecialSeq, "Wrong operator type");
+            }
+
+        } else if constexpr (is_nterm<TSymbol>()) {
+            // Get definition and get rules for the non-terminal
+            const auto& s = std::get<1>(storage.get(symbol)->terms);
+            // Create and pass a new leaf node
+            return parse(s, symbol.template create_node<Tree>(node), index, tokens);
+
+        } else if constexpr (is_term<TSymbol>()) {
+            if (index >= tokens.size()) [[unlikely]] abort();
+
+            if (tokens[index].value == symbol.name)
+            {
+                index++; // Move the pointer only if we succeed
+                return true;
+            }
+            return false;
+        } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
+
+        return true;
+    }
 };
 
 // Unneeded classes

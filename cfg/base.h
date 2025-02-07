@@ -10,20 +10,30 @@
 #include "cfg/containers.h"
 
 
-template<class CStr>
+template<class VStr>
 class TreeNode
 {
 public:
-    CStr name;
+    VStr name;
     // Add custom data
-    TreeNode<CStr>* parent;
-    std::vector<TreeNode<CStr>> nodes;
+    TreeNode<VStr>* parent;
+    std::vector<TreeNode<VStr>> nodes;
 
-    TreeNode() : name("\0") {}
+    TreeNode() : name() {}
 
-    TreeNode(const CStr& name, TreeNode<CStr>* parent = nullptr) : name(name), parent(parent) {}
+    template<class TStr>
+    TreeNode(const TStr& name, TreeNode<VStr>* parent = nullptr) : name(VStr(name)), parent(parent) {}
 
-    TreeNode<CStr>& add(const TreeNode<CStr>& node) { nodes.push_back(std::move(node)); return nodes.back; }
+    TreeNode<VStr>& add(const TreeNode<VStr>& node) { nodes.push_back(std::move(node)); return nodes.back(); }
+
+    void traverse(auto func) const { do_traverse(func, 0); }
+
+protected:
+    void do_traverse(auto func, std::size_t depth) const
+    {
+        func(*this, depth);
+        for (const auto& node : nodes) node.do_traverse(func, depth + 1);
+    }
 };
 
 
@@ -42,7 +52,7 @@ public:
     using _is_operator = std::false_type;
     using _name_type = CStr;
 
-    constexpr NTerm() : name("\0") {}
+    constexpr NTerm() : name() {}
 
     constexpr auto type() const { return name; }
 
@@ -54,7 +64,8 @@ public:
 
     constexpr auto flatten() const { return *this; } // flatten() operation on a term always returns term
 
-    TreeNode<CStr>& create_node(TreeNode<CStr>& parent) const { return parent.add(TreeNode(name)); }
+    template<class Node>
+    Node& create_node(Node& parent) const { return parent.add(Node(name)); }
 
     TreeNode<CStr> create_node() const { return TreeNode(name); }
 };
@@ -178,10 +189,10 @@ constexpr inline std::size_t get_range_to(const TSymbol& s) { return TSymbol::_t
 // Tuple helper operators
 
 template<class TSymbol>
-struct get_first { typedef std::tuple_element_t<0, typename TSymbol::term_types_tuple> type; };
+struct get_first { typedef std::tuple_element_t<0, typename std::remove_cvref_t<TSymbol>::term_types_tuple> type; };
 
 template<class TSymbol>
-struct get_second { typedef std::tuple_element_t<1, typename TSymbol::term_types_tuple> type; };
+struct get_second { typedef std::tuple_element_t<1, typename std::remove_cvref_t<TSymbol>::term_types_tuple> type; };
 
 template<class TSymbol> using get_first_t = get_first<TSymbol>::type;
 template<class TSymbol> using get_second_t = get_second<TSymbol>::type;

@@ -106,6 +106,7 @@ bool test_gbnf_parse_1()
 
     Tokenizer<64, StdStr<char>, StdStr<char>> lexer(root);
     StdStr<char> in("1452");
+    std::cout << in.size();
     bool ok;
     auto ht = lexer.init_hashtable();
     std::cout << "======" << std::endl << "terminals hashtable : " << std::endl;
@@ -120,6 +121,25 @@ bool test_gbnf_parse_1()
         std::cout << "<" << tok.type << ">(" << tok.value << "), ";
     }
     std::cout << std::endl;
+    if (!ok)
+    {
+        std::cout << "lexer build error" << std::endl;
+        return false;
+    }
+
+    Parser<StdStr<char>, StdStr<char>, TreeNode<StdStr<char>>, decltype(root)> parser(root);
+    TreeNode<StdStr<char>> tree;
+    ok = parser.run(tree, NTerm(cs("digit")), res);
+    tree.traverse([&](const auto& node, std::size_t depth){
+        for (std::size_t i = 0; i < depth; i++) std::cout << "|  ";
+        std::cout << node.name << " (" << node.nodes.size() << " elems)" << std::endl;
+    });
+
+    if (!ok)
+    {
+        std::cout << "parser error" << std::endl;
+        return false;
+    }
 
     return true;
 }

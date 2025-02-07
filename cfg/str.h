@@ -21,7 +21,7 @@ public:
     using std::basic_string<TChar>::operator+=;
 
     template<std::size_t N>
-    constexpr explicit StdStr(const char (&a)[N]) : std::basic_string<TChar>(a, N) {}
+    constexpr explicit StdStr(const char (&a)[N]) : std::basic_string<TChar>(a, N-1) {}
 
     template<std::size_t N>
     constexpr explicit StdStr(const ConstStr<N>& c) : std::basic_string<TChar>(c.c_str(), N-1) {} // Excluding \0
@@ -56,6 +56,18 @@ struct std::hash<StdStr<TChar>>
         return std::hash<std::basic_string<TChar>>{}(s);
     }
 };
+
+
+template<class TChar, std::size_t N>
+bool operator==(const StdStr<TChar>& lhs, const ConstStr<N>& rhs)
+{
+    return lhs.compare(0, lhs.size(), rhs.c_str(), N - 1) == 0;
+}
+
+template<class TChar, std::size_t N>
+bool operator==(const ConstStr<N>& lhs, const StdStr<TChar>& rhs) { return rhs == lhs; }
+
+
 
 template<class Char, std::size_t BYTES, std::size_t CHUNK, std::size_t GROWTH>
 class VarStr
