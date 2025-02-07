@@ -16,7 +16,7 @@
 
 bool test_gbnf_basic()
 {
-    std::cout << "test_gbnf_basic()" << std::endl;
+    std::cout << "test_gbnf_basic() :" << std::endl;
 
     constexpr EBNFRules rules;
     constexpr auto test = NTerm(cs("abcd")).bake(rules);
@@ -36,7 +36,7 @@ bool test_gbnf_basic()
 
 bool test_gbnf_complex1()
 {
-    std::cout << "test_gbnf_complex1()" << std::endl;
+    std::cout << "test_gbnf_complex1() :" << std::endl;
 
     constexpr EBNFRules rules;
     constexpr auto term1 = NTerm(cs("A"));
@@ -68,7 +68,7 @@ bool test_gbnf_complex1()
 
 bool test_gbnf_extended()
 {
-    std::cout << "test_gbnf_extended()" << std::endl;
+    std::cout << "test_gbnf_extended() :" << std::endl;
 
     constexpr EBNFRules rules;
     constexpr ExtEBNFRules rules_ext;
@@ -95,7 +95,7 @@ bool test_gbnf_extended()
 
 bool test_gbnf_parse_1()
 {
-    std::cout << "test_gbnf_parse_1():" << std::endl;
+    std::cout << "test_gbnf_parse_1() :" << std::endl;
 
     constexpr EBNFRules rules;
     constexpr auto nozero = NTerm(cs("digit excluding zero"));
@@ -117,9 +117,7 @@ bool test_gbnf_parse_1()
 
     std::cout << "======" << std::endl << "lexer output : " << std::endl;
     for (const auto& tok : res)
-    {
         std::cout << "<" << tok.type << ">(" << tok.value << "), ";
-    }
     std::cout << std::endl;
     if (!ok)
     {
@@ -129,6 +127,7 @@ bool test_gbnf_parse_1()
 
     Parser<StdStr<char>, StdStr<char>, TreeNode<StdStr<char>>, decltype(root)> parser(root);
     TreeNode<StdStr<char>> tree;
+    std::cout << "======" << std::endl << "parser output : " << std::endl;
     ok = parser.run(tree, NTerm(cs("digit")), res);
     tree.traverse([&](const auto& node, std::size_t depth){
         for (std::size_t i = 0; i < depth; i++) std::cout << "|  ";
@@ -144,10 +143,87 @@ bool test_gbnf_parse_1()
     return true;
 }
 
+bool test_gbnf_parse_calc()
+{
+    std::cout << "test_gbnf_parse_calc() :" << std::endl;
+
+    constexpr EBNFRules rules;
+    constexpr auto nozero = NTerm(cs("digit excluding zero"));
+    constexpr auto d_nozero = Define(nozero, Alter(Term(cs("1")), Term(cs("2")), Term(cs("3")), Term(cs("4")), Term(cs("5")),
+                                                   Term(cs("6")), Term(cs("7")), Term(cs("8")), Term(cs("9"))));
+    constexpr auto digit = NTerm(cs("digit"));
+    constexpr auto d_digit = Define(digit, Alter(Term(cs("0")), nozero));
+
+    constexpr auto add = NTerm(cs("add"));
+    constexpr auto sub = NTerm(cs("sub"));
+    constexpr auto mul = NTerm(cs("mul"));
+    constexpr auto div = NTerm(cs("div"));
+    constexpr auto op = NTerm(cs("op")); // any operator
+    constexpr auto arithmetic = NTerm(cs("arithmetic"));
+    constexpr auto group = NTerm(cs("group"));
+
+    constexpr auto d_add = Define(add, Concat(op, Term(cs("+")), op));
+    constexpr auto d_sub = Define(sub, Concat(op, Term(cs("-")), op));
+    constexpr auto d_mul = Define(mul, Concat(op, Term(cs("*")), op));
+    constexpr auto d_div = Define(div, Concat(op, Term(cs("/")), op));
+
+    constexpr auto d_arithmetic = Define(arithmetic, Alter(add, sub, mul, div));
+    constexpr auto d_group = Define(group, Concat(Term(cs("(")), Alter(op, digit), Term(cs(")"))));
+    constexpr auto d_op = Define(op, Alter(digit, group, op));
+
+    constexpr auto ruleset = RulesDef(d_nozero, d_digit, d_add, d_sub, d_mul, d_div, d_arithmetic, d_group, d_op);
+
+    auto bake = ruleset.bake(rules);
+    //std::cout << res.c_str() << std::endl;
+
+    Tokenizer<64, StdStr<char>, StdStr<char>> lexer(ruleset);
+    auto ht = lexer.init_hashtable();
+    std::cout << "======" << std::endl << "terminals hashtable : " << std::endl;
+    for (const auto& kv : ht)
+        std::cout << kv.first << ": " << kv.second << std::endl;
+
+    StdStr<char> in("5*(10-2+333/(1))");
+    bool ok;
+    auto res = lexer.run(ht, in, ok);
+
+    std::cout << "======" << std::endl << "lexer output : " << std::endl;
+    for (const auto& tok : res)
+        std::cout << "<" << tok.type << "> ";
+    std::cout << std::endl;
+
+    for (const auto& tok : res)
+        std::cout << "<" << tok.value << "> ";
+    std::cout << std::endl;
+
+    Parser<StdStr<char>, StdStr<char>, TreeNode<StdStr<char>>, decltype(ruleset)> parser(ruleset);
+    if (!ok)
+    {
+        std::cout << "lexer build error" << std::endl;
+        return false;
+    }
+
+    TreeNode<StdStr<char>> tree;
+    std::cout << "======" << std::endl << "parser output : " << std::endl;
+    ok = parser.run(tree, op, res);
+    tree.traverse([&](const auto& node, std::size_t depth){
+        for (std::size_t i = 0; i < depth; i++) std::cout << "|  ";
+        std::cout << node.name << " (" << node.nodes.size() << " elems)" << std::endl;
+    });
+
+    if (!ok)
+    {
+        std::cout << "parser error" << std::endl;
+        return false;
+    }
+
+
+    return true;
+}
+
 
 bool test_gbnf()
 {
-    return test_gbnf_basic() && test_gbnf_complex1() && test_gbnf_extended() && test_gbnf_parse_1();
+    return test_gbnf_basic() && test_gbnf_complex1() && test_gbnf_extended() && test_gbnf_parse_1() && test_gbnf_parse_calc();
 }
 
 #endif //SUPERCFG_BNF_H

@@ -296,29 +296,28 @@ protected:
             {
                 std::size_t index_stack = index;
                 // Iterate over each node, index is moved each time. No need to copy node on stack
-                bool found = true;
-                symbol.each([&](const auto& s){
-                    if (!parse(s, node, index, tokens)) { index = index_stack; found = false; }
+                return symbol.each_or_exit([&](const auto& s) -> bool {
+                    if (!parse(s, node, index, tokens)) { index = index_stack; return false; }
+                    return true; // Continue
                 });
-                return found;
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Alter)
             {
                 // Check any of these nodes
                 std::size_t i = index;
-                bool found = false;
-                symbol.each([&](const auto& s){
+
+                // Return true if we match at least one
+                return !symbol.each_or_exit([&](const auto& s) -> bool {
                     // Apply index and return
                     Tree node_stack = node;
                     if (parse(s, node_stack, i, tokens))
                     {
                         node = node_stack; // Apply changes
                         index = i;
-                        found = true;
+                        return false; // Exit from callback
                     }
+                    return true; // Continue
                 });
-
-                return found;
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Optional)
             {

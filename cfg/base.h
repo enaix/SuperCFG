@@ -198,6 +198,13 @@ template<class TSymbol> using get_first_t = get_first<TSymbol>::type;
 template<class TSymbol> using get_second_t = get_second<TSymbol>::type;
 
 
+template<typename Callable>
+concept ReturnsBool = requires(Callable f)
+{
+    std::is_same_v<std::invoke_result<Callable, int>, bool>; // Check return type
+};
+
+
  /**
   * @brief Base operator class
   * @tparam Operator Operator enum type
@@ -229,6 +236,14 @@ public:
      * @param func Lambda closure that processes each element
      */
     constexpr void each(auto func) const { each_symbol<0>(func); }
+
+    /**
+     * @brief Iterate over each element in terms tuple until false is returned
+     * @param func Lambda closure that processes each element and returns bool
+     * @return false if it's returned from lambada, otherwise true
+     */
+    template<class Callable> requires ReturnsBool<Callable>
+    constexpr bool each_or_exit(Callable func) const { return each_symbol_return<0>(func); }
 
     /**
      * @brief Recursive baking function that returns CStr. Manages precedence and calls baking preprocessing
@@ -398,6 +413,14 @@ protected:
     {
         func(std::get<i>(terms));
         if constexpr (i + 1 < sizeof...(TSymbols)) each_symbol<i + 1>(func);
+    }
+
+    template<std::size_t i>
+    constexpr bool each_symbol_return(auto func) const
+    {
+        if (!func(std::get<i>(terms))) return false;
+        if constexpr (i + 1 < sizeof...(TSymbols)) return each_symbol_return<i + 1>(func);
+        return true;
     }
 
     template<std::size_t i>
