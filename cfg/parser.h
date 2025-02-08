@@ -291,6 +291,8 @@ protected:
     template<class TSymbol>
     bool parse(const TSymbol& symbol, Tree& node, std::size_t& index, const std::vector<TokenV>& tokens) const
     {
+        if (index >= tokens.size()) return false;
+
         // Iterate over each operator
         if constexpr (is_operator<TSymbol>())
         {
@@ -298,10 +300,12 @@ protected:
             if constexpr (get_operator<TSymbol>() == OpType::Concat)
             {
                 std::size_t index_stack = index;
+                std::cout << "concat : ";
                 // Iterate over each node, index is moved each time. No need to copy node on stack
                 return symbol.each_or_exit([&](const auto& s) -> bool {
                     if (!parse(s, node, index, tokens))
                     {
+                        std::cout << "concat failed" << std::endl;
                         index = index_stack; // Revert the first index
                         return false; // Didn't find anything
                     }
@@ -313,16 +317,20 @@ protected:
                 // Check any of these nodes
                 std::size_t i = index;
 
+                std::cout << "alter : ";
                 // Return true if we match at least one
+                // (a+a)+b - in a+a both 'a' and 'a+a' may evaluate to true, so we cannot get the first match
                 return !symbol.each_or_exit([&](const auto& s) -> bool {
                     // Apply index and return
                     Tree node_stack = node;
                     if (parse(s, node_stack, i, tokens))
                     {
+                        std::cout << "alter finished" << std::endl;
                         node = node_stack; // Apply changes
                         index = i;
                         return false; // Exit from callback
                     }
+                    std::cout << ".";
                     return true; // Continue
                 });
             }
@@ -336,11 +344,14 @@ protected:
             else if constexpr (get_operator<TSymbol>() == OpType::Repeat)
             {
                 Tree node_stack = node;
+                std::cout << "repeat : ";
                 while (parse(std::get<0>(symbol.terms), node_stack, index, tokens))
                 {
+                    std::cout << "repeat success" << std::endl;
                     // Update stack when we succeed
                     node = node_stack;
                 }
+                std::cout << "repeat fail, exiting, i=" << index << std::endl;
                 return true;
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Group)
@@ -405,7 +416,7 @@ protected:
             }
             else
             {
-                // Implement RepeatExact, GE, Range and handle exceptions
+                // TODO handle Comment and SpecialSeq
                 static_assert(get_operator<TSymbol>() == OpType::Comment || get_operator<TSymbol>() == OpType::SpecialSeq, "Wrong operator type");
             }
 

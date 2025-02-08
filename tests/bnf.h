@@ -148,9 +148,11 @@ bool test_gbnf_parse_calc()
 //    constexpr auto nozero = NTerm(cs("digit excluding zero"));
 //    constexpr auto d_nozero = Define(nozero, );
     constexpr auto digit = NTerm(cs("digit"));
-    constexpr auto d_digit = Define(digit, Repeat(Alter(Term(cs("1")), Term(cs("2")), Term(cs("3")), Term(cs("4")), Term(cs("5")),
-                                                        Term(cs("6")), Term(cs("7")), Term(cs("8")), Term(cs("9")), Term(cs("0")))));
+    constexpr auto d_digit = Define(digit, Alter(Term(cs("1")), Term(cs("2")), Term(cs("3")), Term(cs("4")), Term(cs("5")),
+                                                        Term(cs("6")), Term(cs("7")), Term(cs("8")), Term(cs("9")), Term(cs("0"))));
 
+    constexpr auto number = NTerm(cs("number"));
+    constexpr auto d_number = Define(number, Concat(digit, Repeat(digit)));
     constexpr auto add = NTerm(cs("add"));
     constexpr auto sub = NTerm(cs("sub"));
     constexpr auto mul = NTerm(cs("mul"));
@@ -165,10 +167,10 @@ bool test_gbnf_parse_calc()
     constexpr auto d_div = Define(div, Concat(op, Term(cs("/")), op));
 
     constexpr auto d_arithmetic = Define(arithmetic, Alter(add, sub, mul, div));
-    constexpr auto d_group = Define(group, Concat(Term(cs("(")), Alter(op, digit), Term(cs(")"))));
-    constexpr auto d_op = Define(op, Alter(digit, group, arithmetic));
+    constexpr auto d_group = Define(group, Concat(Term(cs("(")), Alter(op, number), Term(cs(")"))));
+    constexpr auto d_op = Define(op, Alter(number, group, arithmetic));
 
-    constexpr auto ruleset = RulesDef(d_digit, d_add, d_sub, d_mul, d_div, d_arithmetic, d_group, d_op);
+    constexpr auto ruleset = RulesDef(d_digit, d_number, d_add, d_sub, d_mul, d_div, d_arithmetic, d_group, d_op);
 
     auto bake = ruleset.bake(rules);
     //std::cout << res.c_str() << std::endl;
@@ -204,7 +206,7 @@ bool test_gbnf_parse_calc()
     ok = parser.run(tree, op, res);
     tree.traverse([&](const auto& node, std::size_t depth){
         for (std::size_t i = 0; i < depth; i++) std::cout << "|  ";
-        std::cout << node.name << " (" << node.nodes.size() << " elems)" << std::endl;
+        std::cout << node.name << " (" << node.nodes.size() << " elems) : " << node.value << std::endl;
     });
 
     if (!ok)
