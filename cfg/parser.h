@@ -241,8 +241,10 @@ public:
             {
                 // Terminal found
                 std::size_t n = tokens.size();
-                if (n > 0 && tokens[n - 1].type == it->second) tokens[n - 1].value += it->first;
-                else tokens.push_back(Token<VStr, TokenType>(it->first, it->second));
+                // We shouldn't actually merge tokens
+                // if (n > 0 && tokens[n - 1].type == it->second) tokens[n - 1].value += it->first;
+                // else tokens.push_back(Token<VStr, TokenType>(it->first, it->second));
+                tokens.push_back(Token<VStr, TokenType>(it->first, it->second));
                 pos = i + 1;
             }
         }
@@ -292,12 +294,17 @@ protected:
         // Iterate over each operator
         if constexpr (is_operator<TSymbol>())
         {
+            std::cout << "op [" << int(get_operator<TSymbol>()) << "] at i=" << index << " tok=" << tokens[index].value << std::endl;
             if constexpr (get_operator<TSymbol>() == OpType::Concat)
             {
                 std::size_t index_stack = index;
                 // Iterate over each node, index is moved each time. No need to copy node on stack
                 return symbol.each_or_exit([&](const auto& s) -> bool {
-                    if (!parse(s, node, index, tokens)) { index = index_stack; return false; }
+                    if (!parse(s, node, index, tokens))
+                    {
+                        index = index_stack; // Revert the first index
+                        return false; // Didn't find anything
+                    }
                     return true; // Continue
                 });
             }
@@ -403,16 +410,20 @@ protected:
             }
 
         } else if constexpr (is_nterm<TSymbol>()) {
+            std::cout << "nt [" << symbol.name.c_str() << "] at i=" << index << " tok=" << tokens[index].value << std::endl;
             // Get definition and get rules for the non-terminal
             const auto& s = std::get<1>(storage.get(symbol)->terms);
             // Create and pass a new leaf node
             return parse(s, symbol.template create_node<Tree>(node), index, tokens);
 
         } else if constexpr (is_term<TSymbol>()) {
-            if (index >= tokens.size()) [[unlikely]] abort();
+            std::cout << "t  [" << symbol.name.c_str() << "] at i=" << index << " tok=" << tokens[index].value << std::endl;
+            if (index >= tokens.size()) return false;
 
             if (tokens[index].value == symbol.name)
             {
+                std::cout << "matched!" << std::endl;
+                node.add_value(tokens[index].value);
                 index++; // Move the pointer only if we succeed
                 return true;
             }

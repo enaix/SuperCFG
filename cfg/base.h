@@ -15,16 +15,20 @@ class TreeNode
 {
 public:
     VStr name;
+    VStr value; // Token value
     // Add custom data
     TreeNode<VStr>* parent;
     std::vector<TreeNode<VStr>> nodes;
 
-    TreeNode() : name() {}
+    TreeNode() : name(), value() {}
 
     template<class TStr>
-    TreeNode(const TStr& name, TreeNode<VStr>* parent = nullptr) : name(VStr(name)), parent(parent) {}
+    TreeNode(const TStr& name, TreeNode<VStr>* parent = nullptr) : name(VStr(name)), parent(parent), value() {}
 
     TreeNode<VStr>& add(const TreeNode<VStr>& node) { nodes.push_back(std::move(node)); return nodes.back(); }
+
+    template<class TStr>
+    void add_value(const TStr& c) { value += c; }
 
     void traverse(auto func) const { do_traverse(func, 0); }
 
@@ -426,7 +430,7 @@ protected:
     template<std::size_t i>
     constexpr auto construct_ptr_tuple() const
     {
-        const auto elem = std::get<i>(terms);
+        const auto& elem = std::get<i>(terms);
         auto elem_ptr = static_cast<const std::remove_cvref_t<decltype(elem)>* const>(&elem); // Convert elem ref to ptr
         if constexpr (i + 1 < sizeof...(TSymbols)) return std::tuple_cat(std::make_tuple(elem_ptr), construct_ptr_tuple<i+1>());
         else return std::make_tuple(elem_ptr);
