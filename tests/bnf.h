@@ -122,7 +122,7 @@ bool test_gbnf_parse_1()
         return false;
     }
 
-    Parser<StdStr<char>, StdStr<char>, TreeNode<StdStr<char>>, decltype(root)> parser(root);
+    Parser<StdStr<char>, StdStr<char>, TreeNode<StdStr<char>>, ParserOptions<AlterSolver::PickFirst>, decltype(root)> parser(root);
     TreeNode<StdStr<char>> tree;
     std::cout << "======" << std::endl << "parser output : " << std::endl;
     ok = parser.run(tree, NTerm(cs("digit")), res);
@@ -194,7 +194,7 @@ bool test_gbnf_parse_calc()
         std::cout << "<" << tok.value << "> ";
     std::cout << std::endl;
 
-    Parser<StdStr<char>, StdStr<char>, TreeNode<StdStr<char>>, decltype(ruleset)> parser(ruleset);
+    Parser<StdStr<char>, StdStr<char>, TreeNode<StdStr<char>>, ParserOptions<AlterSolver::PickFirst>, decltype(ruleset)> parser(ruleset);
     if (!ok)
     {
         std::cout << "lexer build error" << std::endl;

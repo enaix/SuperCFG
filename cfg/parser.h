@@ -5,254 +5,29 @@
 #ifndef SUPERCFG_PARSER_H
 #define SUPERCFG_PARSER_H
 
-#include <vector>
-#include <cstdint>
-#include <cassert>
-#include <unordered_map>
-#include <queue>
-#include <typeindex>
-#include <variant>
-
-#include "cfg/base.h"
-#include "cfg/helpers.h"
+#include "cfg/preprocess.h"
 
 
- /**
-  * @brief Token class
-  * @tparam VStr Token string container
-  * @tparam TokenType Related nonterminal type (name) container
-  */
-template<class VStr, class TokenType>
-class Token
+/**
+ * Alter operation solving method
+ */
+enum class AlterSolver
 {
-public:
-    VStr value;
-    TokenType type;
-
-    constexpr Token(const VStr& v, const TokenType& t) : value(v), type(t) {}
-
-    constexpr Token() = default;
-
-    constexpr friend Token<VStr, TokenType> operator+ (const Token<VStr, TokenType>& lhs, const Token<VStr, TokenType>& rhs)
-    {
-        // We assume that type is identical
-        return Token<VStr, TokenType>(lhs.value + rhs.value, lhs.type);
-    }
-
-    Token<VStr, TokenType>& operator+= (const Token<VStr, TokenType>& rhs) { value += rhs.value; return *this; }
+    PickFirst,    /**< Pick the first match and return */
+    PickLongest,  /**< Pick the longest match, return error on same length */
+    PickLongestF, /**< Pick the longest match, do not perform check */
+    Permute       /**< Permute over all possible permutations, starting from root */
 };
 
 
- /**
-  * @brief Container of tokens (terminals), handles the mapping between string and its related type
-  * @tparam TERMS_MAX Container size
-  * @tparam VStr Token string container
-  * @tparam TokenType Related nonterminal type (name) container
-  */
-template<std::size_t TERMS_MAX, class VStr, class TokenType>
-class TermsStorage
+/**
+ * @brief Parser configuration options
+ * @tparam alter Alter operation config
+ */
+template<AlterSolver alter>
+struct ParserOptions
 {
-public:
-    Token<VStr, TokenType> storage[TERMS_MAX];
-    std::size_t N;
-
-    using hashtable = std::unordered_map<VStr, TokenType>; //, typename VStr::hash>; // Should be injected in std
-
-    template<class RulesSymbol>
-    constexpr explicit TermsStorage(const RulesSymbol& rules_def)
-    {
-        N = iterate(rules_def, 0);
-        //for (std::size_t i = N; i < TERMS_MAX; i++) { storage[i] = Token<VStr, TokenType>(); }
-    }
-
-    hashtable compile_hashmap() const
-    {
-        // TODO create optimal implementation for the hash function
-        hashtable map;
-        for (std::size_t i = 0; i < N; i++)
-        {
-            map.insert({storage[i].value, storage[i].type});
-        }
-        return map;
-    }
-
-    [[nodiscard]] constexpr bool validate() const
-    {
-        // Naive implementation in O*log(n)
-        for (std::size_t i = 0; i < N; i++)
-        {
-            for (std::size_t j = i + 1; j < N; j++)
-            {
-                if (VStr::is_substr(storage[i].value, storage[j].value)) return false;
-            }
-        }
-        return true;
-    }
-
-protected:
-    template<class TSymbol>
-    constexpr std::size_t iterate(const TSymbol& s, std::size_t ind)
-    {
-        s.each([&](const auto& symbol){
-            if constexpr (is_operator<TSymbol>())
-            {
-                ind = iterate(symbol, symbol, ind); // Will always return bigger index
-            }
-        });
-        return ind;
-    }
-
-    template<class TSymbol, class TDef>
-    constexpr std::size_t iterate(const TSymbol& s, const TDef& def, std::size_t ind)
-    {
-        s.each([&](const auto& symbol){
-            if constexpr (is_operator<decltype(symbol)>())
-            {
-                ind = iterate(symbol, def, ind); // Will always return bigger index
-            } else {
-                if constexpr (is_term<decltype(symbol)>())
-                {
-                    // Found a terminal symbol
-                    storage[ind] = Token<VStr, TokenType>(VStr(symbol.name), TokenType(std::get<0>(def.terms).type()));
-                    assert(ind + 1 < TERMS_MAX && "Maximum terminals limit reached");
-                    ind++;
-                }
-            }
-        });
-        return ind; // Maximum index at this iteration
-    }
-};
-
-
- /**
-  * @brief Nonterminal type to definition mapping. Currently is suboptimal and searches in O(N)
-  * @tparam TokenType Nonterminal type (name) container
-  * @tparam RulesSymbol Top-level operator object
-  */
-template<class TokenType, class RulesSymbol>
-class NTermsStorage
-{
-public:
-    using TDefsTuple = RulesSymbol::term_ptr_tuple;
-    TokenType types[std::tuple_size<TDefsTuple>()];
-    TDefsTuple defs; // Pointers to defines
-
-    constexpr explicit NTermsStorage(const RulesSymbol& rules) : defs(rules.get_ptr_tuple())
-    {
-        std::size_t i = 0;
-        // Iterate over each definition
-        rules.each([&](const auto& def){
-            auto type = std::get<0>(def.terms).type;
-            types[i] = type;
-            i++;
-        });
-    }
-
-    constexpr auto get(const TokenType& type) const { return do_get<0>(type); }
-
-protected:
-    template<std::size_t i>
-    constexpr auto do_get(const TokenType& type) const
-    {
-        if (type == types[i]) return std::get<i>(defs);
-
-        if constexpr (i + 1 < std::tuple_size<TDefsTuple>()) return do_get<i+1>(type);
-        else return nullptr;
-    }
-};
-
-
- /**
-  * @brief Constant NTerm -> definition mapping
-  * @tparam TokenType
-  * @tparam RulesSymbol
-  */
-template<class RulesSymbol>
-class NTermsConstHashTable
-{
-public:
-    using TDefsTuple = RulesSymbol::term_types_tuple;
-    using TDefsPtrTuple = RulesSymbol::term_ptr_tuple;
-    using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>;
-    // Morph tuple of definitions operators into a tuple of NTerms
-    using NTermsTuple = decltype(type_morph_t<std::tuple>(
-            []<std::size_t index>(){ return typename get_first<std::tuple_element_t<index, TDefsTuple>>::type(); },
-            TupleLen()));
-
-    NTermsTuple nterms;
-    TDefsPtrTuple defs;
-
-    constexpr NTermsConstHashTable(const RulesSymbol& rules) :
-    nterms(type_morph<std::tuple>(
-            [&]<std::size_t index>(const auto& src){ return std::get<0>(std::get<index>(src.terms).terms); }
-            , TupleLen(), rules)),
-    defs(rules.get_ptr_tuple()) {}
-
-    template<class TSymbol>
-    constexpr auto get(const TSymbol& symbol) const
-    {
-        return do_get<0, TSymbol>(symbol);
-    }
-
-protected:
-    template<std::size_t depth, class TSymbol>
-    constexpr auto do_get(const TSymbol& symbol) const
-    {
-        static_assert(depth < std::tuple_size_v<TDefsTuple>, "NTerm type not found");
-        if constexpr (std::is_same_v<std::remove_cvref_t<TSymbol>, std::tuple_element_t<depth, NTermsTuple>>)
-        {
-            return std::get<depth>(defs);
-        }
-        else return do_get<depth + 1, TSymbol>(symbol);
-    }
-};
-
-
- /**
-  * @brief Single-pass tokenizer class
-  * @tparam TERMS_MAX Maximum number of terminals
-  * @tparam VStr Variable string class
-  * @tparam TokenType Nonterminal type (name) container
-  */
-template<std::size_t TERMS_MAX, class VStr, class TokenType>
-class Tokenizer
-{
-protected:
-    TermsStorage<TERMS_MAX, VStr, TokenType> storage;
-    using hashtable = TermsStorage<TERMS_MAX, VStr, TokenType>::hashtable;
-
-public:
-    template<class RulesSymbol>
-    constexpr explicit Tokenizer(const RulesSymbol& root) : storage(root) { assert(storage.validate() && "Duplicate terminals found, cannot build tokens storage"); }
-
-    hashtable init_hashtable() { return storage.compile_hashmap(); }
-
-    template<class VText>
-    std::vector<Token<VStr, TokenType>> run(const hashtable& ht, const VText& text, bool& ok) const
-    {
-        std::vector<Token<VStr, TokenType>> tokens;
-        std::size_t pos = 0;
-        for (std::size_t i = 0; i < text.size(); i++)
-        {
-            VStr tok = VStr::from_slice(text, pos, i + 1);
-            const auto it = ht.find(tok);
-
-            if (it != ht.end())
-            {
-                // Terminal found
-                std::size_t n = tokens.size();
-                // We shouldn't actually merge tokens
-                // if (n > 0 && tokens[n - 1].type == it->second) tokens[n - 1].value += it->first;
-                // else tokens.push_back(Token<VStr, TokenType>(it->first, it->second));
-                tokens.push_back(Token<VStr, TokenType>(it->first, it->second));
-                pos = i + 1;
-            }
-        }
-
-//        assert(pos == text.size() && "Tokenization error: found unrecognized tokens");
-        ok = (pos == text.size());
-        return tokens;
-    }
+    static constexpr AlterSolver alter_conf() { return alter; }
 };
 
 
@@ -261,9 +36,10 @@ public:
   * @tparam VStr Variable string class
   * @tparam TokenType Nonterminal type (name) container
   * @tparam RulesSymbol Rules class
+  * @tparam ParserOpt Parser config
   * @tparam Tree Parser tree node class
   */
-template<class VStr, class TokenType, class Tree, class RulesSymbol>
+template<class VStr, class TokenType, class Tree, class ParserOpt, class RulesSymbol>
 class Parser
 {
 protected:
@@ -314,25 +90,7 @@ protected:
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Alter)
             {
-                // Check any of these nodes
-                std::size_t i = index;
-
-                std::cout << "alter : ";
-                // Return true if we match at least one
-                // (a+a)+b - in a+a both 'a' and 'a+a' may evaluate to true, so we cannot get the first match
-                return !symbol.each_or_exit([&](const auto& s) -> bool {
-                    // Apply index and return
-                    Tree node_stack = node;
-                    if (parse(s, node_stack, i, tokens))
-                    {
-                        std::cout << "alter finished" << std::endl;
-                        node = node_stack; // Apply changes
-                        index = i;
-                        return false; // Exit from callback
-                    }
-                    std::cout << ".";
-                    return true; // Continue
-                });
+                return parse_alter(symbol, node, index, tokens);
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Optional)
             {
@@ -443,56 +201,32 @@ protected:
 
         return true;
     }
-};
 
-// Unneeded classes
-// ================
-
-template<class TRulesDefOp>
-class NTermHTItem
-{
-public:
-    const std::remove_cvref_t<get_second<TRulesDefOp>>* const ptr;
-    //constexpr NTermHTItem(const TRulesDef* const addr) : ptr(addr) {}
-
-    constexpr NTermHTItem() : ptr(nullptr) {}
-
-    constexpr NTermHTItem(const TRulesDefOp& op) : ptr(&std::get<1>(op)) {}
-};
-
-
- /**
-  * @brief TokenType (str) to nterm definition mapping. Uses std::variant to store pointers
-  */
-template<class TokenType, class RulesSymbol>
-class NTermsHashTable
-{
-public:
-    using TDefsTuple = RulesSymbol::term_types_tuple;
-    using TDefsPtrTuple = RulesSymbol::term_ptr_tuple;
-    using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>();
-
-    // Morph tuple into std::variant type
-    using NTermVariant = decltype(type_morph_t<std::variant>(
-            []<std::size_t index>(){ return NTermHTItem<std::tuple_element_t<index, TDefsTuple>()>(); },
-            TupleLen()));
-
-    std::unordered_map<TokenType, NTermVariant> storage;
-
-    constexpr NTermsHashTable(const RulesSymbol& rules)
+    template<class TSymbol>
+    inline bool parse_alter(const TSymbol& symbol, Tree& node, std::size_t& index, const std::vector<TokenV>& tokens) const
     {
-        std::size_t i = 0;
-        // Iterate over each definition
-        rules.each([&](const auto& def){
-            NTermHTItem term(def);
-            TokenType t(std::get<0>(def.terms).type());
-            storage.insert(t, term);
-        });
-    }
+        if constexpr (ParserOpt::alter_conf() == AlterSolver::PickFirst)
+        {
+            // Check any of these nodes
+            std::size_t i = index;
 
-    auto get(const TokenType& type) const
-    {
-        return std::visit([](const auto& ht_item){ return ht_item.ptr; }, storage[type]);
+            std::cout << "alter : ";
+            // Return true if we match at least one
+            // (a+a)+b - in a+a both 'a' and 'a+a' may evaluate to true, so we cannot get the first match
+            return !symbol.each_or_exit([&](const auto& s) -> bool {
+                // Apply index and return
+                Tree node_stack = node;
+                if (parse(s, node_stack, i, tokens))
+                {
+                    std::cout << "alter finished" << std::endl;
+                    node = node_stack; // Apply changes
+                    index = i;
+                    return false; // Exit from callback
+                }
+                std::cout << ".";
+                return true; // Continue
+            });
+        }
     }
 };
 
