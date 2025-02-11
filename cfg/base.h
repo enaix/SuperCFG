@@ -20,12 +20,18 @@ public:
     TreeNode<VStr>* parent;
     std::vector<TreeNode<VStr>> nodes;
 
-    TreeNode() : name(), value() {}
+    TreeNode() : name(), value(), parent(nullptr), nodes() {}
+
+    TreeNode(const TreeNode<VStr>& other) : name(other.name), value(other.value), parent(other.parent), nodes(other.nodes) {}
 
     template<class TStr>
     TreeNode(const TStr& name, TreeNode<VStr>* parent = nullptr) : name(VStr(name)), parent(parent), value() {}
 
-    TreeNode<VStr>& add(const TreeNode<VStr>& node) { nodes.push_back(std::move(node)); return nodes.back(); }
+    void add(const TreeNode<VStr>& node) { nodes.push_back(node); }
+
+    void merge(const TreeNode<VStr>& node) { nodes.insert(nodes.end(), node.nodes.begin(), node.nodes.end()); }
+
+    TreeNode<VStr>& last() { return nodes.back(); }
 
     template<class TStr>
     void add_value(const TStr& c) { value += c; }
@@ -69,9 +75,10 @@ public:
     constexpr auto flatten() const { return *this; } // flatten() operation on a term always returns term
 
     template<class Node>
-    Node& create_node(Node& parent) const { return parent.add(Node(name)); }
+    Node create_node(Node& parent) const { return Node(name, &parent); }
 
-    TreeNode<CStr> create_node() const { return TreeNode(name); }
+//    TreeNode<CStr> create_node() const { return TreeNode(name); }
+
 };
 
  /**

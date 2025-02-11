@@ -122,7 +122,7 @@ bool test_gbnf_parse_1()
         return false;
     }
 
-    Parser<StdStr<char>, StdStr<char>, TreeNode<StdStr<char>>, ParserOptions<AlterSolver::PickFirst>, decltype(root)> parser(root);
+    LL1Parser<StdStr<char>, StdStr<char>, TreeNode<StdStr<char>>, LL1ParserOptions<LL1AlterSolver::PickFirst>, decltype(root)> parser(root);
     TreeNode<StdStr<char>> tree;
     std::cout << "======" << std::endl << "parser output : " << std::endl;
     ok = parser.run(tree, NTerm(cs("digit")), res);
@@ -159,18 +159,16 @@ bool test_gbnf_parse_calc()
     constexpr auto div = NTerm(cs("div"));
     constexpr auto op = NTerm(cs("op")); // any operator
     constexpr auto arithmetic = NTerm(cs("arithmetic"));
-    constexpr auto group = NTerm(cs("group"));
 
-    constexpr auto d_add = Define(add, Concat(op, Term(cs("+")), op));
-    constexpr auto d_sub = Define(sub, Concat(op, Term(cs("-")), op));
-    constexpr auto d_mul = Define(mul, Concat(op, Term(cs("*")), op));
-    constexpr auto d_div = Define(div, Concat(op, Term(cs("/")), op));
+    constexpr auto d_add = Define(add, Concat(number, Term(cs("+")), number));
+    constexpr auto d_sub = Define(sub, Concat(number, Term(cs("-")), number));
+    constexpr auto d_mul = Define(mul, Concat(number, Term(cs("*")), number));
+    constexpr auto d_div = Define(div, Concat(number, Term(cs("/")), number));
 
     constexpr auto d_arithmetic = Define(arithmetic, Alter(add, sub, mul, div));
-    constexpr auto d_group = Define(group, Concat(Term(cs("(")), Alter(op, number), Term(cs(")"))));
-    constexpr auto d_op = Define(op, Alter(number, group, arithmetic));
+    constexpr auto d_op = Define(op, Alter(number, arithmetic));
 
-    constexpr auto ruleset = RulesDef(d_digit, d_number, d_add, d_sub, d_mul, d_div, d_arithmetic, d_group, d_op);
+    constexpr auto ruleset = RulesDef(d_digit, d_number, d_add, d_sub, d_mul, d_div, d_arithmetic, d_op);
 
     auto bake = ruleset.bake(rules);
     //std::cout << res.c_str() << std::endl;
@@ -181,7 +179,7 @@ bool test_gbnf_parse_calc()
     for (const auto& kv : ht)
         std::cout << kv.first << ": " << kv.second << std::endl;
 
-    StdStr<char> in("5*(10-2+333/(1))");
+    StdStr<char> in("5*1234");
     bool ok;
     auto res = lexer.run(ht, in, ok);
 
@@ -194,12 +192,13 @@ bool test_gbnf_parse_calc()
         std::cout << "<" << tok.value << "> ";
     std::cout << std::endl;
 
-    Parser<StdStr<char>, StdStr<char>, TreeNode<StdStr<char>>, ParserOptions<AlterSolver::PickFirst>, decltype(ruleset)> parser(ruleset);
     if (!ok)
     {
         std::cout << "lexer build error" << std::endl;
         return false;
     }
+
+    LL1Parser<StdStr<char>, StdStr<char>, TreeNode<StdStr<char>>, LL1ParserOptions<LL1AlterSolver::PickLongest>, decltype(ruleset)> parser(ruleset);
 
     TreeNode<StdStr<char>> tree;
     std::cout << "======" << std::endl << "parser output : " << std::endl;
