@@ -1,0 +1,57 @@
+d -> [0-9]
+n -> d d*
+g -> '(' Alter(g, n) ')'
+sum -> op '+' op
+op -> Alter(n, g, sum)
+
+op -> n;
+   -> g -> (n)
+        -> (g) -> ((n))
+	       -> ((g)) -> ...
+   -> sum -> op -> ...
+             +
+	     op -> ...
+
+5+(10+5)
+
+#d sum g d d sum d g
+
+#d -> Alter(n, g, sum) -> Alter(n, Alter(g, n), Alter(op, op))
+
+#n sum g n sum n g
+
+
+---
+tok       s
+5+(10+5)  5     s
++(10+5)   d     r
++(10+5)   n     r
++(10+5)   op    r
+(10+5)    op+   s
+10+5)     op+(  s
+...
+          op+(10+5)
+check:
+  i=0: no handle
+  i=1: +: op'+'op != op'+''('
+  i=2: (: '('n')' != '(''1''0'
+          '('g')' != '(''1''0'
+  i=3: d: - ok
+  continue or start over
+
+reverse type tree:
+d -> n
+n -> g, sum, op
+
+term -> get its type
+nterm -> get type tree and iterate
+
+
+Reduce:
+op'+'op:
+  op'+'[op] - no
+  op['+'op]: <handle:sum><nterm:op> -> same types on the reverse tree -> only <sum>. Parse sum - fail
+  [op'+'op]: check <sum> - ok, return sum
+
+
+

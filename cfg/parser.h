@@ -330,5 +330,31 @@ protected:
 };
 
 
+template<class VStr, class TokenType, class Tree, class RulesSymbol>
+class SRParser
+{
+protected:
+    NTermsStorage<TokenType, RulesSymbol> storage;
+    //NTermsConstHashTable<RulesSymbol> storage;
+    using TokenV = Token<VStr, TokenType>;
+public:
+    constexpr explicit SRParser(const RulesSymbol& rules) : storage(rules) {}
+    // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
+
+    template<class RootSymbol>
+    bool run(Tree& node, const RootSymbol& root, std::vector<TokenV>& tokens)
+    {
+        std::vector<TokenV> stack;
+    }
+
+protected:
+    bool reduce(std::vector<TokenV>& stack, std::vector<TokenV>& tokens)
+    {
+        // Get rightmost token type (handle)
+        // check shift_reduce_parser_notes.txt
+    }
+};
+
+
 
 #endif //SUPERCFG_PARSER_H
