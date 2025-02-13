@@ -353,6 +353,14 @@ protected:
     {
         // Get rightmost token type (handle)
         // check shift_reduce_parser_notes.txt
+
+        // iterate from right to left over stack n times
+        // at step i:
+        //   for token : get its nterm (type) from TokenV
+        //   for nterm : get its related nterms from reverse rules tree
+        //   find intersect with the previous one
+        // for each common nterm : execute parse() for each definition
+        // if found 1 : reduce, else goto next iter
     }
 };
 
