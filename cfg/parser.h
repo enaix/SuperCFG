@@ -330,11 +330,12 @@ protected:
 };
 
 
-template<class VStr, class TokenType, class Tree, class RulesSymbol>
+template<class VStr, class TokenType, class Tree, class RulesSymbol, class RRTree>
 class SRParser
 {
 protected:
     NTermsStorage<TokenType, RulesSymbol> storage;
+    RRTree reverse_rules;
     //NTermsConstHashTable<RulesSymbol> storage;
     using TokenV = Token<VStr, TokenType>;
 public:
