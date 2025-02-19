@@ -330,7 +330,10 @@ protected:
 };
 
 
-template<class VStr, class TokenType, class Tree, class RulesSymbol, class RRTree>
+
+
+
+template<class VStr, class TokenType, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree>
 class SRParser
 {
 protected:
@@ -338,6 +341,7 @@ protected:
     RRTree reverse_rules;
     //NTermsConstHashTable<RulesSymbol> storage;
     using TokenV = Token<VStr, TokenType>;
+    using GSymbolV = GrammarSymbol<VStr, TokenType>;
 public:
     constexpr explicit SRParser(const RulesSymbol& rules) : storage(rules) {}
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
@@ -345,11 +349,14 @@ public:
     template<class RootSymbol>
     bool run(Tree& node, const RootSymbol& root, std::vector<TokenV>& tokens)
     {
-        std::vector<TokenV> stack;
+        std::vector<GSymbolV> stack;
     }
 
 protected:
-    bool reduce(std::vector<TokenV>& stack, std::vector<TokenV>& tokens)
+    /**
+     * @brief Iterative reduce algorithm
+     */
+    bool reduce(std::vector<GSymbolV>& stack, std::vector<TokenV>& tokens)
     {
         // Get rightmost token type (handle)
         // check shift_reduce_parser_notes.txt
@@ -361,6 +368,64 @@ protected:
         //   find intersect with the previous one
         // for each common nterm : execute parse() for each definition
         // if found 1 : reduce, else goto next iter
+
+
+        // Trivial case with 1 element
+        // Simply try to reduce the element on the top
+        /*GSymbolV& top_elem = stack.back();
+        top_elem.visit([&](const VStr&& token, const TokenType& type){
+            // Parse the token
+
+        }, [&](const TokenType& type){
+            // Parse the nterm
+        });*/
+
+        // First loop over the stack
+        tuple_for([&]<std::size_t i>(){
+            if (i < stack.size())
+            {
+                std::size_t i_rev = stack.size() - i - 1; // Get position from the top
+
+                // Second loop over the stack (iterate over the window)
+                auto types = tuple_for([&]<std::size_t j>(){
+                    std::size_t j_rev = j + i_rev; // Get jth position from the top
+
+                    GSymbolV& elem = stack[j_rev];
+                    const auto& nterm = std::get<0>(storage.get(elem.type)->terms); // Fetch symbol nterm
+                    return elem.visit([&](const VStr&& token, const TokenType& type){
+                        // Parse the token
+                        return std::make_tuple(nterm); // We need to return a single nterm in which this token is defined
+                    }, [&](const TokenType& type){
+                        // Parse the nterm
+                        return reverse_rules.get(nterm); // We need to return nterms which contain this one from the RR tree
+                    });
+
+                }, i); // second for loop
+                auto common_types = tuple_intersect(types);
+                if constexpr (std::tuple_size<decltype(types)>() > 0)
+                {
+                    // descend and check each definition
+                }
+
+            } // else return void
+        }, IntegralWrapper<STACK_MAX>()); // first for loop
+
+
+        // Iter n times over stack
+        /*for (int i = stack.size() - 2; i >= 0; i++)
+        {
+            // Iter over window
+            for (std::size_t j = i; j < stack.size(); j++)
+            {
+
+            }
+        }*/
+    }
+
+    template<class TSymbol>
+    bool descend_batch(const TSymbol& symbol)
+    {
+
     }
 };
 

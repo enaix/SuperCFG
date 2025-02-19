@@ -44,6 +44,36 @@ public:
 
 
 /**
+ * @brief Wrapper class that stores either a token or a nonterminal (type)
+ * @tparam VStr
+ * @tparam Type
+ */
+template<class VStr, class Type>
+class GrammarSymbol
+{
+public:
+    VStr value;
+    Type type;
+    const std::variant<std::true_type, std::false_type> symbol_type; // true if it's a token, false if a nterm
+
+    constexpr GrammarSymbol(const Token<VStr, Type>& token) : value(token.value), type(token.type), symbol_type(std::true_type()) {}
+
+    constexpr GrammarSymbol(const Type& type) : value(), type(type), symbol_type(std::false_type) {}
+
+    constexpr auto visit(auto process_token, auto process_nterm) const
+    {
+        // TODO replace all cvref_t with decay_t
+        return std::visit([&](auto&& s_type){
+            if constexpr (std::is_same_v<std::decay_t<decltype(s_type)>, std::true_type>)
+                return process_token(value, type);
+            else
+                return process_nterm(type);
+            }, symbol_type);
+    }
+};
+
+
+/**
  * @brief Container of tokens (terminals), handles the mapping between string and its related type
  * @tparam TERMS_MAX Container size
  * @tparam VStr Token string container
@@ -377,7 +407,7 @@ protected:
         // Check if we don't compare the type against itself
         if constexpr (std::is_same_v<std::remove_cvref_t<decltype(rule_nterm)>, TSymbol>())
         {
-            if constexpr (depth + 1 >= std::tuple_size<rules.terms>()) return std::tuple<>(); // TODO cover this case when last term is same
+            if constexpr (depth + 1 >= std::tuple_size<rules.terms>()) return std::tuple<>(); // TODO cover this case when last term is the same
             return std::tuple_cat(nterms, iterate_over_rules<depth+1>(nterm, rules));
         } else {
             const bool found = is_nterm_in_rule(rules, nterm);
