@@ -330,7 +330,12 @@ protected:
 };
 
 
-
+template<class Sequence, bool found>
+class DescendBatchResult
+{
+public:
+    Sequence seq;
+};
 
 
 template<class VStr, class TokenType, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree>
@@ -393,19 +398,35 @@ protected:
                     GSymbolV& elem = stack[j_rev];
                     const auto& nterm = std::get<0>(storage.get(elem.type)->terms); // Fetch symbol nterm
                     return elem.visit([&](const VStr&& token, const TokenType& type){
-                        // Parse the token
-                        return std::make_tuple(nterm); // We need to return a single nterm in which this token is defined
+                        // Return the token
+                        return std::make_tuple(std::true_type(), nterm);
                     }, [&](const TokenType& type){
-                        // Parse the nterm
-                        return reverse_rules.get(nterm); // We need to return nterms which contain this one from the RR tree
+                        // Return the nterm
+                        return std::make_tuple(std::false_type(), nterm);
                     });
 
                 }, i); // second for loop
-                auto common_types = tuple_intersect(types);
-                if constexpr (std::tuple_size<decltype(types)>() > 0)
+
+                // Find related types of each token/nterm
+                auto related_types = tuple_morph([&]<std::size_t k>(const auto& elem){
+                    const auto& nterm = std::get<1>(elem);
+                    if constexpr (std::is_same_v<std::tuple_element_t<0, decltype(elem)>, std::true_type>()) // Token element
+                        return std::make_tuple(nterm); // We need to return a single nterm in which this token is defined
+                    else // NTerm element
+                        return std::make_tuple(std::false_type(), nterm); // We need to return nterms which contain this one from the RR tree
+                }, types);
+
+                // Get the type of each element
+                auto slice = tuple_morph([&]<std::size_t k>(const auto& elem){ return std::get<1>(elem); }, types);
+
+                auto common_types = tuple_intersect(related_types);
+                tuple_each(common_types, [&](std::size_t, const auto& type){
+                    // descend and check each definition
+                });
+                /*if constexpr (std::tuple_size<decltype(types)>() > 0)
                 {
                     // descend and check each definition
-                }
+                }*/
 
             } // else return void
         }, IntegralWrapper<STACK_MAX>()); // first for loop
@@ -422,10 +443,38 @@ protected:
         }*/
     }
 
-    template<class TSymbol>
-    bool descend_batch(const TSymbol& symbol)
+    /**
+     * @brief Recursively descend over the grammar rule and check if current sequence matches the rule
+     * @tparam Types Types sequence tuple
+     * @param symbol Grammar rule
+     */
+    template<class Types, class TSymbol>
+    constexpr auto descend_batch(const Types& sequence, const TSymbol& symbol) const
     {
-
+        if constexpr (is_operator<TSymbol>())
+        {
+            if constexpr (get_operator<TSymbol>() == OpType::Concat)
+            {
+                return symbol.each_index_or_exit([&]<std::size_t s_index>(const auto& s) -> bool {
+                    if (!descend_batch(tuple_slice<s_index, SIZE_T_MAX>(sequence, s)))
+                        return false; // Didn't find anything
+                    return true; // Continue
+                });
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Alter)
+            {
+                // Get each element and check if at least one matches
+                return !symbol.each_or_exit([&](const auto& s) -> bool {
+                    if (descend_batch(sequence, s)) return false; // Found
+                    return true; // Continue
+                }
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Optional)
+            {
+                // Try to match if we can, just return true anyway
+                return descend_batch()
+            }
+        }
     }
 };
 

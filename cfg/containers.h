@@ -119,6 +119,8 @@ template<std::size_t N>
 class IntegralWrapper : public std::integral_constant<size_t, N>
 {
 public:
+    using value_type = std::integral_constant<size_t, N>::value_type;
+
     template<class... TArgs>
     constexpr auto bake(auto... args) const { return int2str(*this); }
 };

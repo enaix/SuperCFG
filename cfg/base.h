@@ -249,12 +249,23 @@ public:
     constexpr void each(auto func) const { each_symbol<0>(func); }
 
     /**
+     * @brief Iterate over each element in terms tuple and pass index as lambda template parameter
+     */
+    constexpr void each_index(auto func) const { each_symbol_index<0>(func); }
+
+    /**
      * @brief Iterate over each element in terms tuple until false is returned
      * @param func Lambda closure that processes each element and returns bool
      * @return false if it's returned from lambada, otherwise true
      */
     template<class Callable> requires ReturnsBool<Callable>
     constexpr bool each_or_exit(Callable func) const { return each_symbol_return<0>(func); }
+
+    /**
+     * @brief Iterate over each element in terms tuple and pass index as lambda template parameter, until false is returned
+     */
+    template<class Callable> requires ReturnsBool<Callable>
+    constexpr bool each_index_or_exit(Callable func) const { return each_symbol_index_return<0>(func); }
 
     /**
      * @brief Recursive baking function that returns CStr. Manages precedence and calls baking preprocessing
@@ -427,10 +438,25 @@ protected:
     }
 
     template<std::size_t i>
+    constexpr void each_symbol_index(auto func) const
+    {
+        func.template<i> operator()(std::get<i>(terms));
+        if constexpr (i + 1 < sizeof...(TSymbols)) each_symbol_index<i + 1>(func);
+    }
+
+    template<std::size_t i>
     constexpr bool each_symbol_return(auto func) const
     {
         if (!func(std::get<i>(terms))) return false;
         if constexpr (i + 1 < sizeof...(TSymbols)) return each_symbol_return<i + 1>(func);
+        return true;
+    }
+
+    template<std::size_t i>
+    constexpr void each_symbol_index_return(auto func) const
+    {
+        if (!func.template<i> operator()(std::get<i>(terms))) return false;
+        if constexpr (i + 1 < sizeof...(TSymbols)) return each_symbol_index_return<i + 1>(func);
         return true;
     }
 

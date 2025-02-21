@@ -64,16 +64,30 @@ namespace cfg_helpers
     {
         return std::make_tuple(gen_func.template operator()<Ints>()...);
     }
+
+    template<std::size_t depth, class Tuple>
+    constexpr void do_tuple_each(const Tuple& tuple, auto each_elem)
+    {
+        each_elem(depth, std::get<depth>(tuple));
+        if constexpr (depth + 1 < std::tuple_size_v<Tuple>())
+            do_tuple_each<depth+1>(tuple, each_elem);
+    }
+
+    template<std::size_t offset, class Tuple, const std::integer_sequence<std::size_t, Ints...>>
+    constexpr auto do_tuple_slice(const Tuple& tuple)
+    {
+        return std::make_tuple(std::get<Ints + offset>(tuple), ...);
+    }
 } // cfg_helpers
 
 
 /**
-     * @brief Type morphing function that constructs a type Target<T...> using morph<int> lambda. To be used with decltype()
-     * @tparam Target Target class template (std::variant, std::tuple)
-     * @tparam N Number of target template argument
-     * @param morph Morphing lambda which generates target element at index, passed through a template
-     * @param length Number of template arguments
-     */
+ * @brief Type morphing function that constructs a type Target<T...> using morph<int> lambda. To be used with decltype()
+ * @tparam Target Target class template (std::variant, std::tuple)
+ * @tparam N Number of target template argument
+ * @param morph Morphing lambda which generates target element at index, passed through a template
+ * @param length Number of template arguments
+ */
 template<template<class...> class Target, std::size_t N>
 constexpr auto type_morph_t(auto morph, const IntegralWrapper<N> length)
 {
@@ -93,6 +107,17 @@ template<template<class...> class Target, std::size_t N, class Src>
 constexpr auto type_morph(auto morph, const IntegralWrapper<N> length, const Src& src)
 {
     return cfg_helpers::do_type_morph<Target>(morph, src, std::make_index_sequence<N>{});
+}
+
+/**
+ * @brief Type morphing function for tuples
+ * @param morph Morphing lambda which generates target element at index, passed through a template
+ * @param src Source tuple to cast from
+ */
+template<class Src>
+constexpr auto tuple_morph(auto morph, const Src& src)
+{
+    return cfg_helpers::do_type_morph<std::tuple>(morph, src, std::make_index_sequence<std::tuple_size_v<Src>()>{});
 }
 
 /**
@@ -124,6 +149,52 @@ constexpr auto tuple_for(auto gen_func, const IntegralWrapper<N> length)
 {
     return cfg_helpers::do_tuple_for(gen_func, std::make_index_sequence<N>{});
 }
+
+/**
+ * @brief Iterate over each tuple element
+ * @param each_elem Lambda that takes an index and tuple element
+ */
+template<class Tuple>
+constexpr void tuple_each(const Tuple& tuple, auto each_elem)
+{
+    if constexpr (std::tuple_size_v<Tuple>() != 0) cfg_helpers::do_tuple_each<0>(tuple, each_elem);
+}
+
+/**
+ * @brief Construct a tuple slice from another tuple
+ * @tparam Start Starting index
+ * @tparam End Ending index (excluded). Any value larger than tuple size sets it to the max size (including SIZE_T_MAX)
+ */
+template<std::size_t Start, std::size_t End, class Tuple>
+constexpr auto tuple_slice(const Tuple& tuple)
+{
+    constexpr std::size_t max = (End <= std::tuple_size_v<Tuple>() ? End : std::tuple_size_v<Tuple>());
+    return cfg_helpers::do_tuple_slice<Start>(tuple, std::make_index_sequence<max - Start>{});
+}
+
+
+template<class Tuple>
+class TupleIndexer
+{
+public:
+    using N = std::tuple_size_v<Tuple>();
+    decltype(type_morph_t<std::variant>(
+            []<std::size_t index>(){ return IntegralWrapper<index>(); },
+            IntegralWrapper<N>())) indexes[N];
+
+    constexpr TupleIndexer(const Tuple& tuple) { init_array(); }
+
+    constexpr const auto& get(const Tuple& tuple, std::size_t i) const
+    {
+        return std::visit([&](const auto& ind){ return std::get<std::decay_t<decltype(ind)>::value_type>(tuple); });
+    }
+
+protected:
+    constexpr void init_array()
+    {
+        for (std::size_t i = 0; i < N; i++) indexes[i] = i;
+    }
+};
 
 
 #endif //SUPERCFG_HELPERS_H
