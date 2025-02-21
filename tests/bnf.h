@@ -18,7 +18,7 @@ bool test_gbnf_basic()
 {
     std::cout << "test_gbnf_basic() :" << std::endl;
 
-    constexpr EBNFRules rules;
+    constexpr EBNFBakery rules;
     constexpr auto test = NTerm(cs("abcd")).bake(rules);
     std::cout << test.c_str() << std::endl;
     constexpr auto true1 = cs("abcd");
@@ -38,7 +38,7 @@ bool test_gbnf_complex1()
 {
     std::cout << "test_gbnf_complex1() :" << std::endl;
 
-    constexpr EBNFRules rules;
+    constexpr EBNFBakery rules;
     constexpr auto term1 = NTerm(cs("A"));
     constexpr auto term2 = NTerm(cs("B"));
     constexpr auto term3 = Term(cs("42"));
@@ -70,8 +70,8 @@ bool test_gbnf_extended()
 {
     std::cout << "test_gbnf_extended() :" << std::endl;
 
-    constexpr EBNFRules rules;
-    constexpr ExtEBNFRules rules_ext;
+    constexpr EBNFBakery rules;
+    constexpr ExtEBNFBakery rules_ext;
     constexpr auto ex1 = RepeatExact<5>(Term(cs("abc"))).bake(rules);
     constexpr auto ex1e = RepeatExact<5>(Term(cs("abc"))).bake(rules_ext);
     std::cout << ex1.c_str() << std::endl << ex1e.c_str() << std::endl;
@@ -144,7 +144,7 @@ bool test_gbnf_parse_calc()
 {
     std::cout << "test_gbnf_parse_calc() :" << std::endl;
 
-    constexpr EBNFRules rules;
+    constexpr EBNFBakery rules;
 //    constexpr auto nozero = NTerm(cs("digit excluding zero"));
 //    constexpr auto d_nozero = Define(nozero, );
     constexpr auto digit = NTerm(cs("digit"));

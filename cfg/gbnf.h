@@ -8,7 +8,7 @@
 #include "cfg/base.h"
 
 
-class EBNFRules
+class EBNFBakery
 {
 public:
     // Rules options
@@ -94,7 +94,7 @@ public:
 };
 
 
-class ExtEBNFRules : public EBNFRules
+class ExtEBNFBakery : public EBNFBakery
 {
 public:
     // Rules options

@@ -66,11 +66,11 @@ public:
 
     constexpr auto type() const { return name; }
 
-    template<class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const { return rules.bake_nonterminal(this->name); }
+    template<class BNFBakery>
+    constexpr auto bake(const BNFBakery& rules) const { return rules.bake_nonterminal(this->name); }
 
-    template<class Arg, class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const { return bake(rules); }
+    template<class Arg, class BNFBakery>
+    constexpr auto bake(const BNFBakery& rules) const { return bake(rules); }
 
     constexpr auto flatten() const { return *this; } // flatten() operation on a term always returns term
 
@@ -97,11 +97,11 @@ public:
 
     constexpr Term() : name("\0") {}
 
-    template<class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const { return rules.bake_terminal(this->name); }
+    template<class BNFBakery>
+    constexpr auto bake(const BNFBakery& rules) const { return rules.bake_terminal(this->name); }
 
-    template<class Arg, class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const { return bake(rules); }
+    template<class Arg, class BNFBakery>
+    constexpr auto bake(const BNFBakery& rules) const { return bake(rules); }
 
     constexpr auto flatten() const { return *this; } // flatten() operation on a term always returns term
 };
@@ -259,20 +259,20 @@ public:
     /**
      * @brief Recursive baking function that returns CStr. Manages precedence and calls baking preprocessing
      * @tparam max_precedence_t Operator with the maximum preference in current scope (op_type_t<...>)
-     * @tparam BNFRules Base rules class
+     * @tparam BNFBakery Base rules class
      */
-    template<class max_precedence_t, class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const
+    template<class max_precedence_t, class BNFBakery>
+    constexpr auto bake(const BNFBakery& rules) const
     {
-        return process_precedence<max_precedence_t>(rules, [&]<class next>(const auto&... args) { return preprocess_bake<next, BNFRules>(args...); } );
+        return process_precedence<max_precedence_t>(rules, [&]<class next>(const auto&... args) { return preprocess_bake<next, BNFBakery>(args...); } );
     }
 
     /**
      * @brief Top-level recursive baking function that returns CStr
-     * @tparam BNFRules Base rules class
+     * @tparam BNFBakery Base rules class
      */
-    template<class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const
+    template<class BNFBakery>
+    constexpr auto bake(const BNFBakery& rules) const
     {
         return preprocess_bake<op_type_t<Operator>>(rules);
     }
@@ -295,10 +295,10 @@ public:
     /**
      * @brief Preprocess arguments for baking functions. Should be called only in process_precedence
      * @tparam max_precedence Operator with the maximum preference in current scope (op_type_t<...>)
-     * @tparam BNFRules Base rules class
+     * @tparam BNFBakery Base rules class
      */
-    template<class max_precedence, class BNFRules>
-    constexpr auto preprocess_bake(const BNFRules& rules) const
+    template<class max_precedence, class BNFBakery>
+    constexpr auto preprocess_bake(const BNFBakery& rules) const
     {
         // Definition operator rules
         if constexpr (Operator == OpType::Define) return do_bake_define<max_precedence>(rules);
@@ -316,8 +316,8 @@ protected:
     /**
      * @brief Recursibely bake each argument in terms tuple
      */
-    template<std::size_t depth, class max_precedence_t, class BNFRules, class TBuf>
-    constexpr auto do_bake(const BNFRules& rules, TBuf last) const
+    template<std::size_t depth, class max_precedence_t, class BNFBakery, class TBuf>
+    constexpr auto do_bake(const BNFBakery& rules, TBuf last) const
     {
         auto res = exec_bake_rule<max_precedence_t>(rules, last, std::get<depth>(terms));
         if constexpr (depth + 1 < sizeof...(TSymbols))
@@ -330,8 +330,8 @@ protected:
      * @tparam max_precedence Operator with the maximum preference in current scope (op_type_t<...>)
      * @param symbols List of symbols which are passed to the baking function
      */
-    template<class max_precedence_t, class BNFRules, class... TSymbolPack>
-    constexpr auto exec_bake_rule(const BNFRules& rules, const TSymbolPack&... symbols) const
+    template<class max_precedence_t, class BNFBakery, class... TSymbolPack>
+    constexpr auto exec_bake_rule(const BNFBakery& rules, const TSymbolPack&... symbols) const
     {
         if constexpr (Operator == OpType::Concat) return rules.bake_concat(symbols.template bake<max_precedence_t>(rules)...);
         if constexpr (Operator == OpType::Alter) return rules.bake_alter(symbols.template bake<max_precedence_t>(rules)...);
@@ -389,8 +389,8 @@ protected:
     /**
      * @brief Bake definition operator
      */
-    template<class max_precedence_t, class BNFRules>
-    constexpr auto do_bake_define(const BNFRules& rules) const
+    template<class max_precedence_t, class BNFBakery>
+    constexpr auto do_bake_define(const BNFBakery& rules) const
     {
         BaseOp<OpType::End> end;
         return exec_bake_rule<max_precedence_t>(rules, std::get<0>(terms), std::get<1>(terms)) + end.bake<max_precedence_t>(rules);
@@ -399,8 +399,8 @@ protected:
     /**
      * @brief Bake exception operator
      */
-    template<class max_precedence_t, class BNFRules>
-    constexpr auto do_bake_except(const BNFRules& rules) const
+    template<class max_precedence_t, class BNFBakery>
+    constexpr auto do_bake_except(const BNFBakery& rules) const
     {
         return exec_bake_rule<max_precedence_t>(rules, std::get<0>(terms), std::get<1>(terms));
     }
@@ -446,16 +446,16 @@ protected:
     /**
      * @brief Process precedence order and call the corresponding bake operation
      * @tparam max_precedence Operator with the maximum preference in current scope (op_type_t<...>)
-     * @tparam BNFRules Base rules class
+     * @tparam BNFBakery Base rules class
      * @param bake_func Lambda closure template which calls preprocess_bake function
      */
-    template<class max_precedence_t, class BNFRules>
-    constexpr auto process_precedence(const BNFRules& rules, auto bake_func) const
+    template<class max_precedence_t, class BNFBakery>
+    constexpr auto process_precedence(const BNFBakery& rules, auto bake_func) const
     {
         // If our precedence is lower than previous, we add grouping operator and recursively parse
-        if constexpr (BNFRules::precedence().has(Operator) && BNFRules::precedence().has(max_precedence_t::value) && BNFRules::precedence().less(Operator, max_precedence_t::value)) return BaseOp<OpType::Group, decltype(*this)>(*this).template bake<op_type_t<OpType::None>>(rules);
+        if constexpr (BNFBakery::precedence().has(Operator) && BNFBakery::precedence().has(max_precedence_t::value) && BNFBakery::precedence().less(Operator, max_precedence_t::value)) return BaseOp<OpType::Group, decltype(*this)>(*this).template bake<op_type_t<OpType::None>>(rules);
         // bake_func is a lambda, so we need to explicitly call operator()
-        else return bake_func.template operator()<op_type_t<BNFRules::precedence().max(max_precedence_t::value, Operator)>>(rules);
+        else return bake_func.template operator()<op_type_t<BNFBakery::precedence().max(max_precedence_t::value, Operator)>>(rules);
     }
 };
 
@@ -497,28 +497,28 @@ public:
     /**
      * @brief Recursive baking function that returns CStr. Manages precedence and calls baking preprocessing
      * @tparam max_precedence_t Operator with the maximum preference in current scope (op_type_t<...>)
-     * @tparam BNFRules Base rules class
+     * @tparam BNFBakery Base rules class
      */
-    template<class max_precedence_t, class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const
+    template<class max_precedence_t, class BNFBakery>
+    constexpr auto bake(const BNFBakery& rules) const
     {
-        this->template process_precedence<max_precedence_t>(rules, [&]<class next>(const auto&... args) { return preprocess_bake<next, BNFRules>(args...); });
+        this->template process_precedence<max_precedence_t>(rules, [&]<class next>(const auto&... args) { return preprocess_bake<next, BNFBakery>(args...); });
     }
 
     /**
      * @brief Top-level recursive baking function that returns CStr
-     * @tparam BNFRules Base rules class
+     * @tparam BNFBakery Base rules class
      */
-    template<class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const { return preprocess_bake<op_type_t<Operator>, BNFRules>(rules); }
+    template<class BNFBakery>
+    constexpr auto bake(const BNFBakery& rules) const { return preprocess_bake<op_type_t<Operator>, BNFBakery>(rules); }
 
     /**
      * @brief Preprocess arguments for baking functions. Should be called only in process_precedence
      * @tparam max_precedence Operator with the maximum preference in current scope (op_type_t<...>)
-     * @tparam BNFRules Base rules class
+     * @tparam BNFBakery Base rules class
      */
-    template<class max_precedence_t, class BNFRules>
-    constexpr auto preprocess_bake(const BNFRules& rules) const
+    template<class max_precedence_t, class BNFBakery>
+    constexpr auto preprocess_bake(const BNFBakery& rules) const
     {
         auto symbol = to_bnf_flavor(rules);
         if constexpr (std::is_same_v<std::remove_cvref_t<decltype(symbol)>, std::remove_cvref_t<decltype(*this)>>)
@@ -530,17 +530,17 @@ protected:
     /**
      * @brief Cast extended repeat operator to compatible bnf operators
      */
-    template<class BNFRules>
-    constexpr auto to_bnf_flavor(const BNFRules& rules) const
+    template<class BNFBakery>
+    constexpr auto to_bnf_flavor(const BNFBakery& rules) const
     {
         if constexpr (Operator == OpType::RepeatExact)
         {
-            if constexpr (BNFRules::feature_repeat_exact()) return *this;
+            if constexpr (BNFBakery::feature_repeat_exact()) return *this;
             else return unwrap_repeat_exact<Times>(rules, std::get<0>(this->terms)).flatten();
         }
         if constexpr (Operator == OpType::RepeatGE)
         {
-            if constexpr (BNFRules::feature_repeat_ge()) return *this;
+            if constexpr (BNFBakery::feature_repeat_ge()) return *this;
             else return Concat(unwrap_repeat_exact<Times>(rules, std::get<0>(this->terms)).flatten(), Repeat(std::get<0>(this->terms)));
         }
     }
@@ -549,8 +549,8 @@ protected:
      * @brief Recursively unwrap complex operation into N Concat operations
      * @tparam repeat How many times to repeat
      */
-    template<std::size_t repeat, class BNFRules, class TSymbol>
-    constexpr auto unwrap_repeat_exact(const BNFRules& rules, const TSymbol& symbol) const
+    template<std::size_t repeat, class BNFBakery, class TSymbol>
+    constexpr auto unwrap_repeat_exact(const BNFBakery& rules, const TSymbol& symbol) const
     {
         if constexpr (repeat == 1) return symbol;
         else return Concat(unwrap_repeat_exact<repeat - 1>(rules, symbol));
@@ -560,15 +560,15 @@ protected:
      * @brief unwrap_repeat_exact wrapper
      * @tparam integral_const How many times to repeat (IntegralConst<...>)
      */
-    template<class integral_const, class BNFRules, class TSymbol>
-    constexpr auto unwrap_repeat_exact(const integral_const& repeat, const BNFRules& rules, const TSymbol& symbol) const { return unwrap_repeat_exact<integral_const::value>(rules, symbol); }
+    template<class integral_const, class BNFBakery, class TSymbol>
+    constexpr auto unwrap_repeat_exact(const integral_const& repeat, const BNFBakery& rules, const TSymbol& symbol) const { return unwrap_repeat_exact<integral_const::value>(rules, symbol); }
 
     /**
      * @brief Recursively unwrap complex operation into N Optional(Concat(...)) operations
      * @tparam repeat How many times to repeat
      */
-    template<std::size_t repeat, class BNFRules, class TSymbol>
-    constexpr auto unwrap_repeat_le(const BNFRules& rules, const TSymbol& symbol) const
+    template<std::size_t repeat, class BNFBakery, class TSymbol>
+    constexpr auto unwrap_repeat_le(const BNFBakery& rules, const TSymbol& symbol) const
     {
         if constexpr (repeat == 1) return Optional(symbol);
         else return Optional(Concat(symbol, unwrap_repeat_le<repeat - 1>(rules, symbol)));
@@ -578,8 +578,8 @@ protected:
      * @brief unwrap_repeat_le wrapper
      * @tparam integral_const How many times to repeat (IntegralConst<...>)
      */
-    template<class integral_const, class BNFRules, class TSymbol>
-    constexpr auto unwrap_repeat_le(const integral_const& repeat, const BNFRules& rules, const TSymbol& symbol) const { return unwrap_repeat_le<integral_const::value>(rules, symbol); }
+    template<class integral_const, class BNFBakery, class TSymbol>
+    constexpr auto unwrap_repeat_le(const integral_const& repeat, const BNFBakery& rules, const TSymbol& symbol) const { return unwrap_repeat_le<integral_const::value>(rules, symbol); }
 
     constexpr void validate() const
     {
@@ -616,28 +616,28 @@ public:
     /**
      * @brief Recursive baking function that returns CStr. Manages precedence and calls baking preprocessing
      * @tparam max_precedence_t Operator with the maximum preference in current scope (op_type_t<...>)
-     * @tparam BNFRules Base rules class
+     * @tparam BNFBakery Base rules class
      */
-    template<class max_precedence_t, class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const
+    template<class max_precedence_t, class BNFBakery>
+    constexpr auto bake(const BNFBakery& rules) const
     {
-        this->template process_precedence<max_precedence_t>(rules, [&]<class next>(const auto&... args) { return preprocess_bake<next, BNFRules>(rules); });
+        this->template process_precedence<max_precedence_t>(rules, [&]<class next>(const auto&... args) { return preprocess_bake<next, BNFBakery>(rules); });
     }
 
     /**
      * @brief Top-level recursive baking function that returns CStr
-     * @tparam BNFRules Base rules class
+     * @tparam BNFBakery Base rules class
      */
-    template<class BNFRules>
-    constexpr auto bake(const BNFRules& rules) const { return preprocess_bake<op_type_t<Operator>, BNFRules>(rules); }
+    template<class BNFBakery>
+    constexpr auto bake(const BNFBakery& rules) const { return preprocess_bake<op_type_t<Operator>, BNFBakery>(rules); }
 
     /**
      * @brief Preprocess arguments for baking functions. Should be called only in process_precedence
      * @tparam max_precedence Operator with the maximum preference in current scope (op_type_t<...>)
-     * @tparam BNFRules Base rules class
+     * @tparam BNFBakery Base rules class
      */
-    template<class max_precedence_t, class BNFRules>
-    constexpr auto preprocess_bake(const BNFRules& rules) const
+    template<class max_precedence_t, class BNFBakery>
+    constexpr auto preprocess_bake(const BNFBakery& rules) const
     {
         auto symbol = to_bnf_flavor(rules);
         if constexpr (std::is_same_v<std::remove_cvref_t<decltype(symbol)>, std::remove_cvref_t<decltype(*this)>>)
@@ -646,12 +646,12 @@ public:
     }
 
 protected:
-    template<class BNFRules>
-    constexpr auto to_bnf_flavor(const BNFRules& rules) const
+    template<class BNFBakery>
+    constexpr auto to_bnf_flavor(const BNFBakery& rules) const
     {
         if constexpr (Operator == OpType::RepeatRange)
         {
-            if constexpr (BNFRules::feature_repeat_range()) return *this;
+            if constexpr (BNFBakery::feature_repeat_range()) return *this;
             else if constexpr (From == 0) return unwrap_repeat_le(IntegralWrapper<To>(), rules, std::get<0>(this->terms));
             else return Concat(unwrap_repeat_exact(IntegralWrapper<From>(), rules, std::get<0>(this->terms)).flatten(),
                                unwrap_repeat_le(IntegralWrapper<To - From>(), rules, std::get<0>(this->terms)));
