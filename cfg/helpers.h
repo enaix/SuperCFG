@@ -173,6 +173,9 @@ constexpr auto tuple_slice(const Tuple& tuple)
 }
 
 
+/**
+ * @brief Tuple indexer that returns tuple element at runtime
+ */
 template<class Tuple>
 class TupleIndexer
 {
@@ -182,17 +185,24 @@ public:
             []<std::size_t index>(){ return IntegralWrapper<index>(); },
             IntegralWrapper<N>())) indexes[N];
 
-    constexpr TupleIndexer(const Tuple& tuple) { init_array(); }
+    constexpr TupleIndexer(const Tuple& tuple) { init_array<0>(); }
 
     constexpr const auto& get(const Tuple& tuple, std::size_t i) const
     {
-        return std::visit([&](const auto& ind){ return std::get<std::decay_t<decltype(ind)>::value_type>(tuple); });
+        return std::visit([&](const auto& ind){ return std::get<std::decay_t<decltype(ind)>::value_type>(tuple); }, indexes[i]);
+    }
+
+    constexpr const auto get_index(std::size_t i) const
+    {
+        return std::visit([&](const auto& ind){ return ind; }, indexes[i]);
     }
 
 protected:
+    template<std::size_t depth>
     constexpr void init_array()
     {
-        for (std::size_t i = 0; i < N; i++) indexes[i] = i;
+        indexes[depth] = IntegralWrapper<depth>();
+        if (depth + 1 < N) init_array<depth+1>();
     }
 };
 

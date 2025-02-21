@@ -152,6 +152,7 @@ protected:
                     // Check if the symbol is an exception
                     if (!parse(std::get<1>(symbol.terms), Tree(), i, tokens, depth+1))
                     {
+                        index = i;
                         node = node_stack;
                         return true;
                     }
@@ -448,33 +449,81 @@ protected:
      * @tparam Types Types sequence tuple
      * @param symbol Grammar rule
      */
-    template<class Types, class TSymbol>
-    constexpr auto descend_batch(const Types& sequence, const TSymbol& symbol) const
+    template<class Types, class TSymbol, class DefSymbol>
+    constexpr auto descend_batch(const Types& sequence, const TSymbol& symbol, std::size_t& index, const DefSymbol& def) const
     {
+        auto indexer = TupleIndexer(sequence);
         if constexpr (is_operator<TSymbol>())
         {
             if constexpr (get_operator<TSymbol>() == OpType::Concat)
             {
-                return symbol.each_index_or_exit([&]<std::size_t s_index>(const auto& s) -> bool {
-                    if (!descend_batch(tuple_slice<s_index, SIZE_T_MAX>(sequence, s)))
+                std::size_t index_stack = index;
+                bool ok = symbol.each_or_exit([&](const auto& s) -> bool {
+                    if (!descend_batch(sequence, s, index_stack, def))
                         return false; // Didn't find anything
                     return true; // Continue
                 });
+                if (ok) index = index_stack;
+                return ok;
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Alter)
             {
                 // Get each element and check if at least one matches
                 return !symbol.each_or_exit([&](const auto& s) -> bool {
-                    if (descend_batch(sequence, s)) return false; // Found
+                    if (descend_batch(sequence, s, index, def)) return false; // Found
                     return true; // Continue
                 }
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Optional)
             {
                 // Try to match if we can, just return true anyway
-                return descend_batch()
+                return descend_batch(sequence, std::get<0>(symbol.terms), index, def);
             }
-        }
+            else if constexpr (get_operator<TSymbol>() == OpType::Repeat)
+            {
+                while (descend_batch(sequence, std::get<0>(symbol.terms), index, def)) {}
+                return true;
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Group)
+            {
+                return descend_batch(sequence, std::get<0>(symbol.terms), index, def);
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Except)
+            {
+                std::size_t i = index;
+                if (descend_batch(sequence, std::get<0>(symbol.terms), i, def))
+                {
+                    // Check if the symbol is an exception
+                    if (!descend_batch(sequence, std::get<1>(symbol.terms), i, def))
+                    {
+                        index = i;
+                        return true;
+                    }
+                }
+                return false;
+            }
+            else
+            {
+                // TODO implement other operators
+            }
+        } else if constexpr (is_nterm<TSymbol>()) {
+            const auto& nterm = indexer.get(sequence, index);
+            if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<decltype(nterm)>>())
+            {
+                i++;
+                return true; // Matched
+            } else return false;
+
+        } else if constexpr (is_term<TSymbol>()) {
+            // We can move this comparison to reduce() loop
+            // Check if current NTerm is equal to the definition symbol
+            if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<DefSymbol>>())
+            {
+                i++;
+                return true;
+            } else return false;
+
+        } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
     }
 };
 
