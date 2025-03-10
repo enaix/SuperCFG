@@ -327,9 +327,14 @@ public:
         });
     }
 
-    auto get(const TokenType& type) const
+    /**
+     * @brief Get the nterm definition from a TokenType. Uses an unordered_map
+     * @param type TokenType (key)
+     * @param func Lambda that accepts the value
+     */
+    auto get(const TokenType& type, auto func) const
     {
-        return std::visit([](const auto& ht_item){ return ht_item.ptr; }, storage[type]);
+        return std::visit([func](const auto& ht_item){ return func(ht_item.ptr); }, storage[type]);
     }
 };
 

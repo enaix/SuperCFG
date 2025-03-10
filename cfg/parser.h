@@ -390,21 +390,26 @@ protected:
             {
                 std::size_t i_rev = stack.size() - i - 1; // Get position from the top
 
-                // Second loop over the stack (iterate over the window)
+                // Get each type from the window
                 auto types = tuple_for([&]<std::size_t j>(){
                     std::size_t j_rev = j + i_rev; // Get jth position from the top
-
                     GSymbolV& elem = stack[j_rev];
-                    const auto& nterm = std::get<0>(storage.get(elem.type)->terms); // Fetch symbol nterm
-                    return elem.visit([&](const VStr&& token, const TokenType& type){
-                        // Return the token
-                        return std::make_tuple(std::true_type(), nterm);
-                    }, [&](const TokenType& type){
-                        // Return the nterm
-                        return std::make_tuple(std::false_type(), nterm);
-                    });
 
-                }, i); // second for loop
+                    // HERE we access the hashmap
+                    return storage.get(elem.type, [&](const auto& nterm){
+                        // Check the stack element type
+                        return elem.visit([&](const VStr&& token, const TokenType& type){
+                            // It's a token
+                            // We CANNOT return the type here at all
+                            // TODO find the related type and return a tuple of the homogeneous type
+                            //return std::make_tuple(std::true_type(), nterm); // return (true, token)
+                        }, [&](const TokenType& type){
+                            // It's a nterm
+                            // The return types HERE and ABOVE must be equal
+                            //return std::make_tuple(std::false_type(), nterm); // return (true, nterm)
+                        }); // element type
+                    }); // hashmap access
+                }, i); // the second loop
 
                 // Find related types of each token/nterm
                 auto related_types = tuple_morph([&]<std::size_t k>(const auto& elem){
@@ -413,10 +418,10 @@ protected:
                         return std::make_tuple(nterm); // We need to return a single nterm in which this token is defined
                     else // NTerm element
                         return std::make_tuple(std::false_type(), nterm); // We need to return nterms which contain this one from the RR tree
-                }, types);
+                }, window);
 
                 // Get the type of each element
-                auto slice = tuple_morph([&]<std::size_t k>(const auto& elem){ return std::get<1>(elem); }, types);
+                auto slice = tuple_morph([&]<std::size_t k>(const auto& elem){ return std::get<1>(elem); }, window);
 
                 auto common_types = tuple_intersect(related_types);
                 tuple_each(common_types, [&](std::size_t, const auto& type){
@@ -428,18 +433,7 @@ protected:
                 }*/
 
             } else return false;
-        }, IntegralWrapper<STACK_MAX>()); // first for loop
-
-
-        // Iter n times over stack
-        /*for (int i = stack.size() - 2; i >= 0; i++)
-        {
-            // Iter over window
-            for (std::size_t j = i; j < stack.size(); j++)
-            {
-
-            }
-        }*/
+        }, IntegralWrapper<STACK_MAX>()); // the first for loop
     }
 
     /**
