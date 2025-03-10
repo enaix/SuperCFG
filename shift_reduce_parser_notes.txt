@@ -53,5 +53,29 @@ op'+'op:
   op['+'op]: <handle:sum><nterm:op> -> same types on the reverse tree -> only <sum>. Parse sum - fail
   [op'+'op]: check <sum> - ok, return sum
 
+Implementing reduce operation:
 
+n := stack.len()
+// iterate over each window:
+for i := n:
+    window := stack.slice(n-i, n)
+    // iterate over operators
+    for j := window.len():
+        // get the related type of each element
+        types := [x.type() for x in window]
+        // find the related rule definition for each type
+        // [[def_a, def_b], [def_b, def_d, def_e], [def_b]]
+        rule_defs := reverse_rule_tree.get(types)
 
+        // find pairwise set intersections of the definitions
+        common_defs := rule_defs[0]
+        for k := range(1, rule_defs.len()):
+            common_defs = intersection(common_defs, rule_defs[k])
+
+        // iterate over common definitions
+        for match := common_defs:
+            if descend_batch(types, match):
+                // replace the window with the matched NTerm
+                stack.replace(window, match.nterm())
+                return true
+return false

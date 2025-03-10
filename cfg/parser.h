@@ -356,12 +356,10 @@ public:
     bool run(Tree& node, const RootSymbol& root, std::vector<TokenV>& tokens)
     {
         std::vector<GSymbolV> stack;
+        // TODO do the shift and reduce operations
     }
 
 protected:
-    /**
-     * @brief Iterative reduce algorithm
-     */
     bool reduce(std::vector<GSymbolV>& stack, std::vector<TokenV>& tokens)
     {
         // Get rightmost token type (handle)
@@ -422,7 +420,92 @@ protected:
 
                 auto common_types = tuple_intersect(related_types);
                 tuple_each(common_types, [&](std::size_t, const auto& type){
+                    // TODO descend and check each definition
+                });
+                /*if constexpr (std::tuple_size<decltype(types)>() > 0)
+                {
                     // descend and check each definition
+                }*/
+
+            } else return false;
+        }, IntegralWrapper<STACK_MAX>()); // first for loop
+
+
+        // Iter n times over stack
+        /*for (int i = stack.size() - 2; i >= 0; i++)
+        {
+            // Iter over window
+            for (std::size_t j = i; j < stack.size(); j++)
+            {
+
+            }
+        }*/
+    }
+
+    /**
+     * @brief Iterative reduce algorithm
+     */
+    bool reduce_old(std::vector<GSymbolV>& stack, std::vector<TokenV>& tokens)
+    {
+        // Get rightmost token type (handle)
+        // check shift_reduce_parser_notes.txt
+
+        // iterate from right to left over stack n times
+        // at step i:
+        //   for token : get its nterm (type) from TokenV
+        //   for nterm : get its related nterms from reverse rules tree
+        //   find intersect with the previous one
+        // for each common nterm : execute parse() for each definition
+        // if found 1 : reduce, else goto next iter
+
+
+        // Trivial case with 1 element
+        // Simply try to reduce the element on the top
+        /*GSymbolV& top_elem = stack.back();
+        top_elem.visit([&](const VStr&& token, const TokenType& type){
+            // Parse the token
+
+        }, [&](const TokenType& type){
+            // Parse the nterm
+        });*/
+
+        // First loop over the stack
+        tuple_for([&]<std::size_t i>(){
+            if (i < stack.size())
+            {
+                std::size_t i_rev = stack.size() - i - 1; // Get position from the top
+
+                // Second loop over the stack (iterate over the window)
+                auto types = tuple_for([&]<std::size_t j>(){
+                    std::size_t j_rev = j + i_rev; // Get jth position from the top
+
+                    GSymbolV& elem = stack[j_rev];
+                    const auto& nterm = std::get<0>(storage.get(elem.type)->terms); // Fetch symbol nterm
+                    return elem.visit([&](const VStr&& token, const TokenType& type){
+                        // Return the token
+                        return std::make_tuple(std::true_type(), nterm);
+                    }, [&](const TokenType& type){
+                        // Return the nterm
+                        return std::make_tuple(std::false_type(), nterm);
+                    });
+
+                }, i); // second for loop
+
+                // Find related types of each token/nterm
+                auto related_types = tuple_morph([&]<std::size_t k>(const auto& elem){
+                    const auto& nterm = std::get<1>(elem);
+                    if constexpr (std::is_same_v<std::tuple_element_t<0, decltype(elem)>, std::true_type>()) // Token element
+                        return std::make_tuple(nterm); // We need to return a single nterm in which this token is defined
+                    else // NTerm element
+                        return std::make_tuple(std::false_type(), nterm); // We need to return nterms which contain this one from the RR tree
+                }, types);
+
+                // Get the type of each element
+                auto slice = tuple_morph([&]<std::size_t k>(const auto& elem){ return std::get<1>(elem); }, types);
+
+                auto common_types = tuple_intersect(related_types);
+                tuple_each(common_types, [&](std::size_t, const auto& type){
+                    // TODO descend and check each definition
                 });
                 /*if constexpr (std::tuple_size<decltype(types)>() > 0)
                 {
@@ -472,7 +555,7 @@ protected:
                 return !symbol.each_or_exit([&](const auto& s) -> bool {
                     if (descend_batch(sequence, s, index, def)) return false; // Found
                     return true; // Continue
-                }
+                });
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Optional)
             {
@@ -510,7 +593,7 @@ protected:
             const auto& nterm = indexer.get(sequence, index);
             if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<decltype(nterm)>>())
             {
-                i++;
+                index++;
                 return true; // Matched
             } else return false;
 
@@ -519,7 +602,7 @@ protected:
             // Check if current NTerm is equal to the definition symbol
             if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<DefSymbol>>())
             {
-                i++;
+                index++;
                 return true;
             } else return false;
 

@@ -58,7 +58,7 @@ public:
 
     constexpr GrammarSymbol(const Token<VStr, Type>& token) : value(token.value), type(token.type), symbol_type(std::true_type()) {}
 
-    constexpr GrammarSymbol(const Type& type) : value(), type(type), symbol_type(std::false_type) {}
+    constexpr GrammarSymbol(const Type& type) : value(), type(type), symbol_type(std::false_type()) {}
 
     constexpr auto visit(auto process_token, auto process_nterm) const
     {
@@ -380,7 +380,7 @@ public:
     template<class RulesSymbol>
     constexpr auto build(const RulesSymbol& rules) const
     {
-        RulesSymbol::term_ptr_tuple defs(rules.get_ptr_tuple());
+        typename RulesSymbol::term_ptr_tuple defs(rules.get_ptr_tuple());
         const auto nterms = reverse_rule_tree_for_symbol<0>(rules);
 
         return ReverseRuleTree(defs, nterms);
@@ -390,10 +390,10 @@ protected:
     template<std::size_t depth, class RulesSymbol>
     constexpr auto reverse_rule_tree_for_symbol(const RulesSymbol& rules) const
     {
-        const auto& nterm = std::get<0>(std::get<depth>(rules.terms));
-        const auto nterms = iterate_over_rules<0>(rules, nterm);
+        const auto& nterm = std::get<0>(std::get<depth>(rules.terms)); // key (nterm)
+        const auto nterms = iterate_over_rules<0>(rules, nterm); // value (related definitions)
 
-        if constexpr (depth + 1 >= std::tuple_size<rules.terms>()) return std::make_tuple(nterms);
+        if constexpr (depth + 1 >= std::tuple_size<typename RulesSymbol::term_types_tuple>()) return std::make_tuple(nterms);
         else return std::tuple_cat(nterms, reverse_rule_tree_for_symbol<depth+1>(rules));
     }
 
@@ -404,15 +404,17 @@ protected:
         const auto& rule_nterm = std::get<0>(std::get<depth>(rules.terms));
         const auto& rule_def = std::get<1>(std::get<depth>(rules.terms));
 
-        // Check if we don't compare the type against itself
+        // Check if we compare the type with its own definition
         if constexpr (std::is_same_v<std::remove_cvref_t<decltype(rule_nterm)>, TSymbol>())
         {
-            if constexpr (depth + 1 >= std::tuple_size<rules.terms>()) return std::tuple<>(); // TODO cover this case when last term is the same
-            return std::tuple_cat(nterms, iterate_over_rules<depth+1>(nterm, rules));
+            // We need to skip over this element
+            if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>) return std::tuple<>(); // TODO cover this case when last term is the same
+            return iterate_over_rules<depth+1>(rules, nterm);
         } else {
+            // Check if the element is in this definition
             const bool found = is_nterm_in_rule(rules, nterm);
 
-            if constexpr (depth + 1 >= std::tuple_size<rules.terms>())
+            if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>)
                 return (found ? std::make_tuple(rule_nterm) : std::make_tuple<>());
             else
                 return (found ? std::tuple_cat(rule_nterm, iterate_over_rules<depth+1>(rules, nterm)) : iterate_over_rules<depth+1>(rules, nterm));
@@ -440,7 +442,7 @@ protected:
         const bool found = is_nterm_in_rule(std::get<depth>(symbol.terms));
         if (found) return true;
 
-        if constexpr (depth + 1 < std::tuple_size<symbol.terms>())
+        if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<decltype(symbol.terms)>>)
         {
             return found;
         } else {
