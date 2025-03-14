@@ -343,7 +343,7 @@ template<class VStr, class TokenType, class Tree, std::size_t STACK_MAX, class R
 class SRParser
 {
 protected:
-    NTermsStorage<TokenType, RulesSymbol> storage;
+    NTermsHashTable<TokenType, RulesSymbol> storage;
     RRTree reverse_rules;
     //NTermsConstHashTable<RulesSymbol> storage;
     using TokenV = Token<VStr, TokenType>;
@@ -391,28 +391,34 @@ protected:
                 std::size_t i_rev = stack.size() - i - 1; // Get position from the top
 
                 // Get each type from the window
-                auto types = tuple_for([&]<std::size_t j>(){
+                auto window = to_homogeneous_tuple(tuple_for([&]<std::size_t j>(){
                     std::size_t j_rev = j + i_rev; // Get jth position from the top
                     GSymbolV& elem = stack[j_rev];
 
+                    using token_types = typename NTermsHashTable<TokenType, RulesSymbol>::TDefsTuple;
+                    // Morph each token type into (bool, type)
+                    using window_types = decltype(tuple_morph_t<token_types>([&]<std::size_t index>(){
+                        return std::tuple<variadic_bool, std::tuple_element_t<index, token_types>>();
+                    }));
+
                     // HERE we access the hashmap
-                    // TODO check if we are accessing the correct storage
-                    return storage.get(elem.type, [&](const auto& nterm){
+                    return storage.get(elem.type, [&](const auto* nterm){
                         // Check the stack element type
                         return elem.visit([&](const VStr&& token, const TokenType& type){
                             // It's a token
                             // We CANNOT return the type here at all
                             // TODO find the related type and return a tuple of the homogeneous type
                             // Shouldn't we convert it to variant?
-                            //return homogeneous_elem_morph<typename NTer>()
+                            return homogeneous_elem_morph<window_types>(variadic_bool(std::true_type()), *nterm);
                             //return std::make_tuple(std::true_type(), nterm); // return (true, token)
                         }, [&](const TokenType& type){
                             // It's a nterm
                             // The return types HERE and ABOVE must be equal
                             //return std::make_tuple(std::false_type(), nterm); // return (true, nterm)
+                            return homogeneous_elem_morph<window_types>(variadic_bool(std::false_type()), *nterm);
                         }); // element type
                     }); // hashmap access
-                }, i); // the second loop
+                }, i)); // the second loop
 
                 // Find related types of each token/nterm
                 auto related_types = tuple_morph([&]<std::size_t k>(const auto& elem){

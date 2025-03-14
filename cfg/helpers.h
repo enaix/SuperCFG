@@ -84,13 +84,40 @@ namespace cfg_helpers
     {
         return Array(std::get<Ints>(src)...);
     }
+
+    template<class T_first, class T_second, class... T>
+    constexpr bool do_is_same()
+    {
+        return std::is_same_v<T_first, T_second> && do_is_same<T_second, T...>();
+    }
+
+    template<class T_first, class T_second>
+    constexpr bool do_is_same()
+    {
+        return std::is_same_v<T_first, T_second>;
+    }
+
+    template<class T_first>
+    constexpr bool do_is_same() { return true; }
+
+    template<class Src, std::size_t... Ints>
+    constexpr auto do_homogeneous_array(const Src& src, std::integer_sequence<std::size_t, Ints...>)
+    {
+        return std::array<std::tuple_element_t<0, Src>, std::tuple_size_v<Src>>(std::get<Ints>(src)...);
+    }
+
+    template<class Src, std::size_t... Ints>
+    constexpr auto do_homogeneous_tuple(const Src& src, std::integer_sequence<std::size_t, Ints...>)
+    {
+        return std::tuple<std::tuple_element_t<Ints, Src>...>(std::get<Ints>(src)...);
+    }
 } // cfg_helpers
 
 
 /**
  * @brief Type morphing function that constructs a type Target<T...> using morph<int> lambda. To be used with decltype()
  * @tparam Target Target class template (std::variant, std::tuple)
- * @tparam N Number of target template argument
+ * @tparam N Deduced number of target template arguments
  * @param morph Morphing lambda which generates target element at index, passed through a template
  * @param length Number of template arguments
  */
@@ -103,7 +130,7 @@ constexpr auto type_morph_t(auto morph, const IntegralWrapper<N> length)
 /**
  * @brief Type morphing function that constructs an object of type Target<T...> using morph<int, src> lambda. To be used in a constructor
  * @tparam Target Class target template (std::variant, std::tuple)
- * @tparam N Number of target template argument
+ * @tparam N Deduced number of target template arguments
  * @tparam Src Deduced source class to cast from
  * @param morph Morphing lambda which generates target element at index, passed through a template
  * @param length Number of template arguments
@@ -124,6 +151,12 @@ template<class Src>
 constexpr auto tuple_morph(auto morph, const Src& src)
 {
     return cfg_helpers::do_type_morph<std::tuple>(morph, src, std::make_index_sequence<std::tuple_size_v<Src>()>{});
+}
+
+template<class Src>
+constexpr auto tuple_morph_t(auto morph)
+{
+    return cfg_helpers::do_type_morph_t<std::tuple>(morph, std::make_index_sequence<std::tuple_size_v<Src>()>{});
 }
 
 /**
@@ -238,7 +271,51 @@ struct tuple_contains<std::tuple<T...>>
 };
 
 template<class Elem, class Tuple>
-using tuple_contains_v = typename tuple_contains<Elem, Tuple>::value;
+constexpr bool tuple_contains_v = typename tuple_contains<Elem, Tuple>::value;
+
+
+/**
+ * @brief std::is_same implementation for multiple parameters
+ * @tparam T Values to check
+ */
+template<class... T>
+struct are_same
+{
+    static constexpr bool value = cfg_helpers::do_is_same<T...>();
+
+    constexpr bool operator()() const noexcept { return value; }
+};
+
+template<class... T> constexpr bool are_same_v = typename are_same<T...>::value;
+
+
+/**
+ * @brief Check if a tuple is of a homogeneous type (all types are the same)
+ * @tparam T Deduced tuple members
+ */
+template<class... T>
+struct is_homogeneous<std::tuple<T...>>
+{
+    static constexpr bool value = are_same_v<T...>;
+
+    constexpr bool operator()() const noexcept { return value; }
+};
+
+
+/**
+ * @brief Check if an array is a homogeneous type, always returns true
+ * @tparam T Deduced array type
+ * @tparam N Deduced array length
+ */
+template<class T, std::size_t N>
+struct is_homogeneous<std::array<T, N>>
+{
+    static constexpr bool value = true;
+
+    constexpr bool operator()() const noexcept { return value; }
+};
+
+template<class Src> static constexpr bool is_homogeneous_v = is_homogeneous<Src>::value;
 
 
 /**
@@ -255,6 +332,47 @@ constexpr auto homogeneous_morph(const std::tuple<T...>& src)
 
 
 /**
+ * @brief Morph a homogeneous tuple into an array
+ * @tparam T Deduced members of tuple src
+ * @param src Homogeneous tuple to morph
+ */
+template<class... T>
+constexpr auto to_homogeneous_array(const std::tuple<T...>& src)
+{
+    static_assert(is_homogeneous_v<std::tuple<T...>>, "Tuple is not homogeneous");
+    return cfg_helpers::do_homogeneous_array(src, std::make_index_sequence<sizeof...(T)>{});
+}
+
+template<class T, std::size_t N>
+constexpr auto to_homogeneous_array(const std::array<T, N>& src) { return src; }
+
+
+/**
+ * @brief Morph an array into a homogeneous tuple
+ * @tparam Type Deduced homogeneous type of the array
+ * @tparam N Deduced array length
+ * @param src Array to morph into a homogeneous tuple of the same length
+ */
+template<class Type, std::size_t N>
+constexpr auto to_homogeneous_tuple(const std::array<Type, N>& src)
+{
+    return cfg_helpers::do_homogeneous_array(src, std::make_index_sequence<N>{});
+}
+
+/**
+ * @brief Morph a tuple into a homogeneous tuple, only performs the check if it's homogeneous
+ * @tparam T Deduced members of tuple src
+ * @param src Tuple to morph, will be returned on success
+ */
+template<class... T>
+constexpr auto to_homogeneous_tuple(const std::tuple<T...>& src)
+{
+    static_assert(is_homogeneous_v<std::tuple<T...>>, "Tuple is not homogeneous");
+    return src;
+}
+
+
+/**
  * @brief Element-wise homogeneous morph which casts an individual element of type Elem into a homogeneous variant type
  * @tparam SrcTuple A tuple containing all possible types of Elem
  * @tparam Elem Deduced type of element elem
@@ -263,7 +381,7 @@ constexpr auto homogeneous_morph(const std::tuple<T...>& src)
 template<class SrcTuple, class Elem>
 constexpr auto homogeneous_elem_morph(const Elem& elem)
 {
-    static_assert(tuple_contains_v<Elem, SrcTuple>(), "elem is not among the types of SrcTuple"); // Check if the type Elem is among the types in SrcTuple
+    static_assert(tuple_contains_v<Elem, SrcTuple>, "elem is not among the types of SrcTuple"); // Check if the type Elem is among the types in SrcTuple
 
     using VariantType = decltype(type_morph_t<std::variant>([&]<std::size_t i>(){ return std::tuple_element_t<i, SrcTuple>(); }));
     return VariantType(elem);
