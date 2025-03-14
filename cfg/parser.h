@@ -384,22 +384,31 @@ protected:
             // Parse the nterm
         });*/
 
+        using token_types = typename NTermsHashTable<TokenType, RulesSymbol>::TDefsTuple;
+
+        // Morph each token type into its possible related type (underlying type for a token, related types of a nterm)
+        using window_types = decltype(
+            std::tuple_cat(tuple_morph_t<token_types>([&]<std::size_t index>(){
+                // Morph NTerm into a tuple with single element (for a token)
+                return std::make_tuple(std::get<index>(token_types()));
+            }),
+            tuple_morph_t<token_types>([&]<std::size_t index>(){
+                // Morph NTerm into its related type (for a nterm)
+                // Reverse rules tree returns a tuple of matching types
+                return reverse_rules.get(std::get<index>(token_types()));
+            })
+        ));
+
         // First loop over the stack
         tuple_for([&]<std::size_t i>(){
             if (i < stack.size())
             {
                 std::size_t i_rev = stack.size() - i - 1; // Get position from the top
 
-                // Get each type from the window
-                auto window = to_homogeneous_tuple(tuple_for([&]<std::size_t j>(){
+                // Get each related type from the window
+                auto h_types = to_homogeneous_tuple(tuple_for([&]<std::size_t j>(){
                     std::size_t j_rev = j + i_rev; // Get jth position from the top
                     GSymbolV& elem = stack[j_rev];
-
-                    using token_types = typename NTermsHashTable<TokenType, RulesSymbol>::TDefsTuple;
-                    // Morph each token type into (bool, type)
-                    using window_types = decltype(tuple_morph_t<token_types>([&]<std::size_t index>(){
-                        return std::tuple<variadic_bool, std::tuple_element_t<index, token_types>>();
-                    }));
 
                     // HERE we access the hashmap
                     return storage.get(elem.type, [&](const auto* nterm){
@@ -409,126 +418,33 @@ protected:
                             // We CANNOT return the type here at all
                             // TODO find the related type and return a tuple of the homogeneous type
                             // Shouldn't we convert it to variant?
-                            return homogeneous_elem_morph<window_types>(variadic_bool(std::true_type()), *nterm);
+                            return homogeneous_elem_morph<window_types>(std::make_tuple(*nterm));
                             //return std::make_tuple(std::true_type(), nterm); // return (true, token)
                         }, [&](const TokenType& type){
                             // It's a nterm
                             // The return types HERE and ABOVE must be equal
                             //return std::make_tuple(std::false_type(), nterm); // return (true, nterm)
-                            return homogeneous_elem_morph<window_types>(variadic_bool(std::false_type()), *nterm);
+                            return homogeneous_elem_morph<window_types>(reverse_rules.get(*nterm));
                         }); // element type
                     }); // hashmap access
                 }, i)); // the second loop
 
-                // Find related types of each token/nterm
-                auto related_types = tuple_morph([&]<std::size_t k>(const auto& elem){
-                    const auto& nterm = std::get<1>(elem);
-                    if constexpr (std::is_same_v<std::tuple_element_t<0, decltype(elem)>, std::true_type>()) // Token element
-                        return std::make_tuple(nterm); // We need to return a single nterm in which this token is defined
-                    else // NTerm element
-                        return std::make_tuple(std::false_type(), nterm); // We need to return nterms which contain this one from the RR tree
-                }, window);
+                // Expand a tuple of homogeneous type
+                type_expansion(h_types, [&](auto related_types){
+                    auto common_types = tuple_intersect(related_types);
 
-                // Get the type of each element
-                auto slice = tuple_morph([&]<std::size_t k>(const auto& elem){ return std::get<1>(elem); }, window);
-
-                auto common_types = tuple_intersect(related_types);
-                tuple_each(common_types, [&](std::size_t, const auto& type){
-                    // TODO descend and check each definition
+                    if constexpr (std::tuple_size<decltype(common_types)>() > 0)
+                    {
+                        tuple_each(common_types, [&](std::size_t, const auto& type){
+                            // TODO descend and check each definition
+                        });
+                    }
                 });
-                /*if constexpr (std::tuple_size<decltype(types)>() > 0)
-                {
-                    // descend and check each definition
-                }*/
 
             } else return false;
         }, IntegralWrapper<STACK_MAX>()); // the first for loop
     }
 
-    /**
-     * @brief Iterative reduce algorithm
-     */
-    bool reduce_old(std::vector<GSymbolV>& stack, std::vector<TokenV>& tokens)
-    {
-        // Get rightmost token type (handle)
-        // check shift_reduce_parser_notes.txt
-
-        // iterate from right to left over stack n times
-        // at step i:
-        //   for token : get its nterm (type) from TokenV
-        //   for nterm : get its related nterms from reverse rules tree
-        //   find intersect with the previous one
-        // for each common nterm : execute parse() for each definition
-        // if found 1 : reduce, else goto next iter
-
-
-        // Trivial case with 1 element
-        // Simply try to reduce the element on the top
-        /*GSymbolV& top_elem = stack.back();
-        top_elem.visit([&](const VStr&& token, const TokenType& type){
-            // Parse the token
-
-        }, [&](const TokenType& type){
-            // Parse the nterm
-        });*/
-
-        // First loop over the stack
-        tuple_for([&]<std::size_t i>(){
-            if (i < stack.size())
-            {
-                std::size_t i_rev = stack.size() - i - 1; // Get position from the top
-
-                // Second loop over the stack (iterate over the window)
-                auto types = tuple_for([&]<std::size_t j>(){
-                    std::size_t j_rev = j + i_rev; // Get jth position from the top
-
-                    GSymbolV& elem = stack[j_rev];
-                    const auto& nterm = std::get<0>(storage.get(elem.type)->terms); // Fetch symbol nterm
-                    return elem.visit([&](const VStr&& token, const TokenType& type){
-                        // Return the token
-                        return std::make_tuple(std::true_type(), nterm);
-                    }, [&](const TokenType& type){
-                        // Return the nterm
-                        return std::make_tuple(std::false_type(), nterm);
-                    });
-
-                }, i); // second for loop
-
-                // Find related types of each token/nterm
-                auto related_types = tuple_morph([&]<std::size_t k>(const auto& elem){
-                    const auto& nterm = std::get<1>(elem);
-                    if constexpr (std::is_same_v<std::tuple_element_t<0, decltype(elem)>, std::true_type>()) // Token element
-                        return std::make_tuple(nterm); // We need to return a single nterm in which this token is defined
-                    else // NTerm element
-                        return std::make_tuple(std::false_type(), nterm); // We need to return nterms which contain this one from the RR tree
-                }, types);
-
-                // Get the type of each element
-                auto slice = tuple_morph([&]<std::size_t k>(const auto& elem){ return std::get<1>(elem); }, types);
-
-                auto common_types = tuple_intersect(related_types);
-                tuple_each(common_types, [&](std::size_t, const auto& type){
-                    // TODO descend and check each definition
-                });
-                /*if constexpr (std::tuple_size<decltype(types)>() > 0)
-                {
-                    // descend and check each definition
-                }*/
-
-            } // else return void
-        }, IntegralWrapper<STACK_MAX>()); // first for loop
-
-
-        // Iter n times over stack
-        /*for (int i = stack.size() - 2; i >= 0; i++)
-        {
-            // Iter over window
-            for (std::size_t j = i; j < stack.size(); j++)
-            {
-
-            }
-        }*/
-    }
 
     /**
      * @brief Recursively descend over the grammar rule and check if current sequence matches the rule

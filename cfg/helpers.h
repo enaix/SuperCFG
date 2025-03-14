@@ -101,15 +101,21 @@ namespace cfg_helpers
     constexpr bool do_is_same() { return true; }
 
     template<class Src, std::size_t... Ints>
-    constexpr auto do_homogeneous_array(const Src& src, std::integer_sequence<std::size_t, Ints...>)
+    constexpr auto do_homogeneous_array(const Src& src, const std::integer_sequence<std::size_t, Ints...>)
     {
         return std::array<std::tuple_element_t<0, Src>, std::tuple_size_v<Src>>(std::get<Ints>(src)...);
     }
 
     template<class Src, std::size_t... Ints>
-    constexpr auto do_homogeneous_tuple(const Src& src, std::integer_sequence<std::size_t, Ints...>)
+    constexpr auto do_homogeneous_tuple(const Src& src, const std::integer_sequence<std::size_t, Ints...>)
     {
         return std::tuple<std::tuple_element_t<Ints, Src>...>(std::get<Ints>(src)...);
+    }
+
+    template<class SrcTuple, std::size_t... Ints>
+    constexpr auto do_type_expansion(const SrcTuple& src, auto func, const std::integer_sequence<std::size_t, Ints...>)
+    {
+        std::visit([&](const auto... elems){ return func(std::make_tuple(elems...)); }, std::get<Ints>(src)...);
     }
 } // cfg_helpers
 
@@ -388,6 +394,38 @@ constexpr auto homogeneous_elem_morph(const Elem& elem)
 }
 
 
+/**
+ * @brief Expand a homogeneous tuple into a nonhomogeneous tuple
+ * @tparam SrcTuple Deduced type of tuple src
+ * @param src Homogeneous tuple of std::variant elements
+ * @param func Visitor lambda which accepts nonhomogeneous tuple. May return a homogeneous type
+ */
+template<class SrcTuple>
+constexpr auto type_expansion(const SrcTuple& src, auto func)
+{
+    static_assert(is_homogeneous_v<SrcTuple>, "Tuple is not homogeneous");
+    return cfg_helpers::do_type_expansion(src, func, std::make_index_sequence<std::tuple_size_v<SrcTuple>>{});
+}
+
+
+/**
+ * @brief Expand a homogeneous array into a nonhomogeneous tuple
+ * @tparam Type Deduced homogeneous type
+ * @tparam N Deduced array length
+ * @param src Array of std::variant elements
+ * @param func Visitor lambda which accepts nonhomogeneous tuple. May return a homogeneous type
+ */
+template<class Type, std::size_t N>
+constexpr auto type_expansion(const std::array<Type, N>& src, auto func)
+{
+    auto tuple = to_homogeneous_tuple(src);
+    return cfg_helpers::do_type_expansion(tuple, func, std::make_index_sequence<std::tuple_size_v<decltype(tuple)>>{});
+}
+
+
+/**
+ * @brief Alias for the variant of type true_type/false_type
+ */
 class variadic_bool : public std::variant<std::true_type, std::false_type>
 {
 public:
@@ -395,9 +433,11 @@ public:
 
     explicit constexpr variadic_bool(const std::false_type t) : std::variant<std::true_type, std::false_type>(t) {}
 
-    constexpr bool value(auto visitor)
+    constexpr auto value(auto visitor)
     {
-        return std::visit(visitor, this);
+        return std::visit([&]<class T>(const T value){
+            return visitor.template operator()<T::value>();
+        }, this);
     }
 };
 
