@@ -76,7 +76,13 @@ namespace cfg_helpers
     template<std::size_t offset, class Tuple, const std::integer_sequence<std::size_t, Ints...>>
     constexpr auto do_tuple_slice(const Tuple& tuple)
     {
-        return std::make_tuple(std::get<Ints + offset>(tuple), ...);
+        return std::make_tuple(std::get<Ints + offset>(tuple)...);
+    }
+
+    template<class Array, class Src, std::size_t... Ints>
+    constexpr auto do_homogeneous_morph(const Src& src, const std::integer_sequence<std::size_t, Ints...>)
+    {
+        return Array(std::get<Ints>(src)...);
     }
 } // cfg_helpers
 
@@ -160,6 +166,18 @@ constexpr void tuple_each(const Tuple& tuple, auto each_elem)
     if constexpr (std::tuple_size_v<Tuple>() != 0) cfg_helpers::do_tuple_each<0>(tuple, each_elem);
 }
 
+template<class Tuple>
+constexpr auto tuple_unique(const Tuple& tuple)
+{
+    // TODO implement tuple unique() operator
+}
+
+template<class Tuple>
+constexpr auto tuple_unique()
+{
+    // TODO implement tuple unique() operator
+}
+
 /**
  * @brief Construct a tuple slice from another tuple
  * @tparam Start Starting index
@@ -180,7 +198,7 @@ template<class Tuple>
 class TupleIndexer
 {
 public:
-    using N = std::tuple_size_v<Tuple>();
+    static constexpr std::size_t N = std::tuple_size_v<Tuple>();
     decltype(type_morph_t<std::variant>(
             []<std::size_t index>(){ return IntegralWrapper<index>(); },
             IntegralWrapper<N>())) indexes[N];
@@ -203,6 +221,65 @@ protected:
     {
         indexes[depth] = IntegralWrapper<depth>();
         if (depth + 1 < N) init_array<depth+1>();
+    }
+};
+
+
+/**
+ * @brief Determine if a tuple contains a type Elem
+ * @tparam Elem Element type to check
+ * @tparam T Deduced elements of tuple
+ */
+template<class Elem, class... T>
+struct tuple_contains<std::tuple<T...>>
+{
+    static constexpr bool value = (std::is_same_v<std::decay_t<Elem>, std::decay_t<T>> || ...);
+    constexpr bool operator()() const noexcept { return value; }
+};
+
+template<class Elem, class Tuple>
+using tuple_contains_v = typename tuple_contains<Elem, Tuple>::value;
+
+
+/**
+ * @brief Morph a tuple into an array of homogeneous variant type
+ * @tparam T Deduced elements of tuple src
+ * @param src Tuple to morph
+ */
+template<class... T>
+constexpr auto homogeneous_morph(const std::tuple<T...>& src)
+{
+    using Array = std::array<std::variant<std::decay_t<T>...>, sizeof...(T)>;
+    return cfg_helpers::do_homogeneous_morph<Array>(src, std::make_index_sequence<sizeof...(T)>{});
+}
+
+
+/**
+ * @brief Element-wise homogeneous morph which casts an individual element of type Elem into a homogeneous variant type
+ * @tparam SrcTuple A tuple containing all possible types of Elem
+ * @tparam Elem Deduced type of element elem
+ * @param elem Element which needs to be cast into a homogeneous type
+ */
+template<class SrcTuple, class Elem>
+constexpr auto homogeneous_elem_morph(const Elem& elem)
+{
+    static_assert(tuple_contains_v<Elem, SrcTuple>(), "elem is not among the types of SrcTuple"); // Check if the type Elem is among the types in SrcTuple
+
+    using VariantType = decltype(type_morph_t<std::variant>([&]<std::size_t i>(){ return std::tuple_element_t<i, SrcTuple>(); }));
+    return VariantType(elem);
+}
+
+
+class variadic_bool : public std::variant<std::true_type, std::false_type>
+{
+public:
+    explicit constexpr variadic_bool(const std::true_type t) : std::variant<std::true_type, std::false_type>(t) {}
+
+    explicit constexpr variadic_bool(const std::false_type t) : std::variant<std::true_type, std::false_type>(t) {}
+
+    constexpr bool value(auto visitor)
+    {
+        return std::visit(visitor, this);
     }
 };
 

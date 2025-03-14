@@ -396,12 +396,15 @@ protected:
                     GSymbolV& elem = stack[j_rev];
 
                     // HERE we access the hashmap
+                    // TODO check if we are accessing the correct storage
                     return storage.get(elem.type, [&](const auto& nterm){
                         // Check the stack element type
                         return elem.visit([&](const VStr&& token, const TokenType& type){
                             // It's a token
                             // We CANNOT return the type here at all
                             // TODO find the related type and return a tuple of the homogeneous type
+                            // Shouldn't we convert it to variant?
+                            //return homogeneous_elem_morph<typename NTer>()
                             //return std::make_tuple(std::true_type(), nterm); // return (true, token)
                         }, [&](const TokenType& type){
                             // It's a nterm
