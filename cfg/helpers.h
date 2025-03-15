@@ -73,8 +73,8 @@ namespace cfg_helpers
             do_tuple_each<depth+1>(tuple, each_elem);
     }
 
-    template<std::size_t offset, class Tuple, const std::integer_sequence<std::size_t, Ints...>>
-    constexpr auto do_tuple_slice(const Tuple& tuple)
+    template<std::size_t offset, class Tuple, std::size_t... Ints>
+    constexpr auto do_tuple_slice(const Tuple& tuple, const std::integer_sequence<std::size_t, Ints...>)
     {
         return std::make_tuple(std::get<Ints + offset>(tuple)...);
     }
@@ -156,6 +156,7 @@ constexpr auto type_morph(auto morph, const IntegralWrapper<N> length, const Src
 template<class Src>
 constexpr auto tuple_morph(auto morph, const Src& src)
 {
+    // TODO pass tuple element in morph
     return cfg_helpers::do_type_morph<std::tuple>(morph, src, std::make_index_sequence<std::tuple_size_v<Src>()>{});
 }
 
@@ -168,11 +169,12 @@ constexpr auto tuple_morph_t(auto morph)
 /**
  * @brief Get an intersection between 2 tuples, excluding duplicated elements
  */
-template<class TupleA, class TupleB>
+/*template<class TupleA, class TupleB>
 constexpr auto tuple_intersect(const TupleA& lhs, const TupleB& rhs)
 {
+    // Not implemented
     return cfg_helpers::do_tuple_intersect<0>(lhs, rhs, std::make_tuple<>());
-}
+}*/
 
 /**
  * @brief Get an intersection between N tuples, excluding duplicated elements
@@ -228,40 +230,6 @@ constexpr auto tuple_slice(const Tuple& tuple)
     constexpr std::size_t max = (End <= std::tuple_size_v<Tuple>() ? End : std::tuple_size_v<Tuple>());
     return cfg_helpers::do_tuple_slice<Start>(tuple, std::make_index_sequence<max - Start>{});
 }
-
-
-/**
- * @brief Tuple indexer that returns tuple element at runtime
- */
-template<class Tuple>
-class TupleIndexer
-{
-public:
-    static constexpr std::size_t N = std::tuple_size_v<Tuple>();
-    decltype(type_morph_t<std::variant>(
-            []<std::size_t index>(){ return IntegralWrapper<index>(); },
-            IntegralWrapper<N>())) indexes[N];
-
-    constexpr TupleIndexer(const Tuple& tuple) { init_array<0>(); }
-
-    constexpr const auto& get(const Tuple& tuple, std::size_t i) const
-    {
-        return std::visit([&](const auto& ind){ return std::get<std::decay_t<decltype(ind)>::value_type>(tuple); }, indexes[i]);
-    }
-
-    constexpr const auto get_index(std::size_t i) const
-    {
-        return std::visit([&](const auto& ind){ return ind; }, indexes[i]);
-    }
-
-protected:
-    template<std::size_t depth>
-    constexpr void init_array()
-    {
-        indexes[depth] = IntegralWrapper<depth>();
-        if (depth + 1 < N) init_array<depth+1>();
-    }
-};
 
 
 /**
@@ -424,6 +392,36 @@ constexpr auto type_expansion(const std::array<Type, N>& src, auto func)
 
 
 /**
+ * @brief Get a nonhomogeneous element at position i
+ * @tparam Type Deduced array element type
+ * @tparam N Deduced array length
+ * @param src Homogeneous array to access
+ * @param i Element index
+ * @param func Lambda which takes a nonhomogeneous type. May optionally return a homogeneous type
+ */
+template<class Type, std::size_t N>
+constexpr auto homogeneous_at(const std::array<Type, N>& src, std::size_t i, auto func)
+{
+    return std::visit(func, src.at(i));
+}
+
+
+/**
+ * @brief Get a nonhomogeneous element of a homogeneous tuple at position i. Less efficient than homogeneous array access
+ * @tparam SrcTuple Deduced tuple type
+ * @param src Homogeneous tuple to access
+ * @param i Element index
+ * @param func Lambda which takes a nonhomogeneous type. May optionally return a homogeneous type
+ */
+template<class SrcTuple>
+constexpr auto homogeneous_at(const SrcTuple& src, std::size_t i, auto func)
+{
+    auto array = to_homogeneous_array(src);
+    return homogeneous_at(array, i, func);
+}
+
+
+/**
  * @brief Alias for the variant of type true_type/false_type
  */
 class variadic_bool : public std::variant<std::true_type, std::false_type>
@@ -440,6 +438,21 @@ public:
         }, this);
     }
 };
+
+
+/**
+ * @brief Runtime std::get for tuples, implemented using homogeneous morph
+ * @tparam SrcTuple Deduced tuple type
+ * @param src Input tuple
+ * @param i Tuple element index
+ * @param func Lambda which accepts the tuple element. May optionally return a homogeneous type
+ */
+template<class SrcTuple>
+constexpr auto tuple_at(const SrcTuple& src, const std::size_t i, auto func)
+{
+    auto array = homogeneous_morph(src);
+    return homogeneous_at(array, i, func);
+}
 
 
 #endif //SUPERCFG_HELPERS_H

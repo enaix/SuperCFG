@@ -415,15 +415,11 @@ protected:
                         // Check the stack element type
                         return elem.visit([&](const VStr&& token, const TokenType& type){
                             // It's a token
-                            // We CANNOT return the type here at all
-                            // TODO find the related type and return a tuple of the homogeneous type
-                            // Shouldn't we convert it to variant?
+                            // We CANNOT return the nonhomogeneous type here at all
                             return homogeneous_elem_morph<window_types>(std::make_tuple(*nterm));
-                            //return std::make_tuple(std::true_type(), nterm); // return (true, token)
                         }, [&](const TokenType& type){
                             // It's a nterm
                             // The return types HERE and ABOVE must be equal
-                            //return std::make_tuple(std::false_type(), nterm); // return (true, nterm)
                             return homogeneous_elem_morph<window_types>(reverse_rules.get(*nterm));
                         }); // element type
                     }); // hashmap access
@@ -431,12 +427,14 @@ protected:
 
                 // Expand a tuple of homogeneous type
                 type_expansion(h_types, [&](auto related_types){
+                    // Find common types among these
                     auto common_types = tuple_intersect(related_types);
 
                     if constexpr (std::tuple_size<decltype(common_types)>() > 0)
                     {
                         tuple_each(common_types, [&](std::size_t, const auto& type){
                             // TODO descend and check each definition
+                            if (descend_batch())
                         });
                     }
                 });
@@ -509,13 +507,13 @@ protected:
                 // TODO implement other operators
             }
         } else if constexpr (is_nterm<TSymbol>()) {
-            const auto& nterm = indexer.get(sequence, index);
-            if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<decltype(nterm)>>())
-            {
-                index++;
-                return true; // Matched
-            } else return false;
-
+            return tuple_at(sequence, index, [&](const auto& nterm){
+                if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<decltype(nterm)>>())
+                {
+                    index++;
+                    return true; // Matched
+                } else return false;
+            });
         } else if constexpr (is_term<TSymbol>()) {
             // We can move this comparison to reduce() loop
             // Check if current NTerm is equal to the definition symbol
