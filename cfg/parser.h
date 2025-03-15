@@ -339,11 +339,13 @@ public:
 };
 
 
-template<class VStr, class TokenType, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree>
+template<class VStr, class TokenType, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap>
 class SRParser
 {
 protected:
     NTermsHashTable<TokenType, RulesSymbol> storage;
+    SymbolsHT symbols_ht;
+    TermsMap terms_storage;
     RRTree reverse_rules;
     //NTermsConstHashTable<RulesSymbol> storage;
     using TokenV = Token<VStr, TokenType>;
@@ -384,7 +386,19 @@ protected:
             // Parse the nterm
         });*/
 
-        using token_types = typename NTermsHashTable<TokenType, RulesSymbol>::TDefsTuple;
+        // We define a list of possible token types
+        using terms_types = typename SymbolsHT::TermsTuple;
+        using nterms_types = typename SymbolsHT::NTermsTuple;
+
+        // Terms and nterms
+        using all_types = decltype(std::tuple_cat(terms_types(), nterms_types()));
+        using token_types_variant = variadic_morph_t<all_types>;
+
+        // Terms -> NTerms mapping
+        using terms2nterms_t = decltype(terms_storage.get_all(terms_types()));
+
+        // All possible types are nterms
+        using token_types = nterms_types;
 
         // Morph each token type into its possible related type (underlying type for a token, related types of a nterm)
         using window_types = decltype(
@@ -405,36 +419,51 @@ protected:
             {
                 std::size_t i_rev = stack.size() - i - 1; // Get position from the top
 
-                // Get each related type from the window
-                auto h_types = to_homogeneous_tuple(tuple_for([&]<std::size_t j>(){
+                // Get each related type (h_types) and the symbol (symbols) from the window
+                auto h_types_and_symbols = to_homogeneous_tuple(tuple_for([&]<std::size_t j>(){
                     std::size_t j_rev = j + i_rev; // Get jth position from the top
                     GSymbolV& elem = stack[j_rev];
 
                     // HERE we access the hashmap
-                    return storage.get(elem.type, [&](const auto* nterm){
-                        // Check the stack element type
-                        return elem.visit([&](const VStr&& token, const TokenType& type){
-                            // It's a token
-                            // We CANNOT return the nonhomogeneous type here at all
-                            return homogeneous_elem_morph<window_types>(std::make_tuple(*nterm));
-                        }, [&](const TokenType& type){
-                            // It's a nterm
-                            // The return types HERE and ABOVE must be equal
-                            return homogeneous_elem_morph<window_types>(reverse_rules.get(*nterm));
-                        }); // element type
-                    }); // hashmap access
+                    // TODO we need another storage here!
+                    // Check the stack element type
+                    return elem.visit([&](const VStr&& token, const TokenType& type){
+                        // It's a token
+                        // We CANNOT return the nonhomogeneous type here at all
+                        // Here we also need to merge 2 tuples element-wise and unpack them later
+                        return symbols_ht.get_term(elem.type, [&](const auto& term){
+                            return std::make_tuple(homogeneous_elem_morph<window_types>(std::make_tuple(terms_storage.get(term))), token_types_variant(term));
+                        }); // hashtable access
+
+                    }, [&](const TokenType& type){
+                        // It's a nterm
+                        // The return types HERE and ABOVE must be equal
+                        return symbols_ht.get_nterm(elem.type, [&](const auto& nterm){
+                            return std::make_tuple(homogeneous_elem_morph<window_types>(reverse_rules.get(nterm)), token_types_variant(nterm));
+                        }); // hashtable access
+                    }); // element type
                 }, i)); // the second loop
 
+                // We need to unpack the tuple
+                auto h_types = tuple_take_along_axis<0>(h_types_and_symbols);
+                auto symbols = tuple_take_along_axis<1>(h_types_and_symbols);
+
                 // Expand a tuple of homogeneous type
-                type_expansion(h_types, [&](auto related_types){
+                type_expansion(h_types, [&](const auto& related_types){
                     // Find common types among these
                     auto common_types = tuple_intersect(related_types);
 
                     if constexpr (std::tuple_size<decltype(common_types)>() > 0)
                     {
                         tuple_each(common_types, [&](std::size_t, const auto& type){
-                            // TODO descend and check each definition
-                            if (descend_batch())
+                            type_expansion(symbols, [&](const auto& sequence){
+                                std::size_t index = 0;
+                                // TODO handle these cases
+                                if (descend_batch(sequence, type, index))
+                                {
+                                    // Found
+                                } // Not found
+                            });
                         });
                     }
                 });
@@ -450,7 +479,7 @@ protected:
      * @param symbol Grammar rule
      */
     template<class Types, class TSymbol, class DefSymbol>
-    constexpr auto descend_batch(const Types& sequence, const TSymbol& symbol, std::size_t& index, const DefSymbol& def) const
+    constexpr auto descend_batch(const Types& sequence, const TSymbol& symbol, std::size_t& index) const
     {
         auto indexer = TupleIndexer(sequence);
         if constexpr (is_operator<TSymbol>())
@@ -459,7 +488,7 @@ protected:
             {
                 std::size_t index_stack = index;
                 bool ok = symbol.each_or_exit([&](const auto& s) -> bool {
-                    if (!descend_batch(sequence, s, index_stack, def))
+                    if (!descend_batch(sequence, s, index_stack))
                         return false; // Didn't find anything
                     return true; // Continue
                 });
@@ -470,31 +499,31 @@ protected:
             {
                 // Get each element and check if at least one matches
                 return !symbol.each_or_exit([&](const auto& s) -> bool {
-                    if (descend_batch(sequence, s, index, def)) return false; // Found
+                    if (descend_batch(sequence, s, index)) return false; // Found
                     return true; // Continue
                 });
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Optional)
             {
                 // Try to match if we can, just return true anyway
-                return descend_batch(sequence, std::get<0>(symbol.terms), index, def);
+                return descend_batch(sequence, std::get<0>(symbol.terms), index);
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Repeat)
             {
-                while (descend_batch(sequence, std::get<0>(symbol.terms), index, def)) {}
+                while (descend_batch(sequence, std::get<0>(symbol.terms), index)) {}
                 return true;
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Group)
             {
-                return descend_batch(sequence, std::get<0>(symbol.terms), index, def);
+                return descend_batch(sequence, std::get<0>(symbol.terms), index);
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Except)
             {
                 std::size_t i = index;
-                if (descend_batch(sequence, std::get<0>(symbol.terms), i, def))
+                if (descend_batch(sequence, std::get<0>(symbol.terms), i))
                 {
                     // Check if the symbol is an exception
-                    if (!descend_batch(sequence, std::get<1>(symbol.terms), i, def))
+                    if (!descend_batch(sequence, std::get<1>(symbol.terms), i))
                     {
                         index = i;
                         return true;

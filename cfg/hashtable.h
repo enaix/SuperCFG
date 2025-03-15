@@ -10,6 +10,7 @@
 #include <variant>
 
 #include "cfg/helpers.h"
+#include "elemtree/element.h"
 
 
 template<class Key, class ValuesTuple>
@@ -19,9 +20,7 @@ public:
     using TypesNum = std::tuple_size<ValuesTuple>;
 
     // Morph values into std::variant type
-    using ValuesVariant = decltype(type_morph_t<std::variant>(
-            []<std::size_t index>(){ return std::tuple_element_t<index, ValuesTuple>(); },
-            TypesNum()));
+    using ValuesVariant = variadic_morph_t<ValuesTuple>;
 
     std::unordered_map<Key, ValuesVariant> storage;
 
@@ -34,6 +33,8 @@ public:
         }
     }
 
+    TypesHashTable() = default;
+
     template<std::size_t N>
     constexpr explicit TypesHashTable(auto fill_storage, const IntegralWrapper<N> nums)
     {
@@ -43,6 +44,13 @@ public:
     auto get(const Key& key, auto func) const
     {
         return std::visit([func](const auto& elem){ return func(elem); }, storage[key]);
+    }
+
+    template<class Val>
+    void insert(const Key& key, const Val& value) const
+    {
+        static_assert(tuple_contains_v<Val, ValuesTuple>, "Tuple does not contain such type");
+        storage.insert({key, ValuesVariant(value)});
     }
 
 protected:

@@ -95,7 +95,9 @@ public:
     using _is_operator = std::false_type;
     using _name_type = CStr;
 
-    constexpr Term() : name("\0") {}
+    constexpr Term() : name() {}
+
+    constexpr auto type() const { return name; } // Terminal type may coincide with a nonterminal type
 
     template<class BNFBakery>
     constexpr auto bake(const BNFBakery& rules) const { return rules.bake_terminal(this->name); }
@@ -240,7 +242,7 @@ public:
     [[nodiscard]] static constexpr std::size_t size() { return sizeof...(TSymbols); }
 
     template<class integral_const>
-    [[nodiscard]] constexpr const auto operator[] (const integral_const N) const { return std::get<integral_const::value>(terms); }
+    [[nodiscard]] constexpr auto operator[] (const integral_const N) const { return std::get<integral_const::value>(terms); }
 
     /**
      * @brief Iterate over each element in terms tuple

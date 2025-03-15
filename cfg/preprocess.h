@@ -15,6 +15,7 @@
 
 #include "cfg/base.h"
 #include "cfg/helpers.h"
+#include "cfg/hashtable.h"
 
 
 /**
@@ -163,7 +164,7 @@ template<class TokenType, class RulesSymbol>
 class NTermsStorage
 {
 public:
-    using TDefsTuple = RulesSymbol::term_ptr_tuple;
+    using TDefsTuple = typename RulesSymbol::term_ptr_tuple;
     TokenType types[std::tuple_size<TDefsTuple>()];
     TDefsTuple defs; // Pointers to defines
 
@@ -188,6 +189,83 @@ protected:
 
         if constexpr (i + 1 < std::tuple_size<TDefsTuple>()) return do_get<i+1>(type);
         else return nullptr;
+    }
+};
+
+
+template<class TermsTypes>
+class TermsStorage
+{
+public:
+    TermsTypes storage;
+
+    constexpr explicit TermsStorage(const TermsTypes& types) : storage(types) {}
+
+    template<class TermT>
+    constexpr auto get(const TermT& term)
+    {
+        return do_get<0>(term);
+    }
+
+    template<class TermsTuple>
+    constexpr auto get_all(const TermsTuple& terms)
+    {
+        return tuple_morph([&]<std::size_t i>(const auto& t){ return get(std::get<i>(t)); }, terms);
+    }
+
+protected:
+    template<std::size_t i, class TermT>
+    constexpr auto do_get(const TermT& term)
+    {
+        if constexpr (std::is_same_v<std::tuple_element_t<0, std::tuple_element_t<i, TermsTypes>>, TermT>)
+            return std::get<1>(std::get<i>(term));
+        else
+        {
+            if constexpr (i >= std::tuple_size_v<TermsTypes>)
+                static_assert(i < std::tuple_size_v<TermsTypes>, "No such term found");
+            return do_get<i+1>(term);
+        }
+    }
+};
+
+
+/**
+ * @brief Terms to related NTerms mapping
+ * @tparam RulesSymbol Rules operator
+ */
+class TermsStorageFactory
+{
+public:
+    constexpr explicit TermsStorageFactory() = default;
+
+    template<class RulesSymbol>
+    constexpr auto build(const RulesSymbol& rules)
+    {
+        auto terms = tuple_flatten_layer(descend_each(rules.terms), std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(rules.terms)>>>{}, [&](const auto& def){
+            return descend_each_def(std::get<0>(def), std::get<1>(def));
+        });
+
+        return TermsStorage(terms);
+    }
+
+protected:
+    template<class NTerm, class TSymbol>
+    constexpr auto descend_each_def(const NTerm& lhs, const TSymbol& symbol)
+    {
+        if constexpr (is_operator<TSymbol>())
+        {
+            return descend_each(symbol.terms, std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(symbol.terms)>>>{}, [&](const auto& e){ return descend_each_def(lhs, e); });
+        } else if constexpr (is_nterm<TSymbol>()) {
+            return std::make_tuple<>();
+        } else if constexpr (is_term<TSymbol>()) {
+            return std::make_tuple(std::make_tuple(symbol, lhs));
+        } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
+    }
+
+    template<class SrcTuple, std::size_t... Ints>
+    constexpr auto descend_each(const SrcTuple& op, const std::integer_sequence<std::size_t, Ints...>, auto func) const
+    {
+        return std::make_tuple(func(std::get<Ints>(op))...);
     }
 };
 
@@ -248,7 +326,7 @@ class Tokenizer
 {
 protected:
     TermsStorage<TERMS_MAX, VStr, TokenType> storage;
-    using hashtable = TermsStorage<TERMS_MAX, VStr, TokenType>::hashtable;
+    using hashtable = typename TermsStorage<TERMS_MAX, VStr, TokenType>::hashtable;
 
 public:
     template<class RulesSymbol>
@@ -305,8 +383,8 @@ template<class TokenType, class RulesSymbol>
 class NTermsHashTable
 {
 public:
-    using TDefsTuple = RulesSymbol::term_types_tuple;
-    using TDefsPtrTuple = RulesSymbol::term_ptr_tuple;
+    using TDefsTuple = typename RulesSymbol::term_types_tuple;
+    using TDefsPtrTuple = typename RulesSymbol::term_ptr_tuple;
     using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>();
 
     // Morph tuple into std::variant type
@@ -316,7 +394,7 @@ public:
 
     std::unordered_map<TokenType, NTermVariant> storage;
 
-    constexpr NTermsHashTable(const RulesSymbol& rules)
+    constexpr explicit NTermsHashTable(const RulesSymbol& rules)
     {
         std::size_t i = 0;
         // Iterate over each definition
@@ -337,6 +415,88 @@ public:
         return std::visit([func](const auto& ht_item){ return func(ht_item.ptr); }, storage[type]);
     }
 };
+
+
+template<class TokenType, class Terms, class NTerms>
+class SymbolsHashTable
+{
+public:
+    using TermsTuple = Terms;
+    using NTermsTuple = NTerms;
+    using TermsVariant = typename TypesHashTable<TokenType, Terms>::ValuesVariant;
+    using NTermsVariant = typename TypesHashTable<TokenType, NTerms>::ValuesVariant;
+
+    TypesHashTable<TokenType, Terms> terms_map;
+    TypesHashTable<TokenType, NTerms> nterms_map;
+
+    constexpr SymbolsHashTable(const Terms& terms, const NTerms& nterms) : terms_map(), nterms_map()
+    {
+        tuple_each(terms, [&](const auto& term){
+            terms_map.insert(term.type(), term);
+        });
+
+        tuple_each(nterms, [&](const auto& nterm){
+            terms_map.insert(nterm.type(), nterm);
+        });
+    }
+
+    auto get_term(const TokenType& type, auto func)
+    {
+        return terms_map.get(type, func);
+    }
+
+    auto get_nterm(const TokenType& type, auto func)
+    {
+        return nterms_map.get(type, func);
+    }
+};
+
+
+class SymbolsHashTableFactory
+{
+public:
+    constexpr SymbolsHashTableFactory() = default;
+
+    template<class TokenType, class RulesSymbol>
+    constexpr auto build(const RulesSymbol& rules) const
+    {
+        auto nterms = tuple_unique(find_nterms(rules));
+        auto terms = find_terms(rules);
+
+        return SymbolsHashTable<TokenType>(terms, nterms);
+    }
+
+protected:
+    template<class TSymbol>
+    constexpr auto find_nterms(const TSymbol& elem) const
+    {
+        static_assert(is_operator<TSymbol>(), "Symbol is not an operator");
+        static_assert(get_operator<TSymbol>() == OpType::Define, "Operator is not a root symbol");
+        return tuple_morph([&]<std::size_t i>(const auto& def){
+            return std::get<0>(std::get<i>(def)); // Get the nterm definition (on the left)
+        }, elem.terms);
+    }
+
+    template<class TSymbol>
+    constexpr auto find_terms(const TSymbol& elem) const
+    {
+        if constexpr (is_operator<TSymbol>())
+        {
+            return descend_each(elem.terms, std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(elem.terms)>>>{}, [&](const auto& e){ return find_terms(e); });
+        } else if constexpr (is_nterm<TSymbol>()) {
+            return std::make_tuple<>();
+        } else if constexpr (is_term<TSymbol>()) {
+            return std::make_tuple(elem);
+        } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
+    }
+
+    template<class SrcTuple, std::size_t... Ints>
+    constexpr auto descend_each(const SrcTuple& op, const std::integer_sequence<std::size_t, Ints...>, auto func) const
+    {
+        return std::make_tuple(func(std::get<Ints>(op))...);
+    }
+};
+
 
 
 /**

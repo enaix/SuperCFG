@@ -117,6 +117,37 @@ namespace cfg_helpers
     {
         std::visit([&](const auto... elems){ return func(std::make_tuple(elems...)); }, std::get<Ints>(src)...);
     }
+
+    template<class... T>
+    constexpr auto do_variadic_morph(const std::tuple<T...>& src)
+    {
+        return std::variant<T...>();
+    }
+
+    template<class TupleA, class TupleB, std::size_t... IntsLHS, std::size_t... IntsRHS>
+    constexpr auto do_tuple_merge_ex(const TupleA& lhs, const TupleB& rhs, const std::integer_sequence<std::size_t, IntsLHS...>, const std::integer_sequence<std::size_t, IntsRHS...>)
+    {
+        return std::make_tuple(std::get<IntsLHS>(lhs)..., std::get<IntsRHS>(rhs)...);
+    }
+
+    template<class TupleA, class TupleB, class... Tuples>
+    constexpr auto do_tuple_merge(const TupleA& lhs, const TupleB& rhs, const Tuples&... tuples)
+    {
+        auto ab = do_tuple_merge_ex(lhs, rhs, std::make_index_sequence<std::tuple_size_v<TupleA>>{}, std::make_index_sequence<std::tuple_size_v<TupleB>>{});
+        return do_tuple_merge(ab, tuples...);
+    }
+
+    template<class TupleA, class TupleB>
+    constexpr auto do_tuple_merge(const TupleA& lhs, const TupleB& rhs)
+    {
+        return do_tuple_merge_ex(lhs, rhs, std::make_index_sequence<std::tuple_size_v<TupleA>>{}, std::make_index_sequence<std::tuple_size_v<TupleB>>{});
+    }
+
+    template<class SrcTuple, std::size_t... Ints>
+    constexpr auto do_tuple_merge_sub(const SrcTuple& src, const std::integer_sequence<std::size_t, Ints...>)
+    {
+        return do_tuple_merge(std::get<Ints>(src)...);
+    }
 } // cfg_helpers
 
 
@@ -166,6 +197,13 @@ constexpr auto tuple_morph_t(auto morph)
     return cfg_helpers::do_type_morph_t<std::tuple>(morph, std::make_index_sequence<std::tuple_size_v<Src>()>{});
 }
 
+
+/**
+ * @brief Morph a tuple of type std::tuple<T...> into a variant of type std::variant<T...>
+ */
+template<class SrcTuple>
+using variadic_morph_t = decltype(cfg_helpers::do_variadic_morph(SrcTuple()));
+
 /**
  * @brief Get an intersection between 2 tuples, excluding duplicated elements
  */
@@ -211,12 +249,29 @@ template<class Tuple>
 constexpr auto tuple_unique(const Tuple& tuple)
 {
     // TODO implement tuple unique() operator
+    return tuple;
 }
 
-template<class Tuple>
-constexpr auto tuple_unique()
+/**
+ * @brief Concatenate N tuples
+ * @tparam Tuples Deduced tuples type
+ * @param tuples Tuples to merge
+ */
+template<class... Tuples>
+constexpr auto tuple_concat(const Tuples&... tuples)
 {
-    // TODO implement tuple unique() operator
+    return cfg_helpers::do_tuple_merge(tuples...);
+}
+
+/**
+ * @brief Flatten a tuple one layer deep
+ * @tparam SrcTuple Deduced tuple type
+ * @param src Tuple to flatten
+ */
+template<class SrcTuple>
+constexpr auto tuple_flatten_layer(const SrcTuple& src)
+{
+    return cfg_helpers::do_tuple_merge_sub(src);
 }
 
 /**
@@ -453,6 +508,35 @@ constexpr auto tuple_at(const SrcTuple& src, const std::size_t i, auto func)
     auto array = homogeneous_morph(src);
     return homogeneous_at(array, i, func);
 }
+
+
+/**
+ * @brief Take each j-th element in i-th sub-tuple of a tuple
+ * @tparam SrcTuple Deduced tuple type
+ * @tparam Index Which element to take along axis
+ * @param src Tuple to morph
+ */
+template<class SrcTuple, std::size_t Index>
+constexpr auto tuple_take_along_axis(const SrcTuple& src)
+{
+    return tuple_morph([&]<std::size_t i>(const auto& container){ return std::get<Index>(container); }, src);
+}
+
+
+/**
+ * @brief Merge two equal tuples of the same size element-wise
+ * @tparam TupleA Deduced lhs tuple type
+ * @tparam TupleB Deduced rhs tuple type
+ * @param lhs First tuple to merge
+ * @param rhs Second tuple to merge
+ */
+template<class TupleA, class TupleB>
+constexpr auto tuple_merge_along_axis(const TupleA& lhs, const TupleB& rhs)
+{
+    static_assert(std::tuple_size_v<TupleA> == std::tuple_size_v<TupleB>, "Tuples must be equal");
+    return tuple_morph([&]<std::size_t i>(const auto& container){ return std::make_tuple(lhs, rhs); }, lhs);
+}
+
 
 
 #endif //SUPERCFG_HELPERS_H
