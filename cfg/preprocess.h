@@ -199,12 +199,12 @@ protected:
 
 
 template<class TermsTypes>
-class TermsStorage
+class TermsMap
 {
 public:
     TermsTypes storage;
 
-    constexpr explicit TermsStorage(const TermsTypes& types) : storage(types) {}
+    constexpr explicit TermsMap(const TermsTypes& types) : storage(types) {}
 
     template<class TermT>
     constexpr auto get(const TermT& term)
@@ -238,19 +238,19 @@ protected:
  * @brief Terms to related NTerms mapping
  * @tparam RulesSymbol Rules operator
  */
-class TermsStorageFactory
+class TermsMapFactory
 {
 public:
-    constexpr explicit TermsStorageFactory() = default;
+    constexpr explicit TermsMapFactory() = default;
 
     template<class RulesSymbol>
     constexpr auto build(const RulesSymbol& rules)
     {
-        auto terms = tuple_flatten_layer(descend_each(rules.terms), std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(rules.terms)>>>{}, [&](const auto& def){
-            return descend_each_def(std::get<0>(def), std::get<1>(def));
-        });
+        constexpr auto terms = tuple_flatten_layer(descend_each(rules.terms, std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(rules.terms)>>>{}, [&](const auto& def){
+            return descend_each_def(std::get<0>(def.terms), std::get<1>(def.terms));
+        }));
 
-        return TermsStorage(terms);
+        return TermsMap(terms);
     }
 
 protected:
@@ -310,7 +310,7 @@ protected:
     template<std::size_t depth, class TSymbol>
     constexpr auto do_get(const TSymbol& symbol) const
     {
-        static_assert(depth < std::tuple_size_v<TDefsTuple>(), "NTerm type not found");
+        static_assert(depth < std::tuple_size_v<TDefsTuple>, "NTerm type not found");
         if constexpr (std::is_same_v<std::remove_cvref_t<TSymbol>, std::tuple_element_t<depth, NTermsTuple>>)
         {
             return std::get<depth>(defs);
@@ -436,12 +436,12 @@ public:
 
     constexpr SymbolsHashTable(const Terms& terms, const NTerms& nterms) : terms_map(), nterms_map()
     {
-        tuple_each(terms, [&](const auto& term){
-            terms_map.insert(term.type(), term);
+        tuple_each(terms, [&](std::size_t i, const auto& term){
+            terms_map.insert({term.type(), term});
         });
 
-        tuple_each(nterms, [&](const auto& nterm){
-            terms_map.insert(nterm.type(), nterm);
+        tuple_each(nterms, [&](std::size_t i, const auto& nterm){
+            terms_map.insert({nterm.type(), nterm});
         });
     }
 
@@ -465,10 +465,10 @@ public:
     template<class TokenType, class RulesSymbol>
     constexpr auto build(const RulesSymbol& rules) const
     {
-        auto nterms = tuple_unique(find_nterms(rules));
-        auto terms = find_terms(rules);
+        auto nterms = find_nterms(rules);
+        auto terms = tuple_unique(find_terms(rules));
 
-        return SymbolsHashTable<TokenType>(terms, nterms);
+        return SymbolsHashTable<TokenType, decltype(terms), decltype(nterms)>(terms, nterms);
     }
 
 protected:
@@ -476,9 +476,9 @@ protected:
     constexpr auto find_nterms(const TSymbol& elem) const
     {
         static_assert(is_operator<TSymbol>(), "Symbol is not an operator");
-        static_assert(get_operator<TSymbol>() == OpType::Define, "Operator is not a root symbol");
+        static_assert(get_operator<TSymbol>() == OpType::RulesDef, "Operator is not a root symbol");
         return tuple_morph([&]<std::size_t i>(const auto& def){
-            return std::get<0>(std::get<i>(def)); // Get the nterm definition (on the left)
+            return std::get<0>(std::get<i>(def).terms); // Get the nterm definition (on the left)
         }, elem.terms);
     }
 
@@ -560,7 +560,7 @@ protected:
     template<std::size_t depth, class RulesSymbol>
     constexpr auto reverse_rule_tree_for_symbol(const RulesSymbol& rules) const
     {
-        const auto& nterm = std::get<0>(std::get<depth>(rules.terms)); // key (nterm)
+        const auto& nterm = std::get<0>(std::get<depth>(rules.terms).terms); // key (nterm)
         const auto nterms = iterate_over_rules<0>(rules, nterm); // value (related definitions)
 
         if constexpr (depth + 1 >= std::tuple_size<typename RulesSymbol::term_types_tuple>()) return std::make_tuple(nterms);
@@ -571,15 +571,16 @@ protected:
     constexpr auto iterate_over_rules(const RulesSymbol& rules, const TSymbol& nterm) const
     {
         // Iterate over all rules
-        const auto& rule_nterm = std::get<0>(std::get<depth>(rules.terms));
-        const auto& rule_def = std::get<1>(std::get<depth>(rules.terms));
+        const auto& define_op = std::get<depth>(rules.terms); // get i-th definition
+        const auto& rule_nterm = std::get<0>(define_op.terms);
+        const auto& rule_def = std::get<1>(define_op.terms);
 
         // Check if we compare the type with its own definition
-        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(rule_nterm)>, TSymbol>())
+        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(rule_nterm)>, TSymbol>)
         {
             // We need to skip over this element
             if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>) return std::tuple<>(); // TODO cover this case when last term is the same
-            return iterate_over_rules<depth+1>(rules, nterm);
+            else return iterate_over_rules<depth+1>(rules, nterm);
         } else {
             // Check if the element is in this definition
             const bool found = is_nterm_in_rule(rules, nterm);

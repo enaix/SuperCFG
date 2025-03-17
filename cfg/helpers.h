@@ -36,7 +36,7 @@ namespace cfg_helpers
     template<class TElem, class TupleRes>
     constexpr bool is_element_present(const TElem& elem, const TupleRes& res)
     {
-        return std::apply([&](const auto&... args){ return compare_elements(elem, res...); }, res);
+        return std::apply([&](const auto&... args){ return compare_elements(elem, args...); }, res);
     }
 
     template<std::size_t i, class SrcTuple, class TupleRes>
@@ -59,7 +59,7 @@ namespace cfg_helpers
         else return intersect;
     }
 
-    template<std::size_t Ints>
+    template<std::size_t... Ints>
     constexpr auto do_tuple_for(auto gen_func, const std::integer_sequence<std::size_t, Ints...>)
     {
         return std::make_tuple(gen_func.template operator()<Ints>()...);
@@ -69,7 +69,7 @@ namespace cfg_helpers
     constexpr void do_tuple_each(const Tuple& tuple, auto each_elem)
     {
         each_elem(depth, std::get<depth>(tuple));
-        if constexpr (depth + 1 < std::tuple_size_v<Tuple>())
+        if constexpr (depth + 1 < std::tuple_size_v<Tuple>)
             do_tuple_each<depth+1>(tuple, each_elem);
     }
 
@@ -127,11 +127,14 @@ namespace cfg_helpers
         std::visit([&](const auto... elems){ return func(std::make_tuple(elems...)); }, std::get<Ints>(src)...);
     }
 
+    template<class Tuple>
+    struct do_variadic_morph_t;
+
     template<class... T>
-    constexpr auto do_variadic_morph(const std::tuple<T...>& src)
+    struct do_variadic_morph_t<std::tuple<T...>>
     {
-        return std::variant<T...>();
-    }
+        using value = std::variant<T...>;
+    };
 
     template<class TupleA, class TupleB, std::size_t... IntsLHS, std::size_t... IntsRHS>
     constexpr auto do_tuple_merge_ex(const TupleA& lhs, const TupleB& rhs, const std::integer_sequence<std::size_t, IntsLHS...>, const std::integer_sequence<std::size_t, IntsRHS...>)
@@ -152,10 +155,22 @@ namespace cfg_helpers
         return do_tuple_merge_ex(lhs, rhs, std::make_index_sequence<std::tuple_size_v<TupleA>>{}, std::make_index_sequence<std::tuple_size_v<TupleB>>{});
     }
 
+    template<class Tuple>
+    constexpr auto do_tuple_merge(const Tuple& lhs)
+    {
+        return lhs;
+    }
+
     template<class SrcTuple, std::size_t... Ints>
     constexpr auto do_tuple_merge_sub(const SrcTuple& src, const std::integer_sequence<std::size_t, Ints...>)
     {
         return do_tuple_merge(std::get<Ints>(src)...);
+    }
+
+    template<class Tuple, std::size_t depth>
+    constexpr auto do_tuple_unique(const Tuple& tuple)
+    {
+
     }
 } // cfg_helpers
 
@@ -197,21 +212,22 @@ template<class Src>
 constexpr auto tuple_morph(auto morph, const Src& src)
 {
     // TODO pass tuple element in morph
-    return cfg_helpers::do_type_morph<std::tuple>(morph, src, std::make_index_sequence<std::tuple_size_v<Src>()>{});
+    return cfg_helpers::do_type_morph<std::tuple>(morph, src, std::make_index_sequence<std::tuple_size_v<Src>>{});
 }
 
 template<class Src>
 constexpr auto tuple_morph_t(auto morph)
 {
-    return cfg_helpers::do_type_morph_t<std::tuple>(morph, std::make_index_sequence<std::tuple_size_v<Src>()>{});
+    return cfg_helpers::do_type_morph_t<std::tuple>(morph, std::make_index_sequence<std::tuple_size_v<Src>>{});
 }
 
 
 /**
  * @brief Morph a tuple of type std::tuple<T...> into a variant of type std::variant<T...>
  */
+
 template<class SrcTuple>
-using variadic_morph_t = decltype(cfg_helpers::do_variadic_morph(SrcTuple()));
+using variadic_morph_t = typename cfg_helpers::do_variadic_morph_t<SrcTuple>::value;
 
 /**
  * @brief Get an intersection between 2 tuples, excluding duplicated elements
@@ -251,7 +267,7 @@ constexpr auto tuple_for(auto gen_func, const IntegralWrapper<N> length)
 template<class Tuple>
 constexpr void tuple_each(const Tuple& tuple, auto each_elem)
 {
-    if constexpr (std::tuple_size_v<Tuple>() != 0) cfg_helpers::do_tuple_each<0>(tuple, each_elem);
+    if constexpr (std::tuple_size_v<Tuple> != 0) cfg_helpers::do_tuple_each<0>(tuple, each_elem);
 }
 
 
@@ -289,7 +305,7 @@ constexpr auto tuple_concat(const Tuples&... tuples)
 template<class SrcTuple>
 constexpr auto tuple_flatten_layer(const SrcTuple& src)
 {
-    return cfg_helpers::do_tuple_merge_sub(src);
+    return cfg_helpers::do_tuple_merge_sub(src, std::make_index_sequence<std::tuple_size_v<SrcTuple>>{});
 }
 
 /**
@@ -305,20 +321,23 @@ constexpr auto tuple_slice(const Tuple& tuple)
 }
 
 
+template<class Elem, class Tuple>
+struct tuple_contains;
+
 /**
  * @brief Determine if a tuple contains a type Elem
  * @tparam Elem Element type to check
  * @tparam T Deduced elements of tuple
  */
 template<class Elem, class... T>
-struct tuple_contains<std::tuple<T...>>
+struct tuple_contains<Elem, std::tuple<T...>>
 {
     static constexpr bool value = (std::is_same_v<std::decay_t<Elem>, std::decay_t<T>> || ...);
     constexpr bool operator()() const noexcept { return value; }
 };
 
 template<class Elem, class Tuple>
-constexpr bool tuple_contains_v = typename tuple_contains<Elem, Tuple>::value;
+constexpr bool tuple_contains_v = typename tuple_contains<Elem, Tuple>::value();
 
 
 /**
@@ -333,8 +352,11 @@ struct are_same
     constexpr bool operator()() const noexcept { return value; }
 };
 
-template<class... T> constexpr bool are_same_v = typename are_same<T...>::value;
+template<class... T> constexpr bool are_same_v = typename are_same<T...>::value();
 
+
+template<class Tuple>
+struct is_homogeneous;
 
 /**
  * @brief Check if a tuple is of a homogeneous type (all types are the same)

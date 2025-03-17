@@ -331,14 +331,6 @@ protected:
 };
 
 
-template<class Sequence, bool found>
-class DescendBatchResult
-{
-public:
-    Sequence seq;
-};
-
-
 template<class VStr, class TokenType, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap>
 class SRParser
 {
@@ -351,7 +343,7 @@ protected:
     using TokenV = Token<VStr, TokenType>;
     using GSymbolV = GrammarSymbol<VStr, TokenType>;
 public:
-    constexpr explicit SRParser(const RulesSymbol& rules) : storage(rules) {}
+    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map) : storage(rules), reverse_rules(rr_tree), symbols_ht(ht), terms_storage(t_map) {}
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
 
     template<class RootSymbol>
@@ -359,26 +351,26 @@ public:
     {
         std::vector<GSymbolV> stack{GSymbolV(tokens[0])};
         std::size_t i = 1;
+        Tree cur_node;
         while (i < tokens.size())
         {
-            if (!reduce(stack))
+            if (!reduce(stack, &node, &cur_node))
             {
                 // Shift operation
                 if (i == tokens.size()) [[unlikely]]
                     return false;
                 stack.push_back(GSymbolV(tokens[i]));
                 i++;
-            } else {
-                // We only have the root symbol, nothing to parse
-                if (stack.size() == 1 && !stack[0].is_token() && stack[0].type == root.type())
-                    return true;
             }
         }
+        // We only have the root symbol, nothing to parse
+        if (stack.size() == 1 && !stack[0].is_token() && stack[0].type == root.type())
+            return true;
         return false;
     }
 
 protected:
-    bool reduce(std::vector<GSymbolV>& stack)
+    bool reduce(std::vector<GSymbolV>& stack, Tree* root, Tree* cur_node)
     {
         // Get rightmost token type (handle)
         // check shift_reduce_parser_notes.txt
@@ -476,7 +468,23 @@ protected:
                                 if (descend_batch(sequence, type, index))
                                 {
                                     // Found
-                                    // TODO create parse tree (insert nodes)
+                                    for (std::size_t j = i_rev; j < stack.size(); ++j)
+                                    {
+                                        if (stack[j].is_token())
+                                            cur_node->add_value(stack[j].value);
+                                        else
+                                        {
+                                            // Hella inefficient
+                                            cur_node->parent = root;
+                                            cur_node->name = stack[j].type;
+                                            root->add(cur_node);
+                                            // Cur node is now the root
+                                            cur_node = root;
+                                            // Create new root node
+                                            *root = Tree();
+                                        }
+                                    }
+
                                     stack.erase(std::vector<GSymbolV>::iterator + i_rev, stack.end()); // May be inefficient
                                     stack.push_back(GSymbolV(type.type())); // insert the matched nterm
                                     return true; // Performed reduce, tell tuple_each_or_return to exit

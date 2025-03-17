@@ -97,7 +97,7 @@ bool test_gbnf_parse_1()
 {
     std::cout << "test_gbnf_parse_1() :" << std::endl;
 
-    constexpr EBNFRules rules;
+    constexpr EBNFBakery rules;
     constexpr auto d_digit = Define(NTerm(cs("digit")), Repeat(Alter(Term(cs("1")), Term(cs("2")), Term(cs("3")), Term(cs("4")), Term(cs("5")),
                                                                     Term(cs("6")), Term(cs("7")), Term(cs("8")), Term(cs("9")), Term(cs("0")))));
     constexpr auto root = RulesDef(d_digit);
@@ -218,10 +218,57 @@ bool test_gbnf_parse_calc()
     return true;
 }
 
+bool test_sr_init()
+{
+    std::cout << "test_sr_init() :" << std::endl;
+
+    constexpr EBNFBakery rules;
+
+    constexpr auto d_digit = Define(NTerm(cs("digit")), Repeat(Alter(Term(cs("1")), Term(cs("2")), Term(cs("3")), Term(cs("4")), Term(cs("5")),
+                                                                Term(cs("6")), Term(cs("7")), Term(cs("8")), Term(cs("9")), Term(cs("0")))));
+    static constexpr auto root = RulesDef(d_digit);
+
+    using VStr = StdStr<char>;
+    using TokenType = StdStr<char>;
+    Tokenizer<64, VStr, TokenType> lexer(root);
+    StdStr<char> in("1452");
+    bool ok;
+    auto ht = lexer.init_hashtable();
+    auto tokens = lexer.run(ht, in, ok);
+
+    if (!ok)
+    {
+        std::cout << "lexer build error" << std::endl;
+        return false;
+    }
+
+    // Parser classes init
+    // ===================
+
+    // Initialize reverse rules tree
+    constexpr auto rr_tree = ReverseRuleTreeFactory().build(root);
+    // Initialize symbols hashtable
+    constexpr auto symbols_ht = SymbolsHashTableFactory().build<TokenType>(root);
+    // Initialize terms2nterms map
+    constexpr auto terms_map = TermsMapFactory().build(root);
+    // Parser init
+    constexpr auto parser = SRParser<VStr, TokenType, TreeNode<VStr>, 128, decltype(root), decltype(rr_tree), decltype(symbols_ht), decltype(terms_map)>(root, rr_tree, symbols_ht, terms_map);
+
+    TreeNode<VStr> tree;
+    ok = parser.run(tree, d_digit, tokens);
+
+    if (!ok)
+    {
+        std::cout << "parser error" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 
 bool test_gbnf()
 {
-    return test_gbnf_basic() && test_gbnf_complex1() && test_gbnf_extended() && test_gbnf_parse_1() && test_gbnf_parse_calc();
+    return test_gbnf_basic() && test_gbnf_complex1() && test_gbnf_extended() && test_gbnf_parse_1() && test_gbnf_parse_calc() && test_sr_init();
 }
 
 #endif //SUPERCFG_BNF_H

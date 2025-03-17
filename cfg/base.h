@@ -442,7 +442,7 @@ protected:
     template<std::size_t i>
     constexpr void each_symbol_index(auto func) const
     {
-        func.template<i> operator()(std::get<i>(terms));
+        func.template operator()<i>(std::get<i>(terms));
         if constexpr (i + 1 < sizeof...(TSymbols)) each_symbol_index<i + 1>(func);
     }
 
@@ -455,9 +455,9 @@ protected:
     }
 
     template<std::size_t i>
-    constexpr void each_symbol_index_return(auto func) const
+    constexpr bool each_symbol_index_return(auto func) const
     {
-        if (!func.template<i> operator()(std::get<i>(terms))) return false;
+        if (!func.template operator()<i>(std::get<i>(terms))) return false;
         if constexpr (i + 1 < sizeof...(TSymbols)) return each_symbol_index_return<i + 1>(func);
         return true;
     }
