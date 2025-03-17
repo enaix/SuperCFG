@@ -357,12 +357,28 @@ public:
     template<class RootSymbol>
     bool run(Tree& node, const RootSymbol& root, std::vector<TokenV>& tokens)
     {
-        std::vector<GSymbolV> stack;
-        // TODO do the shift and reduce operations
+        std::vector<GSymbolV> stack{GSymbolV(tokens[0])};
+        std::size_t i = 1;
+        while (i < tokens.size())
+        {
+            if (!reduce(stack))
+            {
+                // Shift operation
+                if (i == tokens.size()) [[unlikely]]
+                    return false;
+                stack.push_back(GSymbolV(tokens[i]));
+                i++;
+            } else {
+                // We only have the root symbol, nothing to parse
+                if (stack.size() == 1 && !stack[0].is_token() && stack[0].type == root.type())
+                    return true;
+            }
+        }
+        return false;
     }
 
 protected:
-    bool reduce(std::vector<GSymbolV>& stack, std::vector<TokenV>& tokens)
+    bool reduce(std::vector<GSymbolV>& stack)
     {
         // Get rightmost token type (handle)
         // check shift_reduce_parser_notes.txt
@@ -425,7 +441,6 @@ protected:
                     GSymbolV& elem = stack[j_rev];
 
                     // HERE we access the hashmap
-                    // TODO we need another storage here!
                     // Check the stack element type
                     return elem.visit([&](const VStr&& token, const TokenType& type){
                         // It's a token
@@ -455,14 +470,18 @@ protected:
 
                     if constexpr (std::tuple_size<decltype(common_types)>() > 0)
                     {
-                        tuple_each(common_types, [&](std::size_t, const auto& type){
+                        return tuple_each_or_return(common_types, [&](std::size_t, const auto& type){
                             type_expansion(symbols, [&](const auto& sequence){
                                 std::size_t index = 0;
-                                // TODO handle these cases
                                 if (descend_batch(sequence, type, index))
                                 {
                                     // Found
+                                    // TODO create parse tree (insert nodes)
+                                    stack.erase(std::vector<GSymbolV>::iterator + i_rev, stack.end()); // May be inefficient
+                                    stack.push_back(GSymbolV(type.type())); // insert the matched nterm
+                                    return true; // Performed reduce, tell tuple_each_or_return to exit
                                 } // Not found
+                                return false;
                             });
                         });
                     }
@@ -470,6 +489,7 @@ protected:
 
             } else return false;
         }, IntegralWrapper<STACK_MAX>()); // the first for loop
+        return false;
     }
 
 
@@ -479,7 +499,7 @@ protected:
      * @param symbol Grammar rule
      */
     template<class Types, class TSymbol, class DefSymbol>
-    constexpr auto descend_batch(const Types& sequence, const TSymbol& symbol, std::size_t& index) const
+    constexpr bool descend_batch(const Types& sequence, const TSymbol& symbol, std::size_t& index) const
     {
         auto indexer = TupleIndexer(sequence);
         if constexpr (is_operator<TSymbol>())
@@ -553,6 +573,7 @@ protected:
             } else return false;
 
         } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
+        return false;
     }
 };
 

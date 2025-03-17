@@ -73,6 +73,15 @@ namespace cfg_helpers
             do_tuple_each<depth+1>(tuple, each_elem);
     }
 
+    template<std::size_t depth, class Tuple>
+    constexpr bool do_tuple_each_or_return(const Tuple& tuple, auto each_elem)
+    {
+        if (each_elem(depth, std::get<depth>(tuple))) return true;
+        if constexpr (depth + 1 < std::tuple_size_v<Tuple>())
+            return do_tuple_each<depth+1>(tuple, each_elem);
+        else return false;
+    }
+
     template<std::size_t offset, class Tuple, std::size_t... Ints>
     constexpr auto do_tuple_slice(const Tuple& tuple, const std::integer_sequence<std::size_t, Ints...>)
     {
@@ -244,6 +253,15 @@ constexpr void tuple_each(const Tuple& tuple, auto each_elem)
 {
     if constexpr (std::tuple_size_v<Tuple>() != 0) cfg_helpers::do_tuple_each<0>(tuple, each_elem);
 }
+
+
+template<class Tuple>
+constexpr bool tuple_each_or_return(const Tuple& tuple, auto each_elem)
+{
+    if constexpr (std::tuple_size_v<Tuple>() != 0) return cfg_helpers::do_tuple_each<0>(tuple, each_elem);
+    else return false;
+}
+
 
 template<class Tuple>
 constexpr auto tuple_unique(const Tuple& tuple)

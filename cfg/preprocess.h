@@ -71,6 +71,11 @@ public:
                 return process_nterm(type);
             }, symbol_type);
     }
+
+    [[nodiscard]] constexpr bool is_token() const
+    {
+        return std::visit([&](auto s_type){ return decltype(s_type)::value; }, symbol_type);
+    }
 };
 
 
