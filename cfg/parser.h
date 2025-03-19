@@ -335,7 +335,6 @@ template<class VStr, class TokenType, class Tree, std::size_t STACK_MAX, class R
 class SRParser
 {
 protected:
-    NTermsHashTable<TokenType, RulesSymbol> storage;
     SymbolsHT symbols_ht;
     TermsMap terms_storage;
     RRTree reverse_rules;
@@ -343,7 +342,7 @@ protected:
     using TokenV = Token<VStr, TokenType>;
     using GSymbolV = GrammarSymbol<VStr, TokenType>;
 public:
-    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map) : storage(rules), reverse_rules(rr_tree), symbols_ht(ht), terms_storage(t_map) {}
+    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree) {}
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
 
     template<class RootSymbol>

@@ -33,13 +33,7 @@ public:
         }
     }
 
-    TypesHashTable() = default;
-
-    template<std::size_t N>
-    constexpr explicit TypesHashTable(auto fill_storage, const IntegralWrapper<N> nums)
-    {
-        init(fill_storage, std::make_index_sequence<N>{});
-    }
+    constexpr TypesHashTable() = default;
 
     auto get(const Key& key, auto func) const
     {
@@ -51,14 +45,6 @@ public:
     {
         static_assert(tuple_contains_v<Val, ValuesTuple>, "Tuple does not contain such type");
         storage.insert({key, ValuesVariant(value)});
-    }
-
-protected:
-    template<std::size_t... Ints>
-    constexpr void init(auto fill_storage, const std::integer_sequence<std::size_t, Ints...>)
-    {
-        // Call fill_storage N times
-        (fill_storage.template operator()<Ints>(storage),...);
     }
 };
 

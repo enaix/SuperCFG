@@ -17,13 +17,13 @@ namespace cfg_helpers
     template<template<class...> class Target, std::size_t... Ints>
     constexpr auto do_type_morph_t(auto morph, const std::integer_sequence<std::size_t, Ints...>)
     {
-        return Target(morph.template operator()<Ints>() ...);
+        return Target<std::decay_t<decltype(morph.template operator()<Ints>())>...>(morph.template operator()<Ints>() ...);
     }
 
     template<template<class...> class Target, class Src, std::size_t... Ints>
     constexpr auto do_type_morph(auto morph, const Src &src, const std::integer_sequence<std::size_t, Ints...>)
     {
-        return Target(morph.template operator()<Ints>(src) ...);
+        return Target<std::decay_t<decltype(morph.template operator()<Ints>(src))>...>(morph.template operator()<Ints>(src) ...);
     }
 
 

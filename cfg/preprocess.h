@@ -235,47 +235,6 @@ protected:
 
 
 /**
- * @brief Terms to related NTerms mapping
- * @tparam RulesSymbol Rules operator
- */
-class TermsMapFactory
-{
-public:
-    constexpr explicit TermsMapFactory() = default;
-
-    template<class RulesSymbol>
-    constexpr auto build(const RulesSymbol& rules)
-    {
-        constexpr auto terms = tuple_flatten_layer(descend_each(rules.terms, std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(rules.terms)>>>{}, [&](const auto& def){
-            return descend_each_def(std::get<0>(def.terms), std::get<1>(def.terms));
-        }));
-
-        return TermsMap(terms);
-    }
-
-protected:
-    template<class NTerm, class TSymbol>
-    constexpr auto descend_each_def(const NTerm& lhs, const TSymbol& symbol)
-    {
-        if constexpr (is_operator<TSymbol>())
-        {
-            return descend_each(symbol.terms, std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(symbol.terms)>>>{}, [&](const auto& e){ return descend_each_def(lhs, e); });
-        } else if constexpr (is_nterm<TSymbol>()) {
-            return std::make_tuple<>();
-        } else if constexpr (is_term<TSymbol>()) {
-            return std::make_tuple(std::make_tuple(symbol, lhs));
-        } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
-    }
-
-    template<class SrcTuple, std::size_t... Ints>
-    constexpr auto descend_each(const SrcTuple& op, const std::integer_sequence<std::size_t, Ints...>, auto func) const
-    {
-        return std::make_tuple(func(std::get<Ints>(op))...);
-    }
-};
-
-
-/**
  * @brief Constant NTerm -> definition mapping
  * @tparam RulesSymbol
  */
@@ -377,7 +336,7 @@ public:
 
     constexpr NTermHTItem() : ptr(nullptr) {}
 
-    constexpr NTermHTItem(const TRulesDefOp& op) : ptr(&std::get<1>(op)) {}
+    constexpr NTermHTItem(const TRulesDefOp& op) : ptr(&std::get<1>(op.terms)) {}
 };
 
 
@@ -390,7 +349,7 @@ class NTermsHashTable
 public:
     using TDefsTuple = typename RulesSymbol::term_types_tuple;
     using TDefsPtrTuple = typename RulesSymbol::term_ptr_tuple;
-    using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>();
+    using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>;
 
     // Morph tuple into std::variant type
     using NTermVariant = decltype(type_morph_t<std::variant>(
@@ -455,53 +414,6 @@ public:
         return nterms_map.get(type, func);
     }
 };
-
-
-class SymbolsHashTableFactory
-{
-public:
-    constexpr SymbolsHashTableFactory() = default;
-
-    template<class TokenType, class RulesSymbol>
-    constexpr auto build(const RulesSymbol& rules) const
-    {
-        auto nterms = find_nterms(rules);
-        auto terms = tuple_unique(find_terms(rules));
-
-        return SymbolsHashTable<TokenType, decltype(terms), decltype(nterms)>(terms, nterms);
-    }
-
-protected:
-    template<class TSymbol>
-    constexpr auto find_nterms(const TSymbol& elem) const
-    {
-        static_assert(is_operator<TSymbol>(), "Symbol is not an operator");
-        static_assert(get_operator<TSymbol>() == OpType::RulesDef, "Operator is not a root symbol");
-        return tuple_morph([&]<std::size_t i>(const auto& def){
-            return std::get<0>(std::get<i>(def).terms); // Get the nterm definition (on the left)
-        }, elem.terms);
-    }
-
-    template<class TSymbol>
-    constexpr auto find_terms(const TSymbol& elem) const
-    {
-        if constexpr (is_operator<TSymbol>())
-        {
-            return descend_each(elem.terms, std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(elem.terms)>>>{}, [&](const auto& e){ return find_terms(e); });
-        } else if constexpr (is_nterm<TSymbol>()) {
-            return std::make_tuple<>();
-        } else if constexpr (is_term<TSymbol>()) {
-            return std::make_tuple(elem);
-        } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
-    }
-
-    template<class SrcTuple, std::size_t... Ints>
-    constexpr auto descend_each(const SrcTuple& op, const std::integer_sequence<std::size_t, Ints...>, auto func) const
-    {
-        return std::make_tuple(func(std::get<Ints>(op))...);
-    }
-};
-
 
 
 /**

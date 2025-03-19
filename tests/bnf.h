@@ -12,6 +12,7 @@
 #include "cfg/base.h"
 #include "cfg/parser.h"
 #include "cfg/str.h"
+#include "cfg/preprocess_factories.h"
 
 
 bool test_gbnf_basic()
@@ -224,12 +225,27 @@ bool test_sr_init()
 
     constexpr EBNFBakery rules;
 
-    constexpr auto d_digit = Define(NTerm(cs("digit")), Repeat(Alter(Term(cs("1")), Term(cs("2")), Term(cs("3")), Term(cs("4")), Term(cs("5")),
+    constexpr auto digit = NTerm(cs("digit"));
+    constexpr auto d_digit = Define(digit, Repeat(Alter(Term(cs("1")), Term(cs("2")), Term(cs("3")), Term(cs("4")), Term(cs("5")),
                                                                 Term(cs("6")), Term(cs("7")), Term(cs("8")), Term(cs("9")), Term(cs("0")))));
-    static constexpr auto root = RulesDef(d_digit);
+    constexpr auto root = RulesDef(d_digit);
 
     using VStr = StdStr<char>;
     using TokenType = StdStr<char>;
+
+    // Parser classes init
+    // ===================
+
+    // Initialize reverse rules tree
+    auto rr_tree = reverse_rules_tree_factory(root); //ReverseRuleTreeFactory().build(root);
+    // Initialize symbols hashtable
+    // Cannot be constexpr due to std::unordered_map
+    auto symbols_ht = symbols_ht_factory<TokenType>(root); //SymbolsHashTableFactory().build<TokenType>(root);
+    // Initialize terms2nterms map
+    auto terms_map = terms_map_factory(root); //TermsMapFactory::build(root);
+    // Parser init
+    auto parser = SRParser<VStr, TokenType, TreeNode<VStr>, 128, decltype(root), decltype(rr_tree), decltype(symbols_ht), decltype(terms_map)>(root, rr_tree, symbols_ht, terms_map);
+
     Tokenizer<64, VStr, TokenType> lexer(root);
     StdStr<char> in("1452");
     bool ok;
@@ -242,20 +258,8 @@ bool test_sr_init()
         return false;
     }
 
-    // Parser classes init
-    // ===================
-
-    // Initialize reverse rules tree
-    constexpr auto rr_tree = ReverseRuleTreeFactory().build(root);
-    // Initialize symbols hashtable
-    constexpr auto symbols_ht = SymbolsHashTableFactory().build<TokenType>(root);
-    // Initialize terms2nterms map
-    constexpr auto terms_map = TermsMapFactory().build(root);
-    // Parser init
-    constexpr auto parser = SRParser<VStr, TokenType, TreeNode<VStr>, 128, decltype(root), decltype(rr_tree), decltype(symbols_ht), decltype(terms_map)>(root, rr_tree, symbols_ht, terms_map);
-
     TreeNode<VStr> tree;
-    ok = parser.run(tree, d_digit, tokens);
+    ok = parser.run(tree, digit, tokens);
 
     if (!ok)
     {
