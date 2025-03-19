@@ -396,11 +396,11 @@ public:
     constexpr SymbolsHashTable(const Terms& terms, const NTerms& nterms) : terms_map(), nterms_map()
     {
         tuple_each(terms, [&](std::size_t i, const auto& term){
-            terms_map.insert({term.type(), term});
+            terms_map.insert(TokenType(term.type()), term);
         });
 
         tuple_each(nterms, [&](std::size_t i, const auto& nterm){
-            terms_map.insert({nterm.type(), nterm});
+            terms_map.insert(TokenType(nterm.type()), nterm);
         });
     }
 

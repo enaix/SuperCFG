@@ -44,7 +44,8 @@ public:
     void insert(const Key& key, const Val& value) const
     {
         static_assert(tuple_contains_v<Val, ValuesTuple>, "Tuple does not contain such type");
-        storage.insert({key, ValuesVariant(value)});
+        Val v = value;
+        storage.insert({key, ValuesVariant(v)});
     }
 };
 

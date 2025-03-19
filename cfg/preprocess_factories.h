@@ -41,7 +41,7 @@ namespace cfg_helpers
     template<class SrcTuple, std::size_t... Ints>
     constexpr auto symbols_ht_descend_each(const SrcTuple& op, const std::integer_sequence<std::size_t, Ints...>, auto func)
     {
-        return std::make_tuple(func(std::get<Ints>(op))...);
+        return std::tuple_cat(func(std::get<Ints>(op))...);
     }
 
     template<class TSymbol>
@@ -54,6 +54,9 @@ namespace cfg_helpers
         }, elem.terms);
     }
 
+    /**
+     * @brief Recursively iterate over the tree and return all terms we could find
+     */
     template<class TSymbol>
     constexpr auto symbols_ht_find_terms(const TSymbol& elem)
     {
@@ -152,8 +155,8 @@ auto terms_map_factory(const RulesSymbol& rules)
 template<class TokenType, class RulesSymbol>
 auto symbols_ht_factory(const RulesSymbol& rules)
 {
-    auto nterms = cfg_helpers::symbols_ht_find_nterms(rules);
-    auto terms = tuple_unique(cfg_helpers::symbols_ht_find_terms(rules));
+    auto nterms = cfg_helpers::symbols_ht_find_nterms(rules); // Find all nterms in rules
+    auto terms = tuple_unique(cfg_helpers::symbols_ht_find_terms(rules)); // Find all terms in rules, only get the unique ones
 
     return SymbolsHashTable<TokenType, decltype(terms), decltype(nterms)>(terms, nterms);
 }

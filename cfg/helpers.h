@@ -133,7 +133,7 @@ namespace cfg_helpers
     template<class... T>
     struct do_variadic_morph_t<std::tuple<T...>>
     {
-        using value = std::variant<T...>;
+        using value = std::variant<std::decay_t<T>...>;
     };
 
     template<class TupleA, class TupleB, std::size_t... IntsLHS, std::size_t... IntsRHS>
@@ -337,7 +337,7 @@ struct tuple_contains<Elem, std::tuple<T...>>
 };
 
 template<class Elem, class Tuple>
-constexpr bool tuple_contains_v = typename tuple_contains<Elem, Tuple>::value();
+constexpr bool tuple_contains_v = tuple_contains<Elem, Tuple>::value;
 
 
 /**
@@ -352,7 +352,7 @@ struct are_same
     constexpr bool operator()() const noexcept { return value; }
 };
 
-template<class... T> constexpr bool are_same_v = typename are_same<T...>::value();
+template<class... T> constexpr bool are_same_v = are_same<T...>::value;
 
 
 template<class Tuple>
