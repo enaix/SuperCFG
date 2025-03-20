@@ -86,9 +86,9 @@ public:
         // TODO replace all cvref_t with decay_t
         return std::visit([&](auto&& s_type){
             if constexpr (std::is_same_v<std::decay_t<decltype(s_type)>, std::true_type>)
-                return process_token(value, type);
+                return process_token();
             else
-                return process_nterm(type);
+                return process_nterm();
             }, symbol_type);
     }
 

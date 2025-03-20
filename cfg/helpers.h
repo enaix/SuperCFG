@@ -461,8 +461,8 @@ constexpr auto homogeneous_elem_morph(const Elem& elem)
 {
     static_assert(tuple_contains_v<Elem, SrcTuple>, "elem is not among the types of SrcTuple"); // Check if the type Elem is among the types in SrcTuple
 
-    using VariantType = decltype(type_morph_t<std::variant>([&]<std::size_t i>(){ return std::tuple_element_t<i, SrcTuple>(); }, IntegralWrapper<std::tuple_size_v<SrcTuple>>()));
-    return VariantType(elem);
+    // using VariantType = decltype(type_morph_t<std::variant>([&]<std::size_t i>(){ return std::tuple_element_t<i, SrcTuple>(); }, IntegralWrapper<std::tuple_size_v<SrcTuple>>()));
+    return variadic_morph_t<SrcTuple>(elem);
 }
 
 
@@ -568,7 +568,7 @@ constexpr auto tuple_at(const SrcTuple& src, const std::size_t i, auto func)
 template<std::size_t Index, class SrcTuple>
 constexpr auto tuple_take_along_axis(const SrcTuple& src)
 {
-    return tuple_morph([&]<std::size_t i>(const auto& container){ return std::get<Index>(container); }, src);
+    return tuple_morph([&]<std::size_t i>(const auto& container){ return std::get<Index>(std::get<i>(container)); }, src);
 }
 
 

@@ -409,16 +409,14 @@ protected:
 
         // Morph each token type into its possible related type (underlying type for a token, related types of a nterm)
         using window_types = decltype(
-            nterms_types() // TODO fix window type (elem.visit returns broken tuple)
-            /*std::make_tuple(tuple_morph_t<token_types>([&]<std::size_t index>(){
-                // Morph NTerm into a tuple with single element (for a token)
-                return std::make_tuple(std::get<index>(token_types()));
-            }),
+            //nterms_types()
+            std::tuple_cat(std::tuple<>(),
+            token_types(),
             tuple_morph_t<nterms_types>([&]<std::size_t index>(){
                 // Morph NTerm into its related type (for a nterm)
                 // Reverse rules tree returns a tuple of matching types
                 return reverse_rules.get(std::get<index>(nterms_types()));
-            })*/
+            }))
         );
 
         // First loop over the stack
@@ -434,7 +432,7 @@ protected:
 
                     // HERE we access the hashmap
                     // Check the stack element type
-                    return elem.visit([&](const VStr&& token, const TokenType& type){
+                    return elem.visit([&](){
                         // It's a token
                         // We CANNOT return the nonhomogeneous type here at all
                         // Here we also need to merge 2 tuples element-wise and unpack them later
@@ -442,7 +440,7 @@ protected:
                             return std::make_tuple(homogeneous_elem_morph<window_types>(terms_storage.get(term)), token_types_variant(term));
                         }); // hashtable access
 
-                    }, [&](const TokenType& type){
+                    }, [&](){
                         // It's a nterm
                         // The return types HERE and ABOVE must be equal
                         return symbols_ht.get_nterm(elem.type, [&](const auto& nterm){
