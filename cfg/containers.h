@@ -7,7 +7,12 @@
 
 #include <cstddef>
 #include <algorithm>
+#include <array>
+#include <tuple>
 #include <cstring>
+
+#include "cfg/common.h"
+#include "cfg/helpers.h"
 
 
 // Not so optimized code for runtime even with -O3
@@ -34,57 +39,107 @@ constexpr std::size_t digits()
 }
 
 
+template<std::size_t N, std::size_t M>
+constexpr void concat_str(const char (&lhs)[N], const char (&rhs)[M], const char* dest)
+{
+    std::copy_n(lhs, N - 1, dest);
+    std::copy_n(rhs, M, dest + N - 1);
+}
+
+
+template<std::size_t SIZE>
+class ConstStrContainer
+{
+public:
+    using underlying_t = char[SIZE];
+
+    char str[SIZE];
+
+    constexpr ConstStrContainer() : str {} {}
+
+    constexpr ConstStrContainer(const char (&c)[SIZE]) { std::copy_n(c, SIZE, str); }
+
+    constexpr explicit ConstStrContainer(const char *c) { std::copy_n(c, SIZE, str); }
+
+    template<std::size_t N, std::size_t M>
+    constexpr explicit ConstStrContainer(const char (&lhs)[N], const char (&rhs)[M])
+    {
+        static_assert(N+M-1 == SIZE, "Sizes do not match");
+        std::copy_n(lhs, N - 1, str);
+        std::copy_n(rhs, M, str + N - 1);
+    }
+
+    template<class... TArg>
+    constexpr explicit ConstStrContainer(const std::tuple<TArg...>& c)
+    {
+        tuple_each(c, [&](std::size_t i, const auto& e){ str[i] = e; });
+    }
+
+    [[nodiscard]] constexpr const char* c_str() const { return str; }
+
+    static constexpr std::size_t size() { return SIZE; }
+};
+
+
+template<ConstStrContainer STR>
+struct ConstStrWrapper
+{
+    static constexpr auto value() { return STR; }
+};
+
+
  /**
   * @brief Constexpr string class. Not advised to use in runtime
   * @tparam SIZE Deduced string length, including '\0'
   */
-template<std::size_t SIZE>
+template<ConstStrContainer STR>
 class ConstStr
 {
 public:
-    char str[SIZE];
-    static constexpr std::size_t size() { return SIZE; };
-    [[nodiscard]] constexpr const char* c_str() const { return str; }
+    static constexpr std::size_t size() { return STR.size(); }
+    [[nodiscard]] constexpr const char* c_str() const { return STR.c_str(); }
 
-    constexpr explicit ConstStr() : str {} {}
+    constexpr explicit ConstStr() = default;
 
-    constexpr explicit ConstStr(const char (&c)[SIZE]) { std::copy_n(c, SIZE, str); }
+    //template<std::size_t SIZE>
+    //constexpr explicit ConstStr(const char (&c)[SIZE]) { }
     // https://ctrpeach.io/posts/cpp20-string-literal-template-parameters/
 
     // constexpr explicit ConstStr(std::size_t num) : str(itoc(num)) {}
 
-    template<std::size_t N>
-    static constexpr auto make(const char (&c)[N]) { return ConstStr<N>(c); } // Convenient wrapper for CStr constructor
+    constexpr auto container() const { return STR; }
 
-    template<std::size_t N>
-    constexpr auto concat(const ConstStr<N>& rhs) const
+    template<ConstStrContainer C>
+    static constexpr auto make() { return ConstStr<C.str>(); } // Convenient wrapper for CStr constructor
+
+    template<ConstStrContainer RHS>
+    constexpr auto concat(const ConstStr<RHS>& rhs) const
     {
-        constexpr std::size_t new_size = SIZE + N - 1; // Account for '\0'
-        char c[new_size];
-        std::copy_n(this->str, this->size() - 1, c);
-        std::copy_n(rhs.str, rhs.size(), c + this->size() - 1);
-        return ConstStr<new_size>::make(c);
+        constexpr std::size_t new_size = size() + ConstStr<RHS>::size() - 1; // Account for '\0'
+        constexpr ConstStrContainer<new_size> c(STR.str, RHS.str);
+        return ConstStr<c>();
     }
 
-    template<std::size_t N>
-    constexpr bool operator==(const ConstStr<N>& rhs) const
+    template<ConstStrContainer RHS>
+    constexpr bool operator==(const ConstStr<RHS>& rhs) const
     {
-        static_assert(N == SIZE, "Cannot compare strings with different length");
-        return equal(this->str, rhs.str);
+        static_assert(ConstStr<RHS>::size() == size(), "Cannot compare strings with different length");
+        return equal<size()>(STR.str, rhs.container().str);
     }
 
     // Overloads
-    template<std::size_t N>
-    constexpr auto operator+(const ConstStr<N>& rhs) const { return concat(rhs); }
+    template<ConstStrContainer RHS>
+    constexpr auto operator+(const ConstStr<RHS>& rhs) const { return concat(rhs); }
 
     template<class... TArgs>
-    constexpr const ConstStr<SIZE>& bake(auto... args) const { return *this; } // Baking operation on a string always returns string
-
-    //template<class... Args>
+    constexpr const auto& bake(auto... args) const { return *this; } // Baking operation on a string always returns string
 };
 
-template<std::size_t SIZE>
-[[nodiscard]] constexpr auto cs(const char (&c)[SIZE]) { return ConstStr(c); }
+template<ConstStrContainer STR>
+[[nodiscard]] constexpr auto cs() { return ConstStr<STR.str>(); }
+
+template<class CStr, ConstStrContainer STR>
+[[nodiscard]] constexpr auto cs() { return CStr::template make<STR>(); }
 
  /**
   * @brief Int to ConstStr (itoa)
@@ -94,36 +149,29 @@ template<std::size_t N>
 constexpr auto itoc()
 {
     constexpr std::size_t D = digits<N>();
-    char s[D + 1]; // store N digits + '\0'
+    //char s[D + 1]; // store N digits + '\0'
+    std::array<char, D+1> s;
     for (std::size_t d = 1, i = 0; i < D; d *= 10, i++)
     {
         auto digit = (std::int8_t)(N % (d * 10) / d);
         s[i] = digit + '0';
     }
     s[D] = '\0';
-    return ConstStr(s);
+    //constexpr auto c = ConstStrContainer(s);
+    //return ConstStr<c>();
+    return to_homogeneous_tuple(s);
 }
 
  /**
   * @brief std::integral_constant to ConstStr
   */
 template<class integral_const>
-[[nodiscard]] constexpr auto int2str(const integral_const NUM) { return itoc<integral_const::value>(); }
-
-
- /**
-  * integral_constant<size_t, ...> wrapper which converts N to ConstStr
-  * @tparam N
-  */
-template<std::size_t N>
-class IntegralWrapper : public std::integral_constant<size_t, N>
+[[nodiscard]] constexpr auto int2str(const integral_const NUM)
 {
-public:
-    using value_type = std::integral_constant<size_t, N>::value_type;
-
-    template<class... TArgs>
-    constexpr auto bake(auto... args) const { return int2str(*this); }
-};
+    constexpr auto chars = itoc<integral_const::value>();
+    constexpr auto c = ConstStrContainer<std::tuple_size_v<decltype(chars)>>(chars);
+    return ConstStr<c>();
+}
 
 
  /**

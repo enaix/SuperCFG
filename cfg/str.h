@@ -23,8 +23,8 @@ public:
     template<std::size_t N>
     constexpr explicit StdStr(const char (&a)[N]) : std::basic_string<TChar>(a, N-1) {}
 
-    template<std::size_t N>
-    constexpr explicit StdStr(const ConstStr<N>& c) : std::basic_string<TChar>(c.c_str(), N-1) {} // Excluding \0
+    template<ConstStrContainer STR>
+    constexpr explicit StdStr(const ConstStr<STR>& c) : std::basic_string<TChar>(c.c_str(), ConstStr<STR>::size()-1) {} // Excluding \0
 
     /**
      * @brief Construct a new StdStr from a slice of a string
@@ -58,18 +58,18 @@ struct std::hash<StdStr<TChar>>
 };
 
 
-template<class TChar, std::size_t N>
-bool operator==(const StdStr<TChar>& lhs, const ConstStr<N>& rhs)
+template<class TChar, ConstStrContainer STR>
+bool operator==(const StdStr<TChar>& lhs, const ConstStr<STR>& rhs)
 {
-    return lhs.compare(0, lhs.size(), rhs.c_str(), N - 1) == 0;
+    return lhs.compare(0, lhs.size(), rhs.c_str(), ConstStr<STR>::size() - 1) == 0;
 }
 
-template<class TChar, std::size_t N>
-bool operator==(const ConstStr<N>& lhs, const StdStr<TChar>& rhs) { return rhs == lhs; }
+template<class TChar, ConstStrContainer STR>
+bool operator==(const ConstStr<STR>& lhs, const StdStr<TChar>& rhs) { return rhs == lhs; }
 
 
 
-template<class Char, std::size_t BYTES, std::size_t CHUNK, std::size_t GROWTH>
+/*template<class Char, std::size_t BYTES, std::size_t CHUNK, std::size_t GROWTH>
 class VarStr
 {
 public:
@@ -139,7 +139,7 @@ protected:
         }
     }
     // TODO finish this class
-};
+};*/
 
 
 #endif //SUPERCFG_STR_H

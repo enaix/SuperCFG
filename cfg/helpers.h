@@ -6,8 +6,10 @@
 #define SUPERCFG_HELPERS_H
 
 #include <utility>
+#include <variant>
+#include <tuple>
 
-#include "cfg/base.h"
+#include "cfg/common.h"
 
 
 namespace cfg_helpers
@@ -115,10 +117,10 @@ namespace cfg_helpers
         return std::array<std::tuple_element_t<0, Src>, std::tuple_size_v<Src>>(std::get<Ints>(src)...);
     }
 
-    template<class Src, std::size_t... Ints>
-    constexpr auto do_homogeneous_tuple(const Src& src, const std::integer_sequence<std::size_t, Ints...>)
+    template<class Type, std::size_t N, std::size_t... Ints>
+    constexpr auto do_homogeneous_tuple(const std::array<Type, N>& src, const std::integer_sequence<std::size_t, Ints...>)
     {
-        return std::tuple<std::tuple_element_t<Ints, Src>...>(std::get<Ints>(src)...);
+        return std::tuple_cat(std::tuple<Type>(src[Ints])...);
     }
 
     template<class SrcTuple, std::size_t... Ints>
@@ -425,7 +427,7 @@ constexpr auto to_homogeneous_array(const std::array<T, N>& src) { return src; }
 template<class Type, std::size_t N>
 constexpr auto to_homogeneous_tuple(const std::array<Type, N>& src)
 {
-    return cfg_helpers::do_homogeneous_array(src, std::make_index_sequence<N>{});
+    return cfg_helpers::do_homogeneous_tuple(src, std::make_index_sequence<N>{});
 }
 
 /**

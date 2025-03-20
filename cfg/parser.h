@@ -402,7 +402,7 @@ protected:
         using token_types_variant = variadic_morph_t<all_types>;
 
         // Terms -> NTerms mapping
-        using terms2nterms_t = decltype(terms_storage.get_all(terms_types()));
+        //using terms2nterms_t = decltype(terms_storage.get_all(terms_types()));
 
         // All possible types are nterms
         using token_types = nterms_types;

@@ -400,7 +400,7 @@ public:
         });
 
         tuple_each(nterms, [&](std::size_t i, const auto& nterm){
-            terms_map.insert(TokenType(nterm.type()), nterm);
+            nterms_map.insert(TokenType(nterm.type()), nterm);
         });
     }
 
@@ -440,7 +440,7 @@ protected:
     template<std::size_t depth, class TSymbol>
     constexpr auto do_get(const TSymbol& symbol) const
     {
-        static_assert(depth < std::tuple_size_v<TDefsTuple>(), "NTerm type not found");
+        static_assert(depth < std::tuple_size_v<TDefsTuple>, "NTerm type not found");
         if constexpr (std::is_same_v<std::remove_cvref_t<TSymbol>, std::tuple_element_t<depth, TDefsTuple>>)
         {
             return std::get<depth>(tree);

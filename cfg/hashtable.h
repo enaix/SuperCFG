@@ -41,7 +41,7 @@ public:
     }
 
     template<class Val>
-    void insert(const Key& key, const Val& value) const
+    void insert(const Key& key, const Val& value)
     {
         static_assert(tuple_contains_v<Val, ValuesTuple>, "Tuple does not contain such type");
         Val v = value;
