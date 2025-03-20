@@ -111,6 +111,13 @@ namespace cfg_helpers
     template<class T_first>
     constexpr bool do_is_same() { return true; }
 
+    template<class... Args>
+    constexpr bool do_are_same()
+    {
+        if constexpr (sizeof...(Args) == 0) return true;
+        else return do_is_same<Args...>();
+    }
+
     template<class Src, std::size_t... Ints>
     constexpr auto do_homogeneous_array(const Src& src, const std::integer_sequence<std::size_t, Ints...>)
     {
@@ -144,17 +151,17 @@ namespace cfg_helpers
         return std::make_tuple(std::get<IntsLHS>(lhs)..., std::get<IntsRHS>(rhs)...);
     }
 
+    template<class TupleA, class TupleB>
+    constexpr auto do_tuple_merge(const TupleA& lhs, const TupleB& rhs)
+    {
+        return do_tuple_merge_ex(lhs, rhs, std::make_index_sequence<std::tuple_size_v<TupleA>>{}, std::make_index_sequence<std::tuple_size_v<TupleB>>{});
+    }
+
     template<class TupleA, class TupleB, class... Tuples>
     constexpr auto do_tuple_merge(const TupleA& lhs, const TupleB& rhs, const Tuples&... tuples)
     {
         auto ab = do_tuple_merge_ex(lhs, rhs, std::make_index_sequence<std::tuple_size_v<TupleA>>{}, std::make_index_sequence<std::tuple_size_v<TupleB>>{});
         return do_tuple_merge(ab, tuples...);
-    }
-
-    template<class TupleA, class TupleB>
-    constexpr auto do_tuple_merge(const TupleA& lhs, const TupleB& rhs)
-    {
-        return do_tuple_merge_ex(lhs, rhs, std::make_index_sequence<std::tuple_size_v<TupleA>>{}, std::make_index_sequence<std::tuple_size_v<TupleB>>{});
     }
 
     template<class Tuple>
@@ -349,7 +356,7 @@ constexpr bool tuple_contains_v = tuple_contains<Elem, Tuple>::value;
 template<class... T>
 struct are_same
 {
-    static constexpr bool value = cfg_helpers::do_is_same<T...>();
+    static constexpr bool value = cfg_helpers::do_are_same<T...>();
 
     constexpr bool operator()() const noexcept { return value; }
 };
@@ -454,7 +461,7 @@ constexpr auto homogeneous_elem_morph(const Elem& elem)
 {
     static_assert(tuple_contains_v<Elem, SrcTuple>, "elem is not among the types of SrcTuple"); // Check if the type Elem is among the types in SrcTuple
 
-    using VariantType = decltype(type_morph_t<std::variant>([&]<std::size_t i>(){ return std::tuple_element_t<i, SrcTuple>(); }));
+    using VariantType = decltype(type_morph_t<std::variant>([&]<std::size_t i>(){ return std::tuple_element_t<i, SrcTuple>(); }, IntegralWrapper<std::tuple_size_v<SrcTuple>>()));
     return VariantType(elem);
 }
 
@@ -558,7 +565,7 @@ constexpr auto tuple_at(const SrcTuple& src, const std::size_t i, auto func)
  * @tparam Index Which element to take along axis
  * @param src Tuple to morph
  */
-template<class SrcTuple, std::size_t Index>
+template<std::size_t Index, class SrcTuple>
 constexpr auto tuple_take_along_axis(const SrcTuple& src)
 {
     return tuple_morph([&]<std::size_t i>(const auto& container){ return std::get<Index>(container); }, src);

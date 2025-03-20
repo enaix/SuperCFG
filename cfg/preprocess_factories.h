@@ -28,7 +28,7 @@ namespace cfg_helpers
     template<class SrcTuple, class NTerm, std::size_t... Ints>
     constexpr auto terms_map_descend_each(const SrcTuple& op, const NTerm& lhs, const std::integer_sequence<std::size_t, Ints...>)
     {
-        return std::make_tuple(terms_map_descend_each_def(lhs, std::get<Ints>(op), [&](const auto&... args){ return terms_map_descend_each(args...);})...);
+        return std::tuple_cat(terms_map_descend_each_def(lhs, std::get<Ints>(op), [&](const auto&... args){ return terms_map_descend_each(args...);})...);
     }
 
     template<class SrcTuple, std::size_t... Ints>
@@ -165,8 +165,8 @@ auto symbols_ht_factory(const RulesSymbol& rules)
 template<class RulesSymbol>
 auto reverse_rules_tree_factory(const RulesSymbol& rules)
 {
-    typename RulesSymbol::term_ptr_tuple defs(rules.get_ptr_tuple());
-    const auto nterms = cfg_helpers::rr_tree_for_symbol<0>(rules);
+    const auto defs = rules.terms;
+    const auto nterms = cfg_helpers::rr_tree_for_symbol<0>(rules); // TODO fix RR tree
 
     return ReverseRuleTree(defs, nterms);
 }

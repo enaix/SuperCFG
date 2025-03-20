@@ -44,6 +44,24 @@ public:
 };
 
 
+class true_t : public std::true_type
+{
+public:
+    constexpr true_t(const true_t& other) {}
+
+    constexpr true_t() = default;
+};
+
+class false_t : public std::false_type
+{
+public:
+    constexpr false_t(const false_t& other) {}
+
+    constexpr false_t() = default;
+};
+
+
+
 /**
  * @brief Wrapper class that stores either a token or a nonterminal (type)
  * @tparam VStr
@@ -55,11 +73,13 @@ class GrammarSymbol
 public:
     VStr value;
     Type type;
-    const std::variant<std::true_type, std::false_type> symbol_type; // true if it's a token, false if a nterm
+    std::variant<true_t, false_t> symbol_type; // true if it's a token, false if a nterm
 
-    constexpr GrammarSymbol(const Token<VStr, Type>& token) : value(token.value), type(token.type), symbol_type(std::true_type()) {}
+    constexpr explicit GrammarSymbol(const Token<VStr, Type>& token) : value(token.value), type(token.type), symbol_type(true_t()) {}
 
-    constexpr GrammarSymbol(const Type& type) : value(), type(type), symbol_type(std::false_type()) {}
+    constexpr explicit GrammarSymbol(const Type& type) : value(), type(type), symbol_type(false_t()) {}
+
+    constexpr GrammarSymbol(const GrammarSymbol& rhs) : value(rhs.value), type(rhs.type), symbol_type(rhs.symbol_type) {}
 
     constexpr auto visit(auto process_token, auto process_nterm) const
     {
@@ -223,7 +243,7 @@ protected:
     constexpr auto do_get(const TermT& term)
     {
         if constexpr (std::is_same_v<std::tuple_element_t<0, std::tuple_element_t<i, TermsTypes>>, TermT>)
-            return std::get<1>(std::get<i>(term));
+            return std::get<1>(std::get<i>(storage));
         else
         {
             if constexpr (i >= std::tuple_size_v<TermsTypes>)
@@ -242,8 +262,8 @@ template<class RulesSymbol>
 class NTermsConstHashTable
 {
 public:
-    using TDefsTuple = RulesSymbol::term_types_tuple;
-    using TDefsPtrTuple = RulesSymbol::term_ptr_tuple;
+    using TDefsTuple = typename RulesSymbol::term_types_tuple;
+    using TDefsPtrTuple = typename RulesSymbol::term_ptr_tuple;
     using TupleLen = IntegralWrapper<std::tuple_size_v<TDefsTuple>>;
     // Morph tuple of definitions operators into a tuple of NTerms
     using NTermsTuple = decltype(type_morph_t<std::tuple>(
@@ -418,7 +438,7 @@ public:
 
 /**
  * @brief A mapping between NTerm and other nonterminals definitions where it's present (NTerm -> tuple<NTerm...>)
- * @tparam TDefsTuple Definitions tuple (rules.get_ptr_tuple)
+ * @tparam TDefsTuple A tuple of top-level definitions
  * @tparam TRuleTree Tuple of NTerms tuples
  */
 template<class TDefsTuple, class TRuleTree>
@@ -441,96 +461,11 @@ protected:
     constexpr auto do_get(const TSymbol& symbol) const
     {
         static_assert(depth < std::tuple_size_v<TDefsTuple>, "NTerm type not found");
-        if constexpr (std::is_same_v<std::remove_cvref_t<TSymbol>, std::tuple_element_t<depth, TDefsTuple>>)
+        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::tuple_element_t<0, typename std::tuple_element_t<depth, TDefsTuple>::term_types_tuple>>)
         {
             return std::get<depth>(tree);
         }
         else return do_get<depth + 1, TSymbol>(symbol);
-    }
-};
-
-
-
-/**
- * @brief Construct a ReverseRuleTree (call build())
- */
-class ReverseRuleTreeFactory
-{
-public:
-    constexpr ReverseRuleTreeFactory() {}
-
-    template<class RulesSymbol>
-    constexpr auto build(const RulesSymbol& rules) const
-    {
-        typename RulesSymbol::term_ptr_tuple defs(rules.get_ptr_tuple());
-        const auto nterms = reverse_rule_tree_for_symbol<0>(rules);
-
-        return ReverseRuleTree(defs, nterms);
-    }
-
-protected:
-    template<std::size_t depth, class RulesSymbol>
-    constexpr auto reverse_rule_tree_for_symbol(const RulesSymbol& rules) const
-    {
-        const auto& nterm = std::get<0>(std::get<depth>(rules.terms).terms); // key (nterm)
-        const auto nterms = iterate_over_rules<0>(rules, nterm); // value (related definitions)
-
-        if constexpr (depth + 1 >= std::tuple_size<typename RulesSymbol::term_types_tuple>()) return std::make_tuple(nterms);
-        else return std::tuple_cat(nterms, reverse_rule_tree_for_symbol<depth+1>(rules));
-    }
-
-    template<std::size_t depth, class RulesSymbol, class TSymbol>
-    constexpr auto iterate_over_rules(const RulesSymbol& rules, const TSymbol& nterm) const
-    {
-        // Iterate over all rules
-        const auto& define_op = std::get<depth>(rules.terms); // get i-th definition
-        const auto& rule_nterm = std::get<0>(define_op.terms);
-        const auto& rule_def = std::get<1>(define_op.terms);
-
-        // Check if we compare the type with its own definition
-        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(rule_nterm)>, TSymbol>)
-        {
-            // We need to skip over this element
-            if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>) return std::tuple<>(); // TODO cover this case when last term is the same
-            else return iterate_over_rules<depth+1>(rules, nterm);
-        } else {
-            // Check if the element is in this definition
-            const bool found = is_nterm_in_rule(rules, nterm);
-
-            if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>)
-                return (found ? std::make_tuple(rule_nterm) : std::make_tuple<>());
-            else
-                return (found ? std::tuple_cat(rule_nterm, iterate_over_rules<depth+1>(rules, nterm)) : iterate_over_rules<depth+1>(rules, nterm));
-        }
-    }
-
-    template<class TSymbol, class TNTerm>
-    constexpr bool is_nterm_in_rule(const TSymbol& symbol, const TNTerm& nterm) const
-    {
-        // Descend over all operators and check if it's present in this rule definition
-        if constexpr (is_nterm<TSymbol>())
-        {
-            return std::is_same_v<TSymbol, TNTerm>();
-        }
-        else if constexpr (is_operator<TSymbol>())
-        {
-            return process_op<0>(symbol);
-        }
-        else return false; // We need to gracefully handle this case
-    }
-
-    template<std::size_t depth, class TSymbol>
-    constexpr bool process_op(const TSymbol& symbol) const
-    {
-        const bool found = is_nterm_in_rule(std::get<depth>(symbol.terms));
-        if (found) return true;
-
-        if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<decltype(symbol.terms)>>)
-        {
-            return found;
-        } else {
-            return process_op<depth + 1>(symbol);
-        }
     }
 };
 

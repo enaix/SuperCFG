@@ -409,16 +409,17 @@ protected:
 
         // Morph each token type into its possible related type (underlying type for a token, related types of a nterm)
         using window_types = decltype(
-            std::tuple_cat(tuple_morph_t<token_types>([&]<std::size_t index>(){
+            nterms_types() // TODO fix window type (elem.visit returns broken tuple)
+            /*std::make_tuple(tuple_morph_t<token_types>([&]<std::size_t index>(){
                 // Morph NTerm into a tuple with single element (for a token)
                 return std::make_tuple(std::get<index>(token_types()));
             }),
-            tuple_morph_t<token_types>([&]<std::size_t index>(){
+            tuple_morph_t<nterms_types>([&]<std::size_t index>(){
                 // Morph NTerm into its related type (for a nterm)
                 // Reverse rules tree returns a tuple of matching types
-                return reverse_rules.get(std::get<index>(token_types()));
-            })
-        ));
+                return reverse_rules.get(std::get<index>(nterms_types()));
+            })*/
+        );
 
         // First loop over the stack
         tuple_for([&]<std::size_t i>(){
@@ -438,7 +439,7 @@ protected:
                         // We CANNOT return the nonhomogeneous type here at all
                         // Here we also need to merge 2 tuples element-wise and unpack them later
                         return symbols_ht.get_term(elem.type, [&](const auto& term){
-                            return std::make_tuple(homogeneous_elem_morph<window_types>(std::make_tuple(terms_storage.get(term))), token_types_variant(term));
+                            return std::make_tuple(homogeneous_elem_morph<window_types>(terms_storage.get(term)), token_types_variant(term));
                         }); // hashtable access
 
                     }, [&](const TokenType& type){
@@ -448,7 +449,7 @@ protected:
                             return std::make_tuple(homogeneous_elem_morph<window_types>(reverse_rules.get(nterm)), token_types_variant(nterm));
                         }); // hashtable access
                     }); // element type
-                }, i)); // the second loop
+                }, IntegralWrapper<i>())); // the second loop
 
                 // We need to unpack the tuple
                 auto h_types = tuple_take_along_axis<0>(h_types_and_symbols);
@@ -457,44 +458,47 @@ protected:
                 // Expand a tuple of homogeneous type
                 type_expansion(h_types, [&](const auto& related_types){
                     // Find common types among these
-                    auto common_types = tuple_intersect(related_types);
-
-                    if constexpr (std::tuple_size<decltype(common_types)>() > 0)
+                    if constexpr (std::tuple_size_v<std::decay_t<decltype(related_types)>> == 0) return false; // No idea what to return
+                    else
                     {
-                        return tuple_each_or_return(common_types, [&](std::size_t, const auto& type){
-                            type_expansion(symbols, [&](const auto& sequence){
-                                std::size_t index = 0;
-                                if (descend_batch(sequence, type, index))
-                                {
-                                    // Found
-                                    for (std::size_t j = i_rev; j < stack.size(); ++j)
-                                    {
-                                        if (stack[j].is_token())
-                                            cur_node->add_value(stack[j].value);
-                                        else
-                                        {
-                                            // Hella inefficient
-                                            cur_node->parent = root;
-                                            cur_node->name = stack[j].type;
-                                            root->add(cur_node);
-                                            // Cur node is now the root
-                                            cur_node = root;
-                                            // Create new root node
-                                            *root = Tree();
-                                        }
-                                    }
+                        auto common_types = tuple_intersect(related_types);
 
-                                    stack.erase(std::vector<GSymbolV>::iterator + i_rev, stack.end()); // May be inefficient
-                                    stack.push_back(GSymbolV(type.type())); // insert the matched nterm
-                                    return true; // Performed reduce, tell tuple_each_or_return to exit
-                                } // Not found
-                                return false;
+                        if constexpr (std::tuple_size<decltype(common_types)>() > 0)
+                        {
+                            return tuple_each_or_return(common_types, [&](std::size_t, const auto& type){
+                                type_expansion(symbols, [&](const auto& sequence){
+                                    std::size_t index = 0;
+                                    if (descend_batch(sequence, type, index))
+                                    {
+                                        // Found
+                                        for (std::size_t j = i_rev; j < stack.size(); ++j)
+                                        {
+                                            if (stack[j].is_token())
+                                                cur_node->add_value(stack[j].value);
+                                            else
+                                            {
+                                                // Hella inefficient
+                                                cur_node->parent = root;
+                                                cur_node->name = stack[j].type;
+                                                root->add(cur_node);
+                                                // Cur node is now the root
+                                                cur_node = root;
+                                                // Create new root node
+                                                *root = Tree();
+                                            }
+                                        }
+
+                                        stack.erase(stack.begin() + i_rev, stack.end()); // May be inefficient
+                                        stack.push_back(GSymbolV(type.type())); // insert the matched nterm
+                                        return true; // Performed reduce, tell tuple_each_or_return to exit
+                                    } // Not found
+                                    return false;
+                                });
                             });
-                        });
+                        }
                     }
                 });
-
-            } else return false;
+            }// else return false; // TODO fix early exit
         }, IntegralWrapper<STACK_MAX>()); // the first for loop
         return false;
     }

@@ -37,7 +37,7 @@ public:
 
     auto get(const Key& key, auto func) const
     {
-        return std::visit([func](const auto& elem){ return func(elem); }, storage[key]);
+        return std::visit([func](const auto& elem){ return func(elem); }, storage.at(key));
     }
 
     template<class Val>
