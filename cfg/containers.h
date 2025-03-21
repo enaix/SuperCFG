@@ -187,7 +187,7 @@ public:
     std::size_t storage[static_cast<std::size_t>(Max) + 1];
 
     template<class... TArg>
-    constexpr explicit EnumMap(bool increasing, const TArg&... args) : storage { std::numeric_limits<std::size_t>::max(); }
+    constexpr explicit EnumMap(bool increasing, const TArg&... args) : storage { std::numeric_limits<std::size_t>::max() }
     {
         if (increasing) init<0>(increasing, args...);
         else init<sizeof...(TArg) - 1>(increasing, args...);

@@ -100,13 +100,10 @@ namespace cfg_helpers
     template<class T_first, class T_second, class... T>
     constexpr bool do_is_same()
     {
-        return std::is_same_v<T_first, T_second> && do_is_same<T_second, T...>();
-    }
-
-    template<class T_first, class T_second>
-    constexpr bool do_is_same()
-    {
-        return std::is_same_v<T_first, T_second>;
+        if constexpr (sizeof...(T) == 0)
+            return std::is_same_v<T_first, T_second>;
+        else
+            return std::is_same_v<T_first, T_second> && do_is_same<T_second, T...>();
     }
 
     template<class T_first>

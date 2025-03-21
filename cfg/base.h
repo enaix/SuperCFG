@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <tuple>
+#include <vector>
 #include "cfg/containers.h"
 
 
