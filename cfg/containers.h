@@ -11,6 +11,7 @@
 #include <tuple>
 #include <cstring>
 #include <limits>
+#include <cstdint>
 
 #include "cfg/common.h"
 #include "cfg/helpers.h"
