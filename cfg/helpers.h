@@ -55,9 +55,10 @@ namespace cfg_helpers
     template<std::size_t i, class Tuples, class Tuple>
     constexpr auto do_tuple_intersect_pairwise(const Tuples& tuples, const Tuple& prev)
     {
+        // Calculate intersection between tuple i and the previous one (i-1)
         auto intersect = do_tuple_intersect<0>(std::get<i>(tuples), prev, std::make_tuple<>());
         if constexpr (i + 1 < std::tuple_size_v<Tuples>())
-            return do_tuple_intersect<i+1>(tuples, intersect);
+            return do_tuple_intersect_pairwise<i+1>(tuples, intersect);
         else return intersect;
     }
 
@@ -255,7 +256,8 @@ template<class Tuples>
 constexpr auto tuple_intersect(const Tuples& tuples)
 {
     // Do pairwise
-    return cfg_helpers::do_tuple_intersect_pairwise<1>(tuples, std::get<0>(tuples));
+    if constexpr (std::tuple_size_v<Tuples> < 2) return tuples;
+    else return cfg_helpers::do_tuple_intersect_pairwise<1>(tuples, std::get<0>(tuples));
 }
 
 /**

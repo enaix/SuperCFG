@@ -410,7 +410,7 @@ protected:
         // Morph each token type into its possible related type (underlying type for a token, related types of a nterm)
         using window_types = decltype(
             //nterms_types()
-            std::tuple_cat(std::tuple<>(),
+            std::tuple_cat(std::tuple<>(), // TODO Do we need an empty tuple?
             token_types(),
             tuple_morph_t<nterms_types>([&]<std::size_t index>(){
                 // Morph NTerm into its related type (for a nterm)
@@ -450,13 +450,14 @@ protected:
                 }, IntegralWrapper<i>())); // the second loop
 
                 // We need to unpack the tuple
-                auto h_types = tuple_take_along_axis<0>(h_types_and_symbols);
-                auto symbols = tuple_take_along_axis<1>(h_types_and_symbols);
+                auto h_types = tuple_take_along_axis<0>(h_types_and_symbols); // Related types
+                auto symbols = tuple_take_along_axis<1>(h_types_and_symbols); // Only the found symbols
 
                 // Expand a tuple of homogeneous type
                 type_expansion(h_types, [&](const auto& related_types){
                     // Find common types among these
-                    if constexpr (std::tuple_size_v<std::decay_t<decltype(related_types)>> == 0) return false; // No idea what to return
+                    // If there are less matches than elements, then we don't even need to check
+                    if constexpr (std::tuple_size_v<std::decay_t<decltype(related_types)>> < i + 1) return false; // No idea what to return
                     else
                     {
                         auto common_types = tuple_intersect(related_types);
