@@ -166,10 +166,10 @@ constexpr auto itoc()
  /**
   * @brief std::integral_constant to ConstStr
   */
-template<class integral_const>
-[[nodiscard]] constexpr auto int2str(const integral_const NUM)
+template<std::size_t N>
+[[nodiscard]] constexpr auto int2str(const std::integral_constant<std::size_t, N> n)
 {
-    constexpr auto chars = itoc<integral_const::value>();
+    constexpr auto chars = itoc<N>();
     constexpr auto c = ConstStrContainer<std::tuple_size_v<decltype(chars)>>(chars);
     return ConstStr<c>();
 }

@@ -208,8 +208,8 @@ struct get_first { typedef std::tuple_element_t<0, typename std::remove_cvref_t<
 template<class TSymbol>
 struct get_second { typedef std::tuple_element_t<1, typename std::remove_cvref_t<TSymbol>::term_types_tuple> type; };
 
-template<class TSymbol> using get_first_t = get_first<TSymbol>::type;
-template<class TSymbol> using get_second_t = get_second<TSymbol>::type;
+template<class TSymbol> using get_first_t = typename get_first<TSymbol>::type;
+template<class TSymbol> using get_second_t = typename get_second<TSymbol>::type;
 
 
 template<typename Callable>
