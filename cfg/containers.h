@@ -10,6 +10,7 @@
 #include <array>
 #include <tuple>
 #include <cstring>
+#include <limits>
 
 #include "cfg/common.h"
 #include "cfg/helpers.h"
@@ -186,13 +187,13 @@ public:
     std::size_t storage[static_cast<std::size_t>(Max) + 1];
 
     template<class... TArg>
-    constexpr explicit EnumMap(bool increasing, const TArg&... args) : storage { SIZE_T_MAX }
+    constexpr explicit EnumMap(bool increasing, const TArg&... args) : storage { std::numeric_limits<std::size_t>::max(); }
     {
         if (increasing) init<0>(increasing, args...);
         else init<sizeof...(TArg) - 1>(increasing, args...);
     }
 
-    constexpr bool has(T arg) const { return get(arg) != SIZE_T_MAX; }
+    constexpr bool has(T arg) const { return get(arg) != std::numeric_limits<std::size_t>::max(); }
 
     constexpr size_t get(T arg) const { return storage[static_cast<std::size_t>(arg)]; }
 
