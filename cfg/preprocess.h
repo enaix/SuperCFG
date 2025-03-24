@@ -75,10 +75,13 @@ public:
     Type type;
     std::variant<true_t, false_t> symbol_type; // true if it's a token, false if a nterm
 
+    // Term
     constexpr explicit GrammarSymbol(const Token<VStr, Type>& token) : value(token.value), type(token.type), symbol_type(true_t()) {}
 
+    // NTerm
     constexpr explicit GrammarSymbol(const Type& type) : value(), type(type), symbol_type(false_t()) {}
 
+    // Copy constructor
     constexpr GrammarSymbol(const GrammarSymbol& rhs) : value(rhs.value), type(rhs.type), symbol_type(rhs.symbol_type) {}
 
     constexpr auto visit(auto process_token, auto process_nterm) const
@@ -273,7 +276,7 @@ public:
     NTermsTuple nterms;
     TDefsPtrTuple defs;
 
-    constexpr NTermsConstHashTable(const RulesSymbol& rules) :
+    constexpr explicit NTermsConstHashTable(const RulesSymbol& rules) :
             nterms(type_morph<std::tuple>(
                     [&]<std::size_t index>(const auto& src){ return std::get<0>(std::get<index>(src.terms).terms); }
                     , TupleLen(), rules)),
@@ -454,6 +457,18 @@ public:
     constexpr auto get(const TSymbol& symbol) const
     {
         return do_get<0>(symbol);
+    }
+
+    template<class TokenType>
+    auto generate_hashtable() const
+    {
+        std::unordered_map<TokenType, std::vector<TokenType>> ht;
+        tuple_each(defs, [&](std::size_t i, const auto& elem){
+            // Morph related elements into homogeneous vector
+            ht.insert({elem.type(), type_morph<std::vector>([&]<std::size_t j>(const auto& t){ return std::get<j>(t).type(); },
+                IntegralWrapper<std::tuple_size_v<std::decay_t<decltype(std::get<i>(tree))>>>(), std::get<i>(tree))});
+        });
+        return ht;
     }
 
 protected:

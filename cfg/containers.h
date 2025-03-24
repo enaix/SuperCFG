@@ -219,5 +219,76 @@ protected:
 };
 
 
+/**
+ * @brief Constant-size vector with lazy init
+ * @tparam T Element type
+ */
+template<class T>
+class ConstVec
+{
+protected:
+    std::unique_ptr<T[]> _st;
+    std::size_t _n;
+    std::size_t _cap;
+
+public:
+    constexpr ConstVec() : _st(), _n(0), _cap(0) {}
+
+    /**
+     * @brief Initialize from singleton
+     * @param elem Element to insert
+     */
+    void init(const T& elem)
+    {
+        _st.reset(new T[1]);
+        _st[0] = elem;
+        _cap = 1;
+        _n = 1;
+    }
+
+    /**
+     * @brief Initialize from a tuple of size N
+     * @tparam Elems Deduced element types
+     * @param elems Tuple to initialize from
+     */
+    template<class... Elems>
+    void init(const std::tuple<Elems...>& elems)
+    {
+        static_assert(are_same_v<T, Elems...>, "Element types are non-homogeneous");
+        _st.reset(new T[sizeof...(Elems)]);
+        _cap = sizeof...(Elems);
+        _n = sizeof...(Elems);
+
+        tuple_each(elems, [&](std::size_t i, const auto& elem){ _st[i] = elem; });
+    }
+
+    [[nodiscard]] std::size_t size() const noexcept { return _n; }
+
+    [[nodiscard]] std::size_t cap() const noexcept { return _cap; }
+
+    T& operator[](std::size_t i) { return _st[i]; }
+
+    const T& operator[](std::size_t i) const { return _st[i]; }
+
+    /**
+     * @brief Replace array with a single element
+     * @param elem
+     */
+    void replace_with(const T& elem)
+    {
+        _n = 1;
+        _st[0] = elem;
+    }
+
+    /**
+     * @brief Manually set the size of the array. Doesn't perform any checks on capacity!
+     * @param n New array size
+     */
+    void set_size(std::size_t n) { _n = n; }
+
+    void erase() { _n = 0; }
+};
+
+
 
 #endif //SUPERCFG_CONTAINERS_H

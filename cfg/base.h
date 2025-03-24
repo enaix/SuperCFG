@@ -26,7 +26,7 @@ public:
     TreeNode(const TreeNode<VStr>& other) : name(other.name), value(other.value), parent(other.parent), nodes(other.nodes) {}
 
     template<class TStr>
-    TreeNode(const TStr& name, TreeNode<VStr>* parent = nullptr) : name(VStr(name)), parent(parent), value() {}
+    explicit TreeNode(const TStr& name, TreeNode<VStr>* parent = nullptr) : name(VStr(name)), value(), parent(parent) {}
 
     void add(const TreeNode<VStr>& node) { nodes.push_back(node); }
 

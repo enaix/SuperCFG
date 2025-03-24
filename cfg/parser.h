@@ -338,11 +338,12 @@ protected:
     SymbolsHT symbols_ht;
     TermsMap terms_storage;
     RRTree reverse_rules;
-    //NTermsConstHashTable<RulesSymbol> storage;
+    // std::unordered_map<TokenType, std::vector<TokenType>> reverse_rules_ht;
+    NTermsConstHashTable<RulesSymbol> defs;
     using TokenV = Token<VStr, TokenType>;
     using GSymbolV = GrammarSymbol<VStr, TokenType>;
 public:
-    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree) {}
+    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules) {}
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
 
     template<class RootSymbol>
@@ -353,7 +354,7 @@ public:
         Tree cur_node;
         while (i < tokens.size())
         {
-            if (!reduce(stack, &node, &cur_node))
+            if (!reduce_runtime(stack, &node, &cur_node))
             {
                 // Shift operation
                 if (i == tokens.size()) [[unlikely]]
@@ -467,7 +468,7 @@ protected:
                             return tuple_each_or_return(common_types, [&](std::size_t, const auto& type){
                                 type_expansion(symbols, [&](const auto& sequence){
                                     std::size_t index = 0;
-                                    if (descend_batch(sequence, type, index))
+                                    if (descend_batch(sequence, type, index)) // TODO get definition from type and pass that instead
                                     {
                                         // Found
                                         for (std::size_t j = i_rev; j < stack.size(); ++j)
@@ -499,6 +500,113 @@ protected:
                 });
             }// else return false; // TODO fix early exit
         }, IntegralWrapper<STACK_MAX>()); // the first for loop
+        return false;
+    }
+
+    bool reduce_runtime(std::vector<GSymbolV>& stack, Tree* root, Tree* cur_node)
+    {
+        // First loop over the stack
+        for (std::int64_t i = stack.size() - 1; i >= 0; i--)
+        {
+            // Efficient vector of common types
+            ConstVec<TokenType> intersect;
+            // First element (optimized j=0)
+            GSymbolV& first = stack[i];
+            if (first.is_token())
+            {
+                // Size of the set will only be one symbol
+                intersect.init(first.type);
+            } else {
+                //intersect.push_back(reverse_rules_ht[first.type]);
+
+                // Size of the set will be no greater than the related element
+                symbols_ht.get_nterm(first.type, [&](const auto& nterm){
+                    // Tuple of related elements
+                    const auto& related_types = reverse_rules.get(nterm);
+                    intersect.init(related_types);
+                });
+            }
+
+            // Loop over the window
+            for (std::int64_t j = i + 1; j < stack.size(); j++)
+            {
+                if (intersect.size() == 0) break;
+                GSymbolV& elem = stack[j];
+
+                if (first.is_token())
+                {
+                    // Size of the set will only be one symbol
+                    [&]{
+                        for (std::size_t k = 0; k < intersect.size(); k++)
+                        {
+                            if (intersect[k] == elem.type)
+                            {
+                                intersect.replace_with(elem.type);
+                                return; // Success
+                            }
+                        }
+                        intersect.erase(); // Failure
+                    };
+                } else {
+                    // Size of the set will be no greater than the related element
+                    symbols_ht.get_nterm(elem.type, [&](const auto& nterm){
+                        // Tuple of related elements
+                        const auto& related_types = reverse_rules.get(nterm);
+
+                        // Number of elements already found. Matching elements are pushed to the beginning of the array
+                        std::size_t found = 0;
+                        // Iterate over the set
+                        for (std::size_t k = found; k < intersect.size(); k++)
+                        {
+                            tuple_each(related_types, [&](std::size_t l, const auto& t){
+                                // Found
+                                if (intersect[k] == t.type)
+                                {
+                                    // Move to the beginning
+                                    std::swap(intersect[found], intersect[k]); // We assume that same element swap is safe
+                                    found++;
+                                }
+                            });
+                        }
+                        // Crop the array to the new size
+                        intersect.set_size(found);
+                    });
+                }
+            }
+
+            // Iterate over the matching elements
+            for (std::size_t k = 0; k < intersect.size(); k++)
+            {
+                bool found = symbols_ht.get_nterm(intersect[k], [&](const auto& match){
+                    // Get definition of the common type
+                    const auto* def = defs.get(match);
+                    std::size_t index = 0;
+                    return descend_batch_runtime(stack, i, *def, index) && index + i == stack.size();
+                });
+
+                if (!found) continue;
+
+                for (std::size_t j = i; j < stack.size(); ++j)
+                {
+                    if (stack[j].is_token())
+                        cur_node->add_value(stack[j].value);
+                    else
+                    {
+                        // Hella inefficient
+                        cur_node->parent = root;
+                        cur_node->name = stack[j].type;
+                        root->add(*cur_node);
+                        // Cur node is now the root
+                        cur_node = root;
+                        // Create new root node
+                        *root = Tree();
+                    }
+                }
+                stack.erase(stack.begin() + i, stack.end()); // May be inefficient
+                stack.push_back(GSymbolV(intersect[k])); // insert the matched nterm
+                return true; // Performed reduce, return to shift
+            }
+        }
         return false;
     }
 
@@ -581,6 +689,84 @@ protected:
                 index++;
                 return true;
             } else return false;
+
+        } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
+        return false;
+    }
+
+    template<class TSymbol>
+    constexpr bool descend_batch_runtime(const std::vector<GSymbolV>& stack, std::size_t start, const TSymbol& symbol, std::size_t& index) const
+    {
+        if constexpr (is_operator<TSymbol>())
+        {
+            if constexpr (get_operator<TSymbol>() == OpType::Concat)
+            {
+                std::size_t index_stack = index;
+                bool ok = symbol.each_or_exit([&](const auto& s) -> bool {
+                    if (!descend_batch_runtime(stack, start, s, index_stack))
+                        return false; // Didn't find anything
+                    return true; // Continue
+                });
+                if (ok) index = index_stack;
+                return ok;
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Alter)
+            {
+                // Get each element and check if at least one matches
+                return !symbol.each_or_exit([&](const auto& s) -> bool {
+                    if (descend_batch_runtime(stack, start, s, index)) return false; // Found
+                    return true; // Continue
+                });
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Optional)
+            {
+                // Try to match if we can, just return true anyway
+                return descend_batch_runtime(stack, start, std::get<0>(symbol.terms), index);
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Repeat)
+            {
+                while (descend_batch_runtime(stack, start, std::get<0>(symbol.terms), index)) {}
+                return true;
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Group)
+            {
+                return descend_batch_runtime(stack, start, std::get<0>(symbol.terms), index);
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Except)
+            {
+                std::size_t i = index;
+                if (descend_batch_runtime(stack, start, std::get<0>(symbol.terms), i))
+                {
+                    // Check if the symbol is an exception
+                    if (!descend_batch_runtime(stack, start, std::get<1>(symbol.terms), i))
+                    {
+                        index = i;
+                        return true;
+                    }
+                }
+                return false;
+            }
+            else
+            {
+                // TODO implement other operators
+            }
+        } else if constexpr (is_nterm<TSymbol>()) {
+            const GSymbolV& elem = stack[start + index];
+            if (!elem.is_token() && elem.type == symbol.type())
+            {
+                index++;
+                return true;
+            }
+            return false;
+
+        } else if constexpr (is_term<TSymbol>()) {
+            const GSymbolV& elem = stack[start + index];
+            if (elem.is_token() && elem.value == symbol.name)
+            {
+                index++;
+                return true;
+            }
+            return false;
 
         } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
         return false;
