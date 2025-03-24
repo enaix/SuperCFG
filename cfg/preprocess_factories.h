@@ -111,15 +111,15 @@ namespace cfg_helpers
         // Check if we compare the type with its own definition
         if constexpr (std::is_same_v<std::remove_cvref_t<decltype(rule_nterm)>, TSymbol>)
         {
-            // We need to skip over this element
-            if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>) return std::tuple<>(); // TODO cover this case when last term is the same
-            else return rr_tree_iterate_over_rules<depth+1>(rules, nterm);
+            // Related types should include the type itself
+            if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>) return std::make_tuple(rule_nterm);
+            else return std::tuple_cat(rule_nterm, rr_tree_iterate_over_rules<depth+1>(rules, nterm));
         } else {
             // Check if the element is in this definition
             const bool found = rr_tree_is_nterm_in_rule(rules, nterm);
 
             if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>)
-                return (found ? std::make_tuple(rule_nterm) : std::make_tuple<>());
+                return (found ? std::make_tuple(rule_nterm) : std::tuple<>());
             else
                 return (found ? std::tuple_cat(rule_nterm, rr_tree_iterate_over_rules<depth+1>(rules, nterm)) : rr_tree_iterate_over_rules<depth+1>(rules, nterm));
         }

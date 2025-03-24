@@ -355,29 +355,19 @@ public:
         std::vector<GSymbolV> stack{GSymbolV(tokens[0])};
         std::size_t i = 1;
         Tree cur_node;
-        while (i < tokens.size())
+        while (true) //(i < tokens.size())
         {
             if (!reduce_runtime(stack, &node, &cur_node))
             {
                 // Shift operation
                 if (i == tokens.size()) [[unlikely]]
-                    return false;
+                    //return false;
+                    break;
                 stack.push_back(GSymbolV(tokens[i]));
                 i++;
-                if (_print)
-                {
-                    std::cout << "[s] ";
-                    prettyprint(stack);
-                    std::cout << std::endl;
-                }
-            } else {
-                if (_print)
-                {
-                    std::cout << "[r] ";
-                    prettyprint(stack);
-                    std::cout << std::endl;
-                }
-            }
+                if (_print) std::cout << "[sh] s: [";
+            } else if (_print) std::cout << "[re] s: [";
+            if (_print) { prettyprint(stack); std::cout << "]" << std::endl; }
         }
         // We only have the root symbol, nothing to parse
         if (stack.size() == 1 && !stack[0].is_token() && stack[0].type == root.type())
@@ -549,7 +539,7 @@ protected:
                 // Size of the set will be no greater than the related element
                 symbols_ht.get_nterm(first.type, [&](const auto& nterm){
                     // Tuple of related elements
-                    const auto& related_types = reverse_rules.get(nterm);
+                    const auto& related_types = tuple_morph([&]<std::size_t k>(const auto& rr){ return TokenType(std::get<k>(rr).type()); }, reverse_rules.get(nterm));
                     intersect.init(related_types);
                 });
             }
@@ -587,7 +577,7 @@ protected:
                         {
                             tuple_each(related_types, [&](std::size_t l, const auto& t){
                                 // Found
-                                if (intersect[k] == t.type)
+                                if (intersect[k] == t.type())
                                 {
                                     // Move to the beginning
                                     std::swap(intersect[found], intersect[k]); // We assume that same element swap is safe
@@ -620,10 +610,10 @@ protected:
             {
                 bool found = symbols_ht.get_nterm(intersect[k], [&](const auto& match){
                     // Get definition of the common type
-                    const auto* def = defs.get(match);
+                    const auto& def = std::get<1>(defs.get(match)->terms);
                     std::size_t index = 0;
                     //return  && index + i == stack.size();
-                    bool success = descend_batch_runtime(stack, i, *def, index);
+                    bool success = descend_batch_runtime(stack, i, def, index);
                     if (_print)
                     {
                         std::cout << "  " << "found : " << success << ", i: " << index << "/" << stack.size() - i << std::endl;

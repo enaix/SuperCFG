@@ -184,7 +184,7 @@ protected:
 
 
 /**
- * @brief Nonterminal type to definition mapping. Currently is suboptimal and searches in O(N)
+ * @brief Nonterminal type to definition mapping
  * @tparam TokenType Nonterminal type (name) container
  * @tparam RulesSymbol Top-level operator object
  */
