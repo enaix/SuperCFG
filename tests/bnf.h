@@ -244,7 +244,7 @@ bool test_sr_init()
     // Initialize terms2nterms map
     auto terms_map = terms_map_factory(root); //TermsMapFactory::build(root);
     // Parser init
-    auto parser = SRParser<VStr, TokenType, TreeNode<VStr>, 4, decltype(root), decltype(rr_tree), decltype(symbols_ht), decltype(terms_map)>(root, rr_tree, symbols_ht, terms_map);
+    auto parser = SRParser<VStr, TokenType, TreeNode<VStr>, 4, decltype(root), decltype(rr_tree), decltype(symbols_ht), decltype(terms_map)>(root, rr_tree, symbols_ht, terms_map, true);
 
     Tokenizer<64, VStr, TokenType> lexer(root);
     StdStr<char> in("1452");
@@ -259,7 +259,14 @@ bool test_sr_init()
     }
 
     TreeNode<VStr> tree;
+    std::cout << "======" << std::endl << "SR parser routine : " << std::endl;
     ok = parser.run(tree, digit, tokens);
+
+    std::cout << "======" << std::endl << "parser output : " << std::endl;
+    tree.traverse([&](const auto& node, std::size_t depth){
+        for (std::size_t i = 0; i < depth; i++) std::cout << "|  ";
+        std::cout << node.name << " (" << node.nodes.size() << " elems) : " << node.value << std::endl;
+    });
 
     if (!ok)
     {

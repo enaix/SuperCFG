@@ -340,10 +340,13 @@ protected:
     RRTree reverse_rules;
     // std::unordered_map<TokenType, std::vector<TokenType>> reverse_rules_ht;
     NTermsConstHashTable<RulesSymbol> defs;
+    bool _print;
+
+
     using TokenV = Token<VStr, TokenType>;
     using GSymbolV = GrammarSymbol<VStr, TokenType>;
 public:
-    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules) {}
+    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map, bool print) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules), _print(print) {}
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
 
     template<class RootSymbol>
@@ -361,6 +364,19 @@ public:
                     return false;
                 stack.push_back(GSymbolV(tokens[i]));
                 i++;
+                if (_print)
+                {
+                    std::cout << "[s] ";
+                    prettyprint(stack);
+                    std::cout << std::endl;
+                }
+            } else {
+                if (_print)
+                {
+                    std::cout << "[r] ";
+                    prettyprint(stack);
+                    std::cout << std::endl;
+                }
             }
         }
         // We only have the root symbol, nothing to parse
@@ -370,6 +386,17 @@ public:
     }
 
 protected:
+    void prettyprint(std::vector<GSymbolV>& stack, std::size_t start = 0) const
+    {
+        for (std::size_t i = start; i < stack.size(); i++)
+        {
+            if (i != start) std::cout << " ";
+            const auto& g = stack[i];
+            if (g.is_token()) std::cout << g.value;
+            else std::cout << "<" << g.type << ">";
+        }
+    }
+
     bool reduce(std::vector<GSymbolV>& stack, Tree* root, Tree* cur_node)
     {
         // Get rightmost token type (handle)
@@ -574,6 +601,20 @@ protected:
                 }
             }
 
+            if (_print)
+            {
+                std::cout << "  " << "s: [";
+                prettyprint(stack, i);
+
+                std::cout << "], i: {";
+                for (std::size_t k = 0; k < intersect.size(); k++)
+                {
+                    if (k != 0) std::cout << " ";
+                    std::cout << intersect[k];
+                }
+                std::cout << "}" << std::endl;
+            }
+
             // Iterate over the matching elements
             for (std::size_t k = 0; k < intersect.size(); k++)
             {
@@ -581,7 +622,14 @@ protected:
                     // Get definition of the common type
                     const auto* def = defs.get(match);
                     std::size_t index = 0;
-                    return descend_batch_runtime(stack, i, *def, index) && index + i == stack.size();
+                    //return  && index + i == stack.size();
+                    bool success = descend_batch_runtime(stack, i, *def, index);
+                    if (_print)
+                    {
+                        std::cout << "  " << "found : " << success << ", i: " << index << "/" << stack.size() - i << std::endl;
+                    }
+
+                    return success && index + i == stack.size();
                 });
 
                 if (!found) continue;
