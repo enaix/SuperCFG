@@ -71,33 +71,42 @@ namespace cfg_helpers
     }
 
     // rr_tree_helpers
+
+    /**
+     * @brief Check if the nterm is present in the operator
+     * @tparam TSymbol Operator where we should check
+     * @tparam TNTerm Symbol to check
+     * @param is_nterm_in_rule rr_tree_is_nterm_in_rule function
+     */
+    template<std::size_t depth, class TSymbol, class TNTerm>
+    constexpr bool rr_tree_process_op(auto is_nterm_in_rule)
+    {
+        using Op = std::tuple_element_t<depth, typename TSymbol::term_types_tuple>;
+        if (is_nterm_in_rule.template operator()<Op, TNTerm>()) return true;
+
+        if constexpr (depth + 1 < std::tuple_size_v<typename TSymbol::term_types_tuple>)
+            return rr_tree_process_op<depth + 1, TSymbol, TNTerm>(is_nterm_in_rule);
+        else return false;
+    }
+
+    /**
+     * @brief Check if a symbol is present in this definition
+     * @tparam TSymbol Definition where we should check
+     * @tparam TNTerm Symbol to check
+     */
     template<class TSymbol, class TNTerm>
-    constexpr bool rr_tree_is_nterm_in_rule(const TSymbol& symbol, const TNTerm& nterm)
+    constexpr bool rr_tree_is_nterm_in_rule()
     {
         // Descend over all operators and check if it's present in this rule definition
         if constexpr (is_nterm<TSymbol>())
         {
-            return std::is_same_v<TSymbol, TNTerm>();
+            return std::is_same_v<TSymbol, TNTerm>;
         }
         else if constexpr (is_operator<TSymbol>())
         {
-            return rr_tree_process_op<0>(symbol);
+            return rr_tree_process_op<0, TSymbol, TNTerm>([&]<class D, class N>(){ return rr_tree_is_nterm_in_rule<D, N>(); });
         }
         else return false; // We need to gracefully handle this case
-    }
-
-    template<std::size_t depth, class TSymbol>
-    constexpr bool rr_tree_process_op(const TSymbol& symbol)
-    {
-        const bool found = rr_tree_is_nterm_in_rule(std::get<depth>(symbol.terms));
-        if (found) return true;
-
-        if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<decltype(symbol.terms)>>)
-        {
-            return found;
-        } else {
-            return rr_tree_process_op<depth + 1>(symbol);
-        }
     }
 
     template<std::size_t depth, class RulesSymbol, class TSymbol>
@@ -111,17 +120,27 @@ namespace cfg_helpers
         // Check if we compare the type with its own definition
         if constexpr (std::is_same_v<std::remove_cvref_t<decltype(rule_nterm)>, TSymbol>)
         {
-            // Related types should include the type itself
-            if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>) return std::make_tuple(rule_nterm);
-            else return std::tuple_cat(rule_nterm, rr_tree_iterate_over_rules<depth+1>(rules, nterm));
+            // We need to skip over this element
+            if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>) return std::tuple<>();
+            else return rr_tree_iterate_over_rules<depth+1>(rules, nterm);
         } else {
             // Check if the element is in this definition
-            const bool found = rr_tree_is_nterm_in_rule(rules, nterm);
+            constexpr bool found = rr_tree_is_nterm_in_rule<std::decay_t<decltype(rule_def)>, TSymbol>();
 
             if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>)
-                return (found ? std::make_tuple(rule_nterm) : std::tuple<>());
+            {
+                if constexpr (found)
+                    return std::make_tuple(rule_nterm);
+                else
+                    return std::tuple<>();
+            }
             else
-                return (found ? std::tuple_cat(rule_nterm, rr_tree_iterate_over_rules<depth+1>(rules, nterm)) : rr_tree_iterate_over_rules<depth+1>(rules, nterm));
+            {
+                if constexpr (found)
+                    return std::tuple_cat(rule_nterm, rr_tree_iterate_over_rules<depth+1>(rules, nterm));
+                else
+                    return rr_tree_iterate_over_rules<depth+1>(rules, nterm);
+            }
         }
     }
 
@@ -132,7 +151,7 @@ namespace cfg_helpers
         const auto nterms = rr_tree_iterate_over_rules<0>(rules, nterm); // value (related definitions)
 
         if constexpr (depth + 1 >= std::tuple_size<typename RulesSymbol::term_types_tuple>()) return std::make_tuple(nterms);
-        else return std::tuple_cat(nterms, rr_tree_for_symbol<depth+1>(rules));
+        else return std::tuple_cat(std::make_tuple(nterms), rr_tree_for_symbol<depth+1>(rules));
     }
 };
 

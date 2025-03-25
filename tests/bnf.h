@@ -226,9 +226,11 @@ bool test_sr_init()
     constexpr EBNFBakery rules;
 
     constexpr auto digit = NTerm(cs<"digit">());
+    constexpr auto digit4 = NTerm(cs<"digit4">());
     constexpr auto d_digit = Define(digit, Repeat(Alter(Term(cs<"1">()), Term(cs<"2">()), Term(cs<"3">()), Term(cs<"4">()), Term(cs<"5">()),
                                                                 Term(cs<"6">()), Term(cs<"7">()), Term(cs<"8">()), Term(cs<"9">()), Term(cs<"0">()))));
-    constexpr auto root = RulesDef(d_digit);
+    constexpr auto d_digit4 = Define(digit4, Concat(digit, digit, digit, digit));
+    constexpr auto root = RulesDef(d_digit, d_digit4);
 
     using VStr = StdStr<char>;
     using TokenType = StdStr<char>;
@@ -260,7 +262,7 @@ bool test_sr_init()
 
     TreeNode<VStr> tree;
     std::cout << "======" << std::endl << "SR parser routine : " << std::endl;
-    ok = parser.run(tree, digit, tokens);
+    ok = parser.run(tree, digit4, tokens);
 
     std::cout << "======" << std::endl << "parser output : " << std::endl;
     tree.traverse([&](const auto& node, std::size_t depth){
