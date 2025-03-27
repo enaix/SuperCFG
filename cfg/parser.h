@@ -624,22 +624,24 @@ protected:
 
                 if (!found) continue;
 
+                // New node of the matched type
+                Tree new_node(intersect[k], root);
                 for (std::size_t j = i; j < stack.size(); ++j)
                 {
                     if (stack[j].is_token())
-                        cur_node->add_value(stack[j].value);
+                        new_node.add_value(stack[j].value);
                     else
                     {
-                        // Hella inefficient
-                        cur_node->parent = root;
-                        cur_node->name = stack[j].type;
-                        root->add(*cur_node);
-                        // Cur node is now the root
-                        cur_node = root;
-                        // Create new root node
-                        *root = Tree();
+                        // We need to move these nodes from root into the new element
+                        Tree& elem = root->nodes.front();
+                        elem.parent = &new_node; // It will be invalidated anyway!
+                        new_node.add(elem);
+                        root->nodes.erase(root->nodes.begin()); // Hella inefficient
                     }
                 }
+                // Insert the new node
+                root->add(new_node);
+
                 stack.erase(stack.begin() + i, stack.end()); // May be inefficient
                 stack.push_back(GSymbolV(intersect[k])); // insert the matched nterm
                 return true; // Performed reduce, return to shift
