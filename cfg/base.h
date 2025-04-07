@@ -190,15 +190,24 @@ template<class TSymbol>
 constexpr inline bool is_nterm(const TSymbol& s) { return is_nterm<TSymbol>(); }
 
 // Repeat* helper operators
+template<class TSymbol>
+constexpr inline std::size_t get_repeat_times() { return TSymbol::_times::value; }
 
 template<class TSymbol>
-constexpr inline std::size_t get_repeat_times(const TSymbol& s) { return TSymbol::_times::value; }
+constexpr inline std::size_t get_range_from() { return TSymbol::_from::value; }
 
 template<class TSymbol>
-constexpr inline std::size_t get_range_from(const TSymbol& s) { return TSymbol::_from::value; }
+constexpr inline std::size_t get_range_to() { return TSymbol::_to::value; }
+
 
 template<class TSymbol>
-constexpr inline std::size_t get_range_to(const TSymbol& s) { return TSymbol::_to::value; }
+constexpr inline std::size_t get_repeat_times(const TSymbol& s) { return get_repeat_times<TSymbol>(); }
+
+template<class TSymbol>
+constexpr inline std::size_t get_range_from(const TSymbol& s) { return get_range_from<TSymbol>();; }
+
+template<class TSymbol>
+constexpr inline std::size_t get_range_to(const TSymbol& s) { return get_range_to<TSymbol>();; }
 
 // Tuple helper operators
 

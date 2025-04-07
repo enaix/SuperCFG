@@ -637,10 +637,11 @@ protected:
             for (std::size_t k = 0; k < intersect.size(); k++)
             {
                 bool found = symbols_ht.get_nterm(intersect[k], [&](const auto& match){
+                    // TODO check one symbol of lookahead
                     // Get definition of the common type
                     const auto& def = std::get<1>(defs.get(match)->terms);
                     std::size_t index = 0;
-                    //return  && index + i == stack.size();
+
                     bool success = descend_batch_runtime(stack, i, def, index);
                     if constexpr (enabled<SRConfEnum::PrettyPrint>())
                     {

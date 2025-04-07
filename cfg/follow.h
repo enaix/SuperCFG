@@ -1,0 +1,212 @@
+//
+// Created by Flynn on 07.04.2025.
+//
+
+#ifndef FOLLOW_H
+#define FOLLOW_H
+
+#include "cfg/helpers.h"
+#include "cfg/preprocess.h"
+#include "cfg/preprocess_factories.h"
+#include "cfg/base.h"
+
+namespace cfg_helpers
+{
+    /**
+     * @brief Iteration strategy enum
+     */
+    enum class IterStrategy
+    {
+        Normal,
+        RecurseFirst,
+        First,
+        All
+    };
+
+    /**
+     * @brief Iterate over symbols in an operator using the provided strategy
+     * @tparam symbol Index of the current symbol in def
+     * @tparam strategy Iteration strategy enum
+     * @tparam is_target True if we have encountered our target
+     * @param target Symbol to check
+     * @param def Operator with the symbols we need to check
+     * @param you_must_follow you_must_follow_rl function
+     */
+    template<std::size_t symbol, IterStrategy strategy, bool is_target, class Target, class TSymbol>
+    constexpr auto follow_symbol_rl(const Target& target, const TSymbol& def, auto you_must_follow)
+    {
+        constexpr std::size_t i = std::tuple_size_v<decltype(def.terms)> - symbol - 1;
+        using symbol_type = std::tuple_element_t<i, decltype(def.terms)>;
+        constexpr bool target_found = std::is_same_v<symbol_type, std::decay_t<Target>>;
+
+        // We need to recursively process the operator
+        if constexpr (is_operator<symbol_type>())
+        {
+            // Include only one symbol after is_target
+            if constexpr (strategy == IterStrategy::Normal)
+            {
+                if constexpr (i > 0)
+                    return std::tuple_cat(std::make_tuple(you_must_follow.template operator()<0, is_target>(target, def)),
+                        follow_symbol_rl<symbol+1, strategy, is_target>());
+                else return std::make_tuple(you_must_follow.template operator()<0, is_target>(target, def));
+            }
+            else if constexpr (strategy == IterStrategy::All)
+            {
+                if constexpr (i > 0)
+                    return std::tuple_cat(std::make_tuple(you_must_follow.template operator()<0, true>(target, def)),
+                        follow_symbol_rl<symbol+1, strategy, true>());
+                else return std::make_tuple(you_must_follow.template operator()<0, true>(target, def));
+            }
+        }
+        // Term or a NTerm
+        else
+        {
+            // Include only one symbol after is_target
+            if constexpr (strategy == IterStrategy::Normal)
+            {
+                if constexpr (i > 0)
+                {
+                    if constexpr (is_target)
+                        return std::tuple_cat(std::make_tuple(std::get<i>(def.terms)), follow_symbol_rl<symbol + 1, strategy, target_found>(target, def));
+                    else
+                        return follow_symbol_rl<symbol + 1, strategy, target_found>(target, def);
+                } else {
+                    if constexpr (is_target)
+                        return std::make_tuple(std::get<i>(def.terms));
+                    else return std::tuple<>();
+                }
+            }
+
+            // Include all symbols, is_target does not matter
+            else if constexpr (strategy == IterStrategy::All)
+            {
+                if constexpr (i > 0)
+                    return std::tuple_cat(std::make_tuple(std::get<i>(def.terms)), follow_symbol_rl<symbol + 1, strategy, true>(target, def));
+                else
+                    return std::make_tuple(std::get<i>(def.terms));
+            }
+
+            // Include only the first symbol
+            else if constexpr (strategy == IterStrategy::First)
+            {
+                if constexpr (i == 0)
+                {
+                    if constexpr (is_target)
+                        return std::make_tuple(std::get<i>(def.terms));
+                    else return std::tuple<>();
+                }
+                // We still may find some match there
+                else return follow_symbol_rl<symbol + 1, strategy, is_target>(target, def);
+            }
+
+            // RecurseFirst: pass the first symbol into you_must_follow
+            else
+            {
+                return you_must_follow.template operator()<0, is_target>(target, std::get<0>(def));
+            }
+        }
+    }
+
+    /**
+     * @brief Recursively construct a simple follow set. Works in right-to-left manner
+     * @tparam is_target True if the preceding symbol is a target
+     * @param target Symbol to check
+     * @param def Symbol in where to recursively search
+     */
+    template<bool is_target, class Target, class TSymbol>
+    constexpr auto you_must_follow_rl(const Target& target, const TSymbol& def)
+    {
+        // Recurse strategy
+        if constexpr (is_operator<TSymbol>())
+        {
+            // FollowOnce: include only the next operator in the follow set (except when RepeatRange starts with 0 elements)
+            if constexpr (get_operator<TSymbol>() == OpType::Concat || get_operator<TSymbol>() == OpType::Alter ||
+                get_operator<TSymbol>() == OpType::RepeatExact || get_operator<TSymbol>() == OpType::RepeatGE ||
+                !(get_operator<TSymbol>() == OpType::RepeatRange && get_range_from<TSymbol>() == 0))
+
+                return follow_symbol_rl<0, IterStrategy::Normal, is_target>(target, def, [&]<bool is_tgt>(const auto& tgt, const auto& s){ return you_must_follow_rl<is_tgt>(tgt, s); });
+
+            // FollowAll: include the next and the following operator (only when RepeatRange starts with 0 elements)
+            else if constexpr (get_operator<TSymbol>() == OpType::Optional || get_operator<TSymbol>() == OpType::Repeat ||
+                !(get_operator<TSymbol>() == OpType::RepeatRange && get_range_from<TSymbol>() > 0))
+                return follow_symbol_rl<0, IterStrategy::All, is_target>(target, def, [&]<bool is_tgt>(const auto& tgt, const auto& s){ return you_must_follow_rl<is_tgt>(tgt, s); });
+
+            // Skip: include the symbol following after this operator
+            else if constexpr (get_operator<TSymbol>() == OpType::Comment || get_operator<TSymbol>() == OpType::SpecialSeq)
+                return std::tuple<>();
+
+            // FollowOnce and include only the first symbol
+            else if constexpr (get_operator<TSymbol>() == OpType::Except)
+                return follow_symbol_rl<0, IterStrategy::First, is_target>(target, def, [&]<bool is_tgt>(const auto& tgt, const auto& s){ return you_must_follow_rl<is_tgt>(tgt, s); });
+
+            // Group: recurse into the first element
+            else return follow_symbol_rl<0, IterStrategy::RecurseFirst, is_target>(target, def, [&]<bool is_tgt>(const auto& tgt, const auto& s){ return you_must_follow_rl<is_tgt>(tgt, s); });
+        }
+
+        // We find an NTerm or a Term on the top-level
+        else
+        {
+            if constexpr (is_target)
+                return std::make_tuple(def);
+            else return std::tuple<>();
+        }
+    }
+
+    template<std::size_t depth, class Target, class TDefsTuple>
+    constexpr auto follow_set_each_def(const Target& target, const TDefsTuple& defs)
+    {
+        return std::tuple_cat(std::make_tuple(you_must_follow_rl<false>(target, std::get<depth>(defs))));
+    }
+
+    template<std::size_t depth, class RRTree, class Defs>
+    constexpr auto follow_set_each_symbol(const RRTree& reverse_rules, const Defs& nterms2defs)
+    {
+        const auto target = std::get<depth>(reverse_rules.defs);
+        // Get related symbols at i + the symbol definition itself
+        const auto includes = std::tuple_cat(std::make_tuple(target), std::get<depth>(reverse_rules.tree));
+        // Morph the matching symbols into their definitions
+        const auto defs = tuple_morph([&]<std::size_t i>(const auto& c){ return nterms2defs.get(std::get<i>(c)); }, includes);
+        // Descend into each definition
+        if constexpr (depth+1 < std::tuple_size_v<std::decay_t<decltype(reverse_rules.defs)>>)
+            return std::make_tuple(tuple_unique(follow_set_each_def<0>(target, defs)), follow_set_each_symbol<depth+1>(reverse_rules, nterms2defs));
+        else return tuple_unique(follow_set_each_def<0>(target, defs));
+    }
+}
+
+template<class NTermsTuple, class MustFollowTuple>
+class FollowSet
+{
+public:
+    NTermsTuple defs;
+    MustFollowTuple follow;
+
+    constexpr FollowSet(const NTermsTuple& nterms, const MustFollowTuple& follow) : defs(nterms), follow(follow) {}
+
+    template<class TSymbol>
+    constexpr auto get(const TSymbol& symbol) const
+    {
+        return do_get<0>(symbol);
+    }
+
+protected:
+    template<std::size_t depth, class TSymbol>
+    constexpr auto do_get(const TSymbol& symbol) const
+    {
+        static_assert(depth < std::tuple_size_v<NTermsTuple>, "NTerm type not found");
+        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::tuple_element_t<0, typename std::tuple_element_t<depth, NTermsTuple>::term_types_tuple>>)
+        {
+            return std::get<depth>(follow);
+        }
+        else return do_get<depth + 1, TSymbol>(symbol);
+    }
+};
+
+template<class RRTree, class Defs>
+auto follow_set_factory(const RRTree& reverse_rules, const Defs& nterms2defs)
+{
+    auto nterms = reverse_rules.defs;
+    auto follow = cfg_helpers::follow_set_each_symbol<0>(reverse_rules, nterms2defs);
+    return FollowSet(nterms, follow);
+}
+
+#endif //FOLLOW_H
