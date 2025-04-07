@@ -654,7 +654,6 @@ protected:
             for (std::size_t k = 0; k < intersect.size(); k++)
             {
                 bool found = symbols_ht.get_nterm(intersect[k], [&](const auto& match){
-                    // TODO check one symbol of lookahead
                     // Get definition of the common type
                     const auto& def = std::get<1>(defs.get(match)->terms);
 
@@ -887,6 +886,8 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, Conf conf)
     {
         auto defs = NTermsConstHashTable(rules);
         auto look = simple_lookahead_factory(rr_tree, defs);
+        if constexpr (conf.template flag<SRConfEnum::PrettyPrint>())
+            look.template prettyprint<VStr>();
         return SRParser<VStr, TokenType, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), decltype(look)>(rules, rr_tree, symbols_ht, terms_map, conf, look);
     } else
         return SRParser<VStr, TokenType, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), NoLookahead>(rules, rr_tree, symbols_ht, terms_map, conf, NoLookahead());
