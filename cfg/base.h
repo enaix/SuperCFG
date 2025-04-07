@@ -152,7 +152,7 @@ template<class TSymbol>
 constexpr inline bool is_operator(const TSymbol& s) { return std::remove_cvref_t<TSymbol>::_is_operator::value; }
 
 template<class TSymbol>
-constexpr inline bool is_operator() { return std::remove_cvref_t<TSymbol>::_is_operator::value; }
+constexpr inline bool is_operator() { return std::decay_t<TSymbol>::_is_operator::value; }
 
  /**
   * @brief Helper function that returns an operator enum
@@ -189,15 +189,36 @@ constexpr inline bool is_nterm()
 template<class TSymbol>
 constexpr inline bool is_nterm(const TSymbol& s) { return is_nterm<TSymbol>(); }
 
+template<class TSymbol>
+constexpr bool is_range_operator() { return std::decay_t<TSymbol>::_range_operator::value; }
+
+template<class TSymbol>
+constexpr bool is_numeric_operator() { return std::decay_t<TSymbol>::_numeric_operator::value; }
+
+
 // Repeat* helper operators
 template<class TSymbol>
-constexpr inline std::size_t get_repeat_times() { return TSymbol::_times::value; }
+constexpr inline std::size_t get_repeat_times()
+{
+    if constexpr (is_numeric_operator<TSymbol>()) return TSymbol::_times::value;
+    else return SIZE_T_MAX;
+}
 
 template<class TSymbol>
-constexpr inline std::size_t get_range_from() { return TSymbol::_from::value; }
+constexpr inline std::size_t get_range_from()
+{
+    if constexpr (is_range_operator<TSymbol>())
+        return TSymbol::_from::value;
+    else return SIZE_T_MAX;
+}
 
 template<class TSymbol>
-constexpr inline std::size_t get_range_to() { return TSymbol::_to::value; }
+constexpr inline std::size_t get_range_to()
+{
+    if constexpr (is_range_operator<TSymbol>())
+        return TSymbol::_to::value;
+    else return SIZE_T_MAX;
+}
 
 
 template<class TSymbol>
@@ -244,6 +265,8 @@ public:
     constexpr explicit BaseOp(auto validator, const TSymbols&... t) : terms(t...) { validator(); }
 
     using _is_operator = std::true_type;
+    using _numeric_operator = std::false_type;
+    using _range_operator = std::false_type;
     using _get_operator = op_type_t<Operator>;
 
     using term_types_tuple = std::tuple<std::remove_cvref_t<TSymbols>...>;
@@ -526,6 +549,8 @@ class BaseExtRepeat : public BaseOp<Operator, TSymbols...>
 public:
     using typename BaseOp<Operator, TSymbols...>::_is_operator;
     using typename BaseOp<Operator, TSymbols...>::_get_operator;
+    using _numeric_operator = std::true_type;
+    using _range_operator = std::false_type;
     using _times = IntegralWrapper<Times>;
 
     constexpr explicit BaseExtRepeat(const TSymbols&... t) : BaseOp<Operator, TSymbols...>([&](){ this->validate(); }, t...) { }
@@ -643,6 +668,8 @@ public:
     using typename BaseOp<Operator, TSymbols...>::_get_operator;
     using _from = IntegralWrapper<From>;
     using _to = IntegralWrapper<To>;
+    using _numeric_operator = std::false_type;
+    using _range_operator = std::true_type;
 
 protected:
     using BaseExtRepeat<Operator, From, TSymbols...>::unwrap_repeat_exact;

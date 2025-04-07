@@ -5,6 +5,7 @@
 #ifndef SUPERCFG_PARSER_H
 #define SUPERCFG_PARSER_H
 
+#include "follow.h"
 #include "cfg/preprocess.h"
 #include "cfg/preprocess_factories.h"
 
@@ -359,7 +360,7 @@ constexpr auto mk_sr_parser_conf()
 }
 
 
-template<class VStr, class TokenType, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf>
+template<class VStr, class TokenType, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf, class Lookahead>
 class SRParser
 {
 protected:
@@ -370,22 +371,29 @@ protected:
     NTermsConstHashTable<RulesSymbol> defs;
     SRParserConfig<Conf> conf;
     using SrC = SRParserConfig<Conf>;
+    Lookahead look;
 
     using TokenV = Token<VStr, TokenType>;
     using GSymbolV = GrammarSymbol<VStr, TokenType>;
 public:
-    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map, SRParserConfig<Conf> conf) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules), conf(conf) {}
+    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map, SRParserConfig<Conf> conf, const Lookahead& lookahead) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules), conf(conf), look(lookahead) {}
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
 
     template<class RootSymbol>
     bool run(Tree& node, const RootSymbol& root, std::vector<TokenV>& tokens)
     {
+        // Initialize point at zero
         std::vector<GSymbolV> stack{GSymbolV(tokens[0])};
+        if constexpr (enabled<SRConfEnum::Lookahead>())
+        {
+            if (tokens.size() > 1) [[likely]]
+                stack.push_back(GSymbolV(tokens[1])); // Add one symbol of lookahead
+        }
+
         std::size_t i = 1;
-        Tree cur_node;
         while (true) //(i < tokens.size())
         {
-            if (!reduce_runtime(stack, &node, &cur_node))
+            if (!reduce_runtime(stack, &node))
             {
                 // Shift operation
                 if (i == tokens.size()) [[unlikely]]
@@ -548,10 +556,19 @@ protected:
         return false;
     }
 
-    bool reduce_runtime(std::vector<GSymbolV>& stack, Tree* root, Tree* cur_node)
+    bool reduce_runtime(std::vector<GSymbolV>& stack, Tree* root)
     {
         // First loop over the stack
-        for (std::int64_t i = stack.size() - 1; i >= 0; i--)
+
+        std::int64_t last;
+        if constexpr (enabled<SRConfEnum::Lookahead>())
+        {
+            // Edge case: last symbol
+            if (stack.size() == 1) [[unlikely]] last = 0;
+            else last = 1;
+        } else last = 0;
+
+        for (std::int64_t i = stack.size() - 1; i >= last; i--)
         {
             // Efficient vector of common types
             ConstVec<TokenType> intersect;
@@ -640,6 +657,15 @@ protected:
                     // TODO check one symbol of lookahead
                     // Get definition of the common type
                     const auto& def = std::get<1>(defs.get(match)->terms);
+
+                    if constexpr (enabled<SRConfEnum::Lookahead>())
+                    {
+                        if (stack.size() > 1) [[likely]]
+                        {
+                            if (!look.check(symbols_ht, match, stack[i - 1])) return false;
+                        } // else it's the last symbol on the stack, do nothing
+                    }
+
                     std::size_t index = 0;
 
                     bool success = descend_batch_runtime(stack, i, def, index);
@@ -857,7 +883,13 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, Conf conf)
     // Initialize terms2nterms map
     auto terms_map = terms_map_factory(rules); //TermsMapFactory::build(root);
     // Parser init
-    return SRParser<VStr, TokenType, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value()>(rules, rr_tree, symbols_ht, terms_map, conf);
+    if constexpr (conf.template flag<SRConfEnum::Lookahead>())
+    {
+        auto defs = NTermsConstHashTable(rules);
+        auto look = simple_lookahead_factory(rr_tree, defs);
+        return SRParser<VStr, TokenType, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), decltype(look)>(rules, rr_tree, symbols_ht, terms_map, conf, look);
+    } else
+        return SRParser<VStr, TokenType, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), NoLookahead>(rules, rr_tree, symbols_ht, terms_map, conf, NoLookahead());
 }
 
 

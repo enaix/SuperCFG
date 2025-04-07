@@ -46,14 +46,14 @@ namespace cfg_helpers
             if constexpr (strategy == IterStrategy::Normal)
             {
                 if constexpr (i > 0)
-                    return std::tuple_cat(std::make_tuple(you_must_follow.template operator()<0, is_target>(target, def)),
+                    return std::tuple_cat(std::make_tuple(you_must_follow.template operator()<is_target>(target, def)),
                         follow_symbol_rl<symbol+1, strategy, is_target>());
                 else return std::make_tuple(you_must_follow.template operator()<0, is_target>(target, def));
             }
             else if constexpr (strategy == IterStrategy::All)
             {
                 if constexpr (i > 0)
-                    return std::tuple_cat(std::make_tuple(you_must_follow.template operator()<0, true>(target, def)),
+                    return std::tuple_cat(std::make_tuple(you_must_follow.template operator()<true>(target, def)),
                         follow_symbol_rl<symbol+1, strategy, true>());
                 else return std::make_tuple(you_must_follow.template operator()<0, true>(target, def));
             }
@@ -102,7 +102,7 @@ namespace cfg_helpers
             // RecurseFirst: pass the first symbol into you_must_follow
             else
             {
-                return you_must_follow.template operator()<0, is_target>(target, std::get<0>(def));
+                return you_must_follow.template operator()<is_target>(target, std::get<0>(def));
             }
         }
     }
@@ -158,16 +158,17 @@ namespace cfg_helpers
         return std::tuple_cat(std::make_tuple(you_must_follow_rl<false>(target, std::get<depth>(defs))));
     }
 
-    template<std::size_t depth, class RRTree, class Defs>
-    constexpr auto follow_set_each_symbol(const RRTree& reverse_rules, const Defs& nterms2defs)
+    template<std::size_t depth, class NTermsTuple, class RRTree, class NTermsMap>
+    constexpr auto follow_set_each_symbol(const NTermsTuple& nterms, const RRTree& reverse_rules, const NTermsMap& nterms2defs)
     {
-        const auto target = std::get<depth>(reverse_rules.defs);
+        const auto target = std::get<depth>(nterms);
+
         // Get related symbols at i + the symbol definition itself
-        const auto includes = std::tuple_cat(std::make_tuple(target), std::get<depth>(reverse_rules.tree));
+        const auto includes = std::tuple_cat(std::make_tuple(target), reverse_rules.get(target));
         // Morph the matching symbols into their definitions
-        const auto defs = tuple_morph([&]<std::size_t i>(const auto& c){ return nterms2defs.get(std::get<i>(c)); }, includes);
+        const auto defs = tuple_morph([&]<std::size_t i>(const auto& c){ return *nterms2defs.get(std::get<i>(c)); }, includes);
         // Descend into each definition
-        if constexpr (depth+1 < std::tuple_size_v<std::decay_t<decltype(reverse_rules.defs)>>)
+        if constexpr (depth+1 < std::tuple_size_v<NTermsTuple>)
             return std::make_tuple(tuple_unique(follow_set_each_def<0>(target, defs)), follow_set_each_symbol<depth+1>(reverse_rules, nterms2defs));
         else return tuple_unique(follow_set_each_def<0>(target, defs));
     }
@@ -188,6 +189,12 @@ public:
         return do_get<0>(symbol);
     }
 
+    template<class Target, class TSymbol>
+    constexpr bool check(const Target& match, const TSymbol& next) const
+    {
+        return tuple_contains_v<TSymbol, decltype(get(match))>;
+    }
+
 protected:
     template<std::size_t depth, class TSymbol>
     constexpr auto do_get(const TSymbol& symbol) const
@@ -201,12 +208,54 @@ protected:
     }
 };
 
-template<class RRTree, class Defs>
-auto follow_set_factory(const RRTree& reverse_rules, const Defs& nterms2defs)
+template<class RRTree, class NTermsMap>
+auto follow_set_factory(const RRTree& reverse_rules, const NTermsMap& nterms2defs)
 {
-    auto nterms = reverse_rules.defs;
-    auto follow = cfg_helpers::follow_set_each_symbol<0>(reverse_rules, nterms2defs);
+    auto nterms = nterms2defs.nterms;
+    auto follow = cfg_helpers::follow_set_each_symbol<0>(nterms, reverse_rules, nterms2defs);
     return FollowSet(nterms, follow);
+}
+
+
+template<class Follow>
+class SimpleLookahead
+{
+protected:
+    std::size_t _lookahead_state;
+public:
+    Follow follow_set;
+
+    constexpr explicit SimpleLookahead(const Follow& follow) : follow_set(follow), _lookahead_state(0) {}
+
+    [[nodiscard]] std::size_t get_lookahead() const { return _lookahead_state; }
+
+    void set_lookahead(std::size_t lookahead) { _lookahead_state = lookahead; }
+
+    template<class SymbolsHT, class Target, class GSymbolV>
+    bool check(SymbolsHT& ht, const Target& match, const GSymbolV& next)
+    {
+        if (next.is_token())
+        {
+            // term
+            return ht.get_term(next.type, [&](const auto& term){
+                return follow_set.check(match, term);
+            });
+        }
+        // nterm
+        return ht.get_nterm(next.type, [&](const auto& nterm){
+            return follow_set.check(match, nterm);
+        });
+    }
+};
+
+
+class NoLookahead {};
+
+
+template<class RRTree, class NTermsMap>
+auto simple_lookahead_factory(const RRTree& reverse_rules, const NTermsMap& nterms2defs)
+{
+    return SimpleLookahead(follow_set_factory(reverse_rules, nterms2defs));
 }
 
 #endif //FOLLOW_H
