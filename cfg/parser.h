@@ -331,7 +331,34 @@ protected:
 };
 
 
-template<class VStr, class TokenType, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap>
+enum class SRConfEnum : std::uint64_t
+{
+    PrettyPrint = 0x1,
+    Lookahead = 0x10,
+};
+
+
+template<std::uint64_t Conf>
+class SRParserConfig
+{
+public:
+    constexpr explicit SRParserConfig() {}
+
+    static constexpr std::uint64_t value() { return Conf; }
+
+    template<SRConfEnum value>
+    [[nodiscard]] static constexpr bool flag() { return Conf && static_cast<std::uint64_t>(value); }
+};
+
+template<SRConfEnum... Values>
+constexpr auto mk_sr_parser_conf()
+{
+    constexpr std::uint64_t conf = (static_cast<const std::uint64_t>(Values) || ...);
+    return SRParserConfig<conf>();
+}
+
+
+template<class VStr, class TokenType, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf>
 class SRParser
 {
 protected:
@@ -340,13 +367,13 @@ protected:
     RRTree reverse_rules;
     // std::unordered_map<TokenType, std::vector<TokenType>> reverse_rules_ht;
     NTermsConstHashTable<RulesSymbol> defs;
-    bool _print;
-
+    SRParserConfig<Conf> conf;
+    using SrC = SRParserConfig<Conf>;
 
     using TokenV = Token<VStr, TokenType>;
     using GSymbolV = GrammarSymbol<VStr, TokenType>;
 public:
-    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map, bool print) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules), _print(print) {}
+    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map, SRParserConfig<Conf> conf) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules), conf(conf) {}
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
 
     template<class RootSymbol>
@@ -365,9 +392,9 @@ public:
                     break;
                 stack.push_back(GSymbolV(tokens[i]));
                 i++;
-                if (_print) std::cout << "[sh] s: [";
-            } else if (_print) std::cout << "[re] s: [";
-            if (_print) { prettyprint(stack); std::cout << "]" << std::endl; }
+                if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "[sh] s: [";
+            } else if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "[re] s: [";
+            if constexpr (enabled<SRConfEnum::PrettyPrint>()) { prettyprint(stack); std::cout << "]" << std::endl; }
         }
         // We only have the root symbol, nothing to parse
         if (stack.size() == 1 && !stack[0].is_token() && stack[0].type == root.type())
@@ -565,7 +592,7 @@ protected:
                         intersect.erase(); // Failure
                     };
                 } else {
-                    // Size of the set will be no greater than the related element
+                    // Size of the set will be not greater than the related element
                     symbols_ht.get_nterm(elem.type, [&](const auto& nterm){
                         // Tuple of related elements
                         const auto& related_types = reverse_rules.get(nterm);
@@ -591,7 +618,7 @@ protected:
                 }
             }
 
-            if (_print)
+            if constexpr (enabled<SRConfEnum::PrettyPrint>())
             {
                 std::cout << "  " << "s: [";
                 prettyprint(stack, i);
@@ -614,7 +641,7 @@ protected:
                     std::size_t index = 0;
                     //return  && index + i == stack.size();
                     bool success = descend_batch_runtime(stack, i, def, index);
-                    if (_print)
+                    if constexpr (enabled<SRConfEnum::PrettyPrint>())
                     {
                         std::cout << "  " << "found : " << success << ", i: " << index << "/" << stack.size() - i << std::endl;
                     }
@@ -811,6 +838,9 @@ protected:
         } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
         return false;
     }
+
+    template<SRConfEnum Value>
+    static constexpr bool enabled() { return SrC::template flag<Value>(); }
 };
 
 

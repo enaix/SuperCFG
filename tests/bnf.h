@@ -246,7 +246,8 @@ bool test_sr_init()
     // Initialize terms2nterms map
     auto terms_map = terms_map_factory(root); //TermsMapFactory::build(root);
     // Parser init
-    auto parser = SRParser<VStr, TokenType, TreeNode<VStr>, 4, decltype(root), decltype(rr_tree), decltype(symbols_ht), decltype(terms_map)>(root, rr_tree, symbols_ht, terms_map, true);
+    constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint>();
+    auto parser = SRParser<VStr, TokenType, TreeNode<VStr>, 4, decltype(root), decltype(rr_tree), decltype(symbols_ht), decltype(terms_map), decltype(conf)::value()>(root, rr_tree, symbols_ht, terms_map, conf);
 
     Tokenizer<64, VStr, TokenType> lexer(root);
     StdStr<char> in("1452");

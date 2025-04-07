@@ -185,7 +185,7 @@ template<class RulesSymbol>
 auto reverse_rules_tree_factory(const RulesSymbol& rules)
 {
     const auto defs = rules.terms;
-    const auto nterms = cfg_helpers::rr_tree_for_symbol<0>(rules); // TODO fix RR tree
+    const auto nterms = cfg_helpers::rr_tree_for_symbol<0>(rules);
 
     return ReverseRuleTree(defs, nterms);
 }
