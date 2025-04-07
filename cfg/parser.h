@@ -6,6 +6,7 @@
 #define SUPERCFG_PARSER_H
 
 #include "cfg/preprocess.h"
+#include "cfg/preprocess_factories.h"
 
 
 /**
@@ -843,6 +844,20 @@ protected:
     static constexpr bool enabled() { return SrC::template flag<Value>(); }
 };
 
+
+template<class VStr, class TokenType, class Tree, class RulesSymbol, class Conf>
+constexpr auto make_sr_parser(const RulesSymbol& rules, Conf conf)
+{
+    // Initialize reverse rules tree
+    auto rr_tree = reverse_rules_tree_factory(rules); //ReverseRuleTreeFactory().build(root);
+    // Initialize symbols hashtable
+    // Cannot be constexpr due to std::unordered_map
+    auto symbols_ht = symbols_ht_factory<TokenType>(rules); //SymbolsHashTableFactory().build<TokenType>(root);
+    // Initialize terms2nterms map
+    auto terms_map = terms_map_factory(rules); //TermsMapFactory::build(root);
+    // Parser init
+    return SRParser<VStr, TokenType, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value()>(rules, rr_tree, symbols_ht, terms_map, conf);
+}
 
 
 #endif //SUPERCFG_PARSER_H

@@ -238,16 +238,9 @@ bool test_sr_init()
     // Parser classes init
     // ===================
 
-    // Initialize reverse rules tree
-    auto rr_tree = reverse_rules_tree_factory(root); //ReverseRuleTreeFactory().build(root);
-    // Initialize symbols hashtable
-    // Cannot be constexpr due to std::unordered_map
-    auto symbols_ht = symbols_ht_factory<TokenType>(root); //SymbolsHashTableFactory().build<TokenType>(root);
-    // Initialize terms2nterms map
-    auto terms_map = terms_map_factory(root); //TermsMapFactory::build(root);
     // Parser init
     constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint>();
-    auto parser = SRParser<VStr, TokenType, TreeNode<VStr>, 4, decltype(root), decltype(rr_tree), decltype(symbols_ht), decltype(terms_map), decltype(conf)::value()>(root, rr_tree, symbols_ht, terms_map, conf);
+    auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(root, conf);
 
     Tokenizer<64, VStr, TokenType> lexer(root);
     StdStr<char> in("1452");
