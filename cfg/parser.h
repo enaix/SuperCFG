@@ -349,13 +349,13 @@ public:
     static constexpr std::uint64_t value() { return Conf; }
 
     template<SRConfEnum value>
-    [[nodiscard]] static constexpr bool flag() { return Conf && static_cast<std::uint64_t>(value); }
+    [[nodiscard]] static constexpr bool flag() { return (Conf & static_cast<std::uint64_t>(value)) > 0; }
 };
 
 template<SRConfEnum... Values>
 constexpr auto mk_sr_parser_conf()
 {
-    constexpr std::uint64_t conf = (static_cast<const std::uint64_t>(Values) || ...);
+    constexpr std::uint64_t conf = (static_cast<const std::uint64_t>(Values) | ...);
     return SRParserConfig<conf>();
 }
 
@@ -678,7 +678,8 @@ protected:
                         std::cout << "  " << "found : " << success << ", i: " << index << "/" << stack.size() - i << std::endl;
                     }
 
-                    return success && index + i == stack.size();
+                    // We need to cover all stack with one iteration
+                    return success && index + i + last == stack.size();
                 });
 
                 if (!found) continue;

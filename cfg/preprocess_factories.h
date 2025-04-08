@@ -137,7 +137,7 @@ namespace cfg_helpers
             else
             {
                 if constexpr (found)
-                    return std::tuple_cat(rule_nterm, rr_tree_iterate_over_rules<depth+1>(rules, nterm));
+                    return std::tuple_cat(std::make_tuple(rule_nterm), rr_tree_iterate_over_rules<depth+1>(rules, nterm));
                 else
                     return rr_tree_iterate_over_rules<depth+1>(rules, nterm);
             }

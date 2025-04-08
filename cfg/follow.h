@@ -256,6 +256,7 @@ namespace cfg_helpers
         template<std::size_t depth, class Target, class TDefsTuple>
         constexpr auto follow_set_each_def(const Target& target, const TDefsTuple& defs)
         {
+            // Descend into each definition
             if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<TDefsTuple>>)
                 return std::tuple_cat(you_must_follow_rl<false>(target, std::get<depth>(defs)).second, follow_set_each_def<depth+1>(target, defs));
             else return you_must_follow_rl<false>(target, std::get<depth>(defs)).second;
@@ -264,7 +265,9 @@ namespace cfg_helpers
         template<std::size_t depth, class NTermsTuple, class RRTree, class NTermsMap>
         constexpr auto follow_set_each_symbol(const NTermsTuple& nterms, const RRTree& reverse_rules, const NTermsMap& nterms2defs)
         {
+            // Iterate over all targets and descend over the related rules
             const auto target = std::get<depth>(nterms);
+            std::cout << "tgt: <" << target.type() << "> ";
 
             // Get related symbols at i + the symbol definition itself
             const auto includes = std::tuple_cat(std::make_tuple(target), reverse_rules.get(target));
@@ -278,8 +281,8 @@ namespace cfg_helpers
 
             // Descend into each definition
             if constexpr (depth+1 < std::tuple_size_v<NTermsTuple>)
-                return std::make_tuple(tuple_unique(follow_set_each_def<0>(target, defs)), follow_set_each_symbol<depth+1>(nterms, reverse_rules, nterms2defs));
-            else return tuple_unique( follow_set_each_def<0>(target, defs));
+                return std::tuple_cat(std::make_tuple(tuple_unique(follow_set_each_def<0>(target, defs))), follow_set_each_symbol<depth+1>(nterms, reverse_rules, nterms2defs));
+            else return std::make_tuple(tuple_unique(follow_set_each_def<0>(target, defs)));
         }
     };
 }
@@ -296,6 +299,7 @@ public:
     template<class TSymbol>
     constexpr auto get(const TSymbol& symbol) const
     {
+        //return std::get<0>(follow);
         return do_get<0>(symbol);
     }
 

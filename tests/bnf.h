@@ -229,7 +229,7 @@ bool test_sr_init()
     constexpr auto digit4 = NTerm(cs<"digit4">());
     constexpr auto d_digit = Define(digit, Repeat(Alter(Term(cs<"1">()), Term(cs<"2">()), Term(cs<"3">()), Term(cs<"4">()), Term(cs<"5">()),
                                                                 Term(cs<"6">()), Term(cs<"7">()), Term(cs<"8">()), Term(cs<"9">()), Term(cs<"0">()))));
-    constexpr auto d_digit4 = Define(digit4, Concat(digit, digit, digit, digit));
+    constexpr auto d_digit4 = Define(digit4, digit);
     constexpr auto root = RulesDef(d_digit, d_digit4);
 
     using VStr = StdStr<char>;
@@ -239,7 +239,7 @@ bool test_sr_init()
     // ===================
 
     // Parser init
-    constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint>();
+    constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint, SRConfEnum::Lookahead>();
     auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(root, conf);
 
     Tokenizer<64, VStr, TokenType> lexer(root);
@@ -273,9 +273,82 @@ bool test_sr_init()
 }
 
 
+bool test_sr_calc()
+{
+    std::cout << "test_sr_calc() :" << std::endl;
+
+    constexpr EBNFBakery rules;
+    //    constexpr auto nozero = NTerm(cs("digit excluding zero"));
+    //    constexpr auto d_nozero = Define(nozero, );
+    constexpr auto digit = NTerm(cs<"digit">());
+    constexpr auto d_digit = Define(digit, Repeat(Alter(Term(cs<"1">()), Term(cs<"2">()), Term(cs<"3">()), Term(cs<"4">()), Term(cs<"5">()),
+                                                        Term(cs<"6">()), Term(cs<"7">()), Term(cs<"8">()), Term(cs<"9">()), Term(cs<"0">()))));
+
+    constexpr auto number = NTerm(cs<"number">());
+    constexpr auto d_number = Define(number, Concat(digit, digit));
+    constexpr auto add = NTerm(cs<"add">());
+    constexpr auto sub = NTerm(cs<"sub">());
+    constexpr auto mul = NTerm(cs<"mul">());
+    constexpr auto div = NTerm(cs<"div">());
+    constexpr auto op = NTerm(cs<"op">()); // any operator
+    constexpr auto arithmetic = NTerm(cs<"arithmetic">());
+    constexpr auto group = NTerm(cs<"group">());
+
+    constexpr auto d_add = Define(add, Concat(number, Term(cs<"+">()), number));
+    constexpr auto d_sub = Define(sub, Concat(number, Term(cs<"-">()), number));
+    constexpr auto d_mul = Define(mul, Concat(number, Term(cs<"*">()), number));
+    constexpr auto d_div = Define(div, Concat(number, Term(cs<"/">()), number));
+
+    constexpr auto d_group = Define(group, Concat(Term(cs<"(">()), op, Term(cs<")">())));
+    constexpr auto d_arithmetic = Define(arithmetic, Alter(add, sub, mul, div));
+    constexpr auto d_op = Define(op, Alter(number, arithmetic, group));
+
+    constexpr auto ruleset = RulesDef(d_digit, d_number, d_add, d_sub, d_mul, d_div, d_arithmetic, d_op, d_group);
+
+    using VStr = StdStr<char>;
+    using TokenType = StdStr<char>;
+
+    // Parser classes init
+    // ===================
+
+    // Parser init
+    constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint, SRConfEnum::Lookahead>();
+    auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, conf);
+
+    Tokenizer<64, VStr, TokenType> lexer(ruleset);
+    StdStr<char> in("12*(3+42)");
+    bool ok;
+    auto ht = lexer.init_hashtable();
+    auto tokens = lexer.run(ht, in, ok);
+
+    if (!ok)
+    {
+        std::cout << "lexer build error" << std::endl;
+        return false;
+    }
+
+    TreeNode<VStr> tree;
+    std::cout << "======" << std::endl << "SR parser routine : " << std::endl;
+    ok = parser.run(tree, op, tokens);
+
+    std::cout << "======" << std::endl << "parser output : " << std::endl;
+    tree.traverse([&](const auto& node, std::size_t depth){
+        for (std::size_t i = 0; i < depth; i++) std::cout << "|  ";
+        std::cout << node.name << " (" << node.nodes.size() << " elems) : " << node.value << std::endl;
+    });
+
+    if (!ok)
+    {
+        std::cout << "parser error" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+
 bool test_gbnf()
 {
-    return test_gbnf_basic() && test_gbnf_complex1() && test_gbnf_extended() && test_gbnf_parse_1() && test_gbnf_parse_calc() && test_sr_init();
+    return test_gbnf_basic() && test_gbnf_complex1() && test_gbnf_extended() && test_gbnf_parse_1() && test_gbnf_parse_calc() && test_sr_init() && test_sr_calc();
 }
 
 #endif //SUPERCFG_BNF_H
