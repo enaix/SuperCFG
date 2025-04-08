@@ -18,24 +18,33 @@ namespace cfg_helpers
     enum class IterStrategy
     {
         Normal,
-        RecurseFirst,
         First,
-        All
+        Repeat,
+        PermuteAll,
+        RecurseFirst
+    };
+
+    enum class ReturnStrategy
+    {
+        Sequential,
+        Optional
     };
 
     struct FollowSetFactory
     {
         /**
          * @brief Iterate over symbols in an operator using the provided strategy
-         * @tparam symbol Index of the current symbol in def
+         * @tparam symbol Current symbol position (reverse of index)
          * @tparam strategy Iteration strategy enum
+         * @tparam ret_strategy Return strategy enum
          * @tparam is_target True if we have encountered our target
          * @param target Symbol to check
          * @param def Operator with the symbols we need to check
          */
-        template<std::size_t symbol, IterStrategy strategy, bool is_target, class Target, class TSymbol>
+        template<std::size_t symbol, IterStrategy strategy, ReturnStrategy ret_strategy, bool is_target, class Target, class TSymbol>
         constexpr auto follow_symbol_rl(const Target& target, const TSymbol& def)
         {
+            // Get actual index from symbol pos
             constexpr std::size_t i = std::tuple_size_v<decltype(def.terms)> - symbol - 1;
             using symbol_type = std::tuple_element_t<i, decltype(def.terms)>;
             constexpr bool target_found = std::is_same_v<symbol_type, std::decay_t<Target>>;
@@ -43,48 +52,127 @@ namespace cfg_helpers
             // We need to recursively process the operator
             if constexpr (is_operator<symbol_type>())
             {
-                // Include only one symbol after is_target
+                // is_target should be handled sequentially
                 if constexpr (strategy == IterStrategy::Normal)
                 {
                     if constexpr (i > 0)
-                        return std::tuple_cat(std::make_tuple(you_must_follow_rl<is_target>(target, std::get<i>(def.terms))),
-                            follow_symbol_rl<symbol+1, strategy, is_target>(target, def));
-                    else return std::make_tuple(you_must_follow_rl<is_target>(target, std::get<i>(def.terms)));
+                    {
+                        // We need to check if target exists in the current symbol
+                        const auto[found, cur_tuple] = you_must_follow_rl<is_target>(target, std::get<i>(def.terms));
+                        // Recurse into the next
+                        const auto[found_in_next, tail] = follow_symbol_rl<symbol+1, strategy, ret_strategy, decltype(found)::value>(target, def);
+
+                        // Return the original is_target value (is the value present outside?)
+                        if constexpr (symbol == 0 && ret_strategy == ReturnStrategy::Optional)
+                            return std::make_pair(std::integral_constant<bool, (is_target || decltype(found_in_next)::value)>(), std::tuple_cat(cur_tuple, tail));
+                        else
+                            // Return found only from the last element (sequential)
+                            return std::make_pair(found_in_next, std::tuple_cat(cur_tuple, tail));
+                    }
+                    else
+                    {
+                        return you_must_follow_rl<is_target>(target, std::get<i>(def.terms));
+                    }
                 }
-                else if constexpr (strategy == IterStrategy::All)
+                // is_target should remain unchanged for all calls, return found if at least one match exists
+                else if constexpr (strategy == IterStrategy::PermuteAll)
                 {
                     if constexpr (i > 0)
-                        return std::tuple_cat(std::make_tuple(you_must_follow_rl<true>(target, std::get<i>(def.terms))),
-                            follow_symbol_rl<symbol+1, strategy, true>(target, def));
-                    else return std::make_tuple(you_must_follow_rl<true>(target, std::get<i>(def.terms)));
+                    {
+                        const auto [found, cur_tuple] = you_must_follow_rl<is_target>(target, std::get<i>(def.terms));
+                        const auto [found_in_next, tail] = follow_symbol_rl<symbol+1, strategy, ret_strategy, is_target>(target, def);
+                        // Return found OR found_in_next
+                        constexpr bool found_ret = decltype(found)::value || decltype(found_in_next)::value;
+
+                        if constexpr (symbol == 0 && ret_strategy == ReturnStrategy::Optional)
+                            return std::make_pair(std::integral_constant<bool, (is_target || found_ret)>(),
+                                std::tuple_cat(cur_tuple, tail));
+                        else
+                            return std::make_pair(std::integral_constant<bool, found_ret>(),
+                                std::tuple_cat(cur_tuple, tail));
+                    }
+                    else
+                    {
+                        return you_must_follow_rl<is_target>(target, std::get<i>(def.terms));
+                    }
+                }
+
+                // Include only the first symbol
+                else if constexpr (strategy == IterStrategy::First)
+                    return you_must_follow_rl<is_target>(target, std::get<0>(def.terms));
+
+                // RecurseFirst: pass the first symbol into you_must_follow
+                else
+                {
+                    return you_must_follow_rl<is_target>(target, std::get<0>(def.terms));
                 }
             }
             // Term or a NTerm
             else
             {
                 // Include only one symbol after is_target
-                if constexpr (strategy == IterStrategy::Normal)
+                if constexpr (strategy == IterStrategy::Normal || strategy == IterStrategy::PermuteAll)
                 {
+                    // Check if we need to pass target_found
+                    constexpr bool found_next = (strategy == IterStrategy::PermuteAll ? is_target : target_found);
+
                     if constexpr (i > 0)
                     {
+                        const auto[found_in_next, tail] = follow_symbol_rl<symbol + 1, strategy, ret_strategy, found_next>(target, def);
+                        constexpr auto found_ret_optional = std::integral_constant<bool, (is_target || decltype(found_in_next)::value)>();
+
+                        // Check if previous symbol is a target
                         if constexpr (is_target)
-                            return std::tuple_cat(std::make_tuple(std::get<i>(def.terms)), follow_symbol_rl<symbol + 1, strategy, target_found>(target, def));
+                        {
+                            const auto res = std::tuple_cat(std::make_tuple(std::get<i>(def.terms)), tail);
+
+                            // Check return strategy
+                            if constexpr (symbol == 0 && ret_strategy == ReturnStrategy::Optional)
+                                return std::make_pair(found_ret_optional, res);
+                            else
+                                return std::make_pair(found_in_next, res);
+                        }
                         else
-                            return follow_symbol_rl<symbol + 1, strategy, target_found>(target, def);
+                        {
+                            if constexpr (symbol == 0 && ret_strategy == ReturnStrategy::Optional)
+                                return std::make_pair(found_ret_optional, tail);
+                            else
+                                return std::make_pair(found_in_next, tail);
+                        }
                     } else {
+                        // Last element, end of recursion
+                        constexpr auto found_res = std::integral_constant<bool, found_next>();
                         if constexpr (is_target)
-                            return std::make_tuple(std::get<i>(def.terms));
-                        else return std::tuple<>();
+                            return std::make_pair(found_res, std::make_tuple(std::get<i>(def.terms)));
+                        else return std::make_pair(found_res, std::tuple<>());
                     }
                 }
 
-                // Include all symbols, is_target does not matter
-                else if constexpr (strategy == IterStrategy::All)
+                // Scan the symbol twice, like Op(A) is actually Op(A, A) (in normal mode)
+                else if constexpr (strategy == IterStrategy::Repeat)
                 {
-                    if constexpr (i > 0)
-                        return std::tuple_cat(std::make_tuple(std::get<i>(def.terms)), follow_symbol_rl<symbol + 1, strategy, true>(target, def));
-                    else
-                        return std::make_tuple(std::get<i>(def.terms));
+                    // Check if the element is present in alternation symbol using PermuteAll strategy
+                    const auto[found_once, res] = follow_symbol_rl<symbol, IterStrategy::PermuteAll, ret_strategy, is_target>(target, def);
+
+                    if constexpr (decltype(found_once)::value)
+                    {
+                        // Alternation contains target, we need to check if the symbol can occur >=2 times
+                        const auto[found_2, res_alt] = follow_symbol_rl<symbol, IterStrategy::PermuteAll, ret_strategy, true>(target, def);
+                        // Merge resulting elements
+                        const auto res_total = std::tuple_cat(res, res_alt);
+
+                        // Check for return strategy
+                        if constexpr (ret_strategy == ReturnStrategy::Optional)
+                            return std::make_pair(std::integral_constant<bool, (is_target || decltype(found_once)::value)>(), res_alt);
+                        else
+                            return std::make_pair(found_once, res_total);
+                    } else {
+                        // Alternation does not contain target
+                        if constexpr (ret_strategy == ReturnStrategy::Optional)
+                            return std::make_pair(std::integral_constant<bool, (is_target || decltype(found_once)::value)>(), res);
+                        else
+                            return std::make_pair(found_once, res);
+                    }
                 }
 
                 // Include only the first symbol
@@ -92,9 +180,10 @@ namespace cfg_helpers
                 {
                     if constexpr (i == 0)
                     {
+                        constexpr auto found = std::integral_constant<bool, (ret_strategy == ReturnStrategy::Optional ? (is_target || target_found) : target_found)>();
                         if constexpr (is_target)
-                            return std::make_tuple(std::get<i>(def.terms));
-                        else return std::tuple<>();
+                            return std::make_pair(found, std::make_tuple(std::get<i>(def.terms)));
+                        else return std::make_pair(found, std::tuple<>());
                     }
                     // We still may find some match there
                     else return follow_symbol_rl<symbol + 1, strategy, is_target>(target, def);
@@ -120,36 +209,47 @@ namespace cfg_helpers
             // Recurse strategy
             if constexpr (is_operator<TSymbol>())
             {
-                // FollowOnce: include only the next operator in the follow set (except when RepeatRange starts with 0 elements)
-                if constexpr (get_operator<TSymbol>() == OpType::Concat || get_operator<TSymbol>() == OpType::Alter ||
-                    get_operator<TSymbol>() == OpType::RepeatExact || get_operator<TSymbol>() == OpType::RepeatGE ||
+                // Normal, Sequential: sequential order, include only the next operator in the follow set
+                if constexpr (get_operator<TSymbol>() == OpType::Concat)
+                    return follow_symbol_rl<0, IterStrategy::Normal, ReturnStrategy::Sequential, is_target>(target, def);
+
+                // Repeat, Sequential: the next operator should follow itself, include only the next operator in the follow set (except when RepeatRange starts with 0 elements)
+                else if (get_operator<TSymbol>() == OpType::RepeatExact || get_operator<TSymbol>() == OpType::RepeatGE ||
                     !(get_operator<TSymbol>() == OpType::RepeatRange && get_range_from<TSymbol>() == 0))
+                    return follow_symbol_rl<0, IterStrategy::Repeat, ReturnStrategy::Sequential, is_target>(target, def);
 
-                    return follow_symbol_rl<0, IterStrategy::Normal, is_target>(target, def);
-
-                // FollowAll: include the next and the following operator (only when RepeatRange starts with 0 elements)
-                else if constexpr (get_operator<TSymbol>() == OpType::Optional || get_operator<TSymbol>() == OpType::Repeat ||
+                // Repeat, Optional: the next operator should follow itself, include the next and the following operator (only when RepeatRange starts with 0 elements)
+                else if constexpr (get_operator<TSymbol>() == OpType::Repeat ||
                     !(get_operator<TSymbol>() == OpType::RepeatRange && get_range_from<TSymbol>() > 0))
-                    return follow_symbol_rl<0, IterStrategy::All, is_target>(target, def);
+                    return follow_symbol_rl<0, IterStrategy::Repeat, ReturnStrategy::Optional, is_target>(target, def);
+
+                // PermuteAll, Optional: permute over all symbols, include the next and the following operator
+                else if constexpr (get_operator<TSymbol>() == OpType::Optional)
+                    return follow_symbol_rl<0, IterStrategy::PermuteAll, ReturnStrategy::Optional, is_target>(target, def);
+
+                // PermuteAll, Sequential: permute over all symbols, include the next and the following operator
+                else if constexpr (get_operator<TSymbol>() == OpType::Alter)
+                    return follow_symbol_rl<0, IterStrategy::PermuteAll, ReturnStrategy::Sequential, is_target>(target, def);
 
                 // Skip: include the symbol following after this operator
                 else if constexpr (get_operator<TSymbol>() == OpType::Comment || get_operator<TSymbol>() == OpType::SpecialSeq)
-                    return std::tuple<>();
+                    return std::make_pair(std::false_type(), std::tuple<>());
 
                 // FollowOnce and include only the first symbol
                 else if constexpr (get_operator<TSymbol>() == OpType::Except)
-                    return follow_symbol_rl<0, IterStrategy::First, is_target>(target, def);
+                    return follow_symbol_rl<0, IterStrategy::First, ReturnStrategy::Sequential, is_target>(target, def);
 
                 // Group: recurse into the first element
-                else return follow_symbol_rl<0, IterStrategy::RecurseFirst, is_target>(target, def);
+                else return follow_symbol_rl<0, IterStrategy::RecurseFirst, ReturnStrategy::Sequential, is_target>(target, def);
             }
 
             // We find an NTerm or a Term on the top-level
             else
             {
+                constexpr auto target_found = std::is_same<std::decay_t<TSymbol>, std::decay_t<Target>>();
                 if constexpr (is_target)
-                    return std::make_tuple(def);
-                else return std::tuple<>();
+                    return std::make_pair(target_found, std::make_tuple(def));
+                else return std::make_pair(target_found, std::tuple<>());
             }
         }
 
@@ -157,8 +257,8 @@ namespace cfg_helpers
         constexpr auto follow_set_each_def(const Target& target, const TDefsTuple& defs)
         {
             if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<TDefsTuple>>)
-                return std::tuple_cat(you_must_follow_rl<false>(target, std::get<depth>(defs)), follow_set_each_def<depth+1>(target, defs));
-            else return you_must_follow_rl<false>(target, std::get<depth>(defs));
+                return std::tuple_cat(you_must_follow_rl<false>(target, std::get<depth>(defs)).second, follow_set_each_def<depth+1>(target, defs));
+            else return you_must_follow_rl<false>(target, std::get<depth>(defs)).second;
         }
 
         template<std::size_t depth, class NTermsTuple, class RRTree, class NTermsMap>
@@ -272,10 +372,32 @@ protected:
         const auto& nt = std::get<depth>(follow_set.defs);
         const auto& follow = std::get<depth>(follow_set.follow);
         std::cout << VStr(nt.type()) << " -> ";
-        print_symbols_tuple(follow);
-        std::cout << std::endl;
+        do_print_follow(follow) << std::endl;
+
         if constexpr (depth + 1 < std::tuple_size_v<decltype(follow_set.defs)>)
             do_print<depth+1, VStr>();
+    }
+
+    template<class Tuple>
+    std::ostream& do_print_follow(const Tuple& tuple, bool is_op = false) const
+    {
+        tuple_each_tree(tuple, [&]<typename TSymbol>(std::size_t d, std::size_t i, const TSymbol& elem)
+        {
+            if constexpr (is_operator<std::decay_t<TSymbol>>())
+            {
+                std::cout << "(" << static_cast<int>(get_operator<std::decay_t<TSymbol>>()) << ")<";
+                do_print_follow(elem.terms, true);
+                std::cout << "> ";
+            }
+            else
+            {
+                if constexpr (is_term<TSymbol>()) std::cout << "t:";
+                else std::cout << "n:";
+                std::cout << elem.type() << ", ";
+            }
+        },
+        [&](std::size_t d, std::size_t i, bool tuple_start){ std::cout << (tuple_start || is_op ? "" : "; "); });
+        return std::cout;
     }
 };
 
