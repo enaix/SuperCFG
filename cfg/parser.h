@@ -384,19 +384,11 @@ public:
     {
         // Initialize point at zero
         std::vector<GSymbolV> stack{GSymbolV(tokens[0])};
-        std::size_t i;
-        if constexpr (enabled<SRConfEnum::Lookahead>())
-        {
-            if (tokens.size() > 1) [[likely]]
-            {
-                stack.push_back(GSymbolV(tokens[1])); // Add one symbol of lookahead
-                i = 2;
-            } else i = 1;
-        } else i = 1;
+        std::size_t i = 1;
 
         while (true) //(i < tokens.size())
         {
-            if (!reduce_runtime(stack, &node, tokens.size() - i))
+            if (!reduce_lookahead_runtime(stack, &node, tokens, i))
             {
                 // Shift operation
                 if (i == tokens.size()) [[unlikely]]
@@ -559,19 +551,28 @@ protected:
         return false;
     }
 
-    bool reduce_runtime(std::vector<GSymbolV>& stack, Tree* root, std::size_t remaining)
+    bool reduce_lookahead_runtime(std::vector<GSymbolV>& stack, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind)
     {
-        // First loop over the stack
-
-        std::int64_t last;
         if constexpr (enabled<SRConfEnum::Lookahead>())
         {
-            // Edge case: no more symbols ahead
-            if (remaining == 0) [[unlikely]] last = 0;
-            else last = 1;
-        } else last = 0;
+            if (tokens_ind != tokens.size()) [[likely]]
+            {
+                return symbols_ht.get_term(tokens[tokens_ind].value, [&](const auto& lookahead){
+                    return reduce_runtime(stack, root, tokens, tokens_ind, lookahead);
+                });
+            }
+            // Disable lookahead check
+            else return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type());
+        } else return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type());
+    }
 
-        for (std::int64_t i = stack.size() - 1; i >= last; i--)
+    template<class LookaheadS>
+    bool reduce_runtime(std::vector<GSymbolV>& stack, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind, const LookaheadS& lookahead)
+    {
+        // First loop over the stack
+        // Greedy mode: check longer substr first
+        //for (std::int64_t i = stack.size() - 1; i >= 0; i--)
+        for (std::int64_t i = 0; i < stack.size(); i++)
         {
             // Efficient vector of common types
             ConstVec<TokenType> intersect;
@@ -661,13 +662,9 @@ protected:
                     const auto& def = std::get<1>(defs.get(match)->terms);
 
                     // Check lookahead symbol
-                    if constexpr (enabled<SRConfEnum::Lookahead>())
+                    if constexpr (enabled<SRConfEnum::Lookahead>() && !std::is_same_v<std::decay_t<LookaheadS>, std::false_type>)
                     {
-                        // Check if we need to check the last symbol on stack
-                        if (i > 0) [[likely]]
-                        {
-                            if (!look.check(symbols_ht, match, stack[i - 1])) return false;
-                        } // else it's the last symbol on the stack, do nothing
+                        if (!look.check(match, lookahead)) return false;
                     }
 
                     std::size_t index = 0;
@@ -679,7 +676,7 @@ protected:
                     }
 
                     // We need to cover all stack with one iteration
-                    return success && index + i + last == stack.size();
+                    return success && index + i == stack.size();
                 });
 
                 if (!found) continue;
@@ -709,7 +706,6 @@ protected:
         }
         return false;
     }
-
 
     /**
      * @brief Recursively descend over the grammar rule and check if current sequence matches the rule

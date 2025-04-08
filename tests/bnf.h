@@ -229,7 +229,7 @@ bool test_sr_init()
     constexpr auto digit4 = NTerm(cs<"digit4">());
     constexpr auto d_digit = Define(digit, Repeat(Alter(Term(cs<"1">()), Term(cs<"2">()), Term(cs<"3">()), Term(cs<"4">()), Term(cs<"5">()),
                                                                 Term(cs<"6">()), Term(cs<"7">()), Term(cs<"8">()), Term(cs<"9">()), Term(cs<"0">()))));
-    constexpr auto d_digit4 = Define(digit4, digit);
+    constexpr auto d_digit4 = Define(digit4, Repeat(digit));
     constexpr auto root = RulesDef(d_digit, d_digit4);
 
     using VStr = StdStr<char>;
@@ -285,7 +285,7 @@ bool test_sr_calc()
                                                         Term(cs<"6">()), Term(cs<"7">()), Term(cs<"8">()), Term(cs<"9">()), Term(cs<"0">()))));
 
     constexpr auto number = NTerm(cs<"number">());
-    constexpr auto d_number = Define(number, Concat(digit, digit));
+    constexpr auto d_number = Define(number, Repeat(digit));
     constexpr auto add = NTerm(cs<"add">());
     constexpr auto sub = NTerm(cs<"sub">());
     constexpr auto mul = NTerm(cs<"mul">());
