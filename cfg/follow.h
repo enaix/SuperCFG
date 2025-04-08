@@ -157,8 +157,8 @@ namespace cfg_helpers
         constexpr auto follow_set_each_def(const Target& target, const TDefsTuple& defs)
         {
             if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<TDefsTuple>>)
-                return std::tuple_cat(std::make_tuple(you_must_follow_rl<false>(target, std::get<depth>(defs))), follow_set_each_def<depth+1>(target, defs));
-            else return std::make_tuple(you_must_follow_rl<false>(target, std::get<depth>(defs)));
+                return std::tuple_cat(you_must_follow_rl<false>(target, std::get<depth>(defs)), follow_set_each_def<depth+1>(target, defs));
+            else return you_must_follow_rl<false>(target, std::get<depth>(defs));
         }
 
         template<std::size_t depth, class NTermsTuple, class RRTree, class NTermsMap>
@@ -168,9 +168,13 @@ namespace cfg_helpers
 
             // Get related symbols at i + the symbol definition itself
             const auto includes = std::tuple_cat(std::make_tuple(target), reverse_rules.get(target));
+            std::cout << "includes tuple : ";
+            print_symbols_tuple(includes) << std::endl;
 
             // Morph the matching symbols into their definitions
-            const auto defs = tuple_morph([&]<std::size_t i>(const auto& c){ return *nterms2defs.get(std::get<i>(c)); }, includes);
+            const auto defs = tuple_morph([&]<std::size_t i>(const auto& c){ return std::get<1>(nterms2defs.get(std::get<i>(c))->terms); }, includes);
+            std::cout << "defs tuple : ";
+            print_symbols_tuple(defs) << std::endl;
 
             // Descend into each definition
             if constexpr (depth+1 < std::tuple_size_v<NTermsTuple>)
@@ -268,7 +272,7 @@ protected:
         const auto& nt = std::get<depth>(follow_set.defs);
         const auto& follow = std::get<depth>(follow_set.follow);
         std::cout << VStr(nt.type()) << " -> ";
-        tuple_each(follow, [&](std::size_t i, const auto& elem){ std::cout << VStr(elem.type()) << " "; });
+        print_symbols_tuple(follow);
         std::cout << std::endl;
         if constexpr (depth + 1 < std::tuple_size_v<decltype(follow_set.defs)>)
             do_print<depth+1, VStr>();

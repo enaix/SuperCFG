@@ -179,6 +179,23 @@ namespace cfg_helpers
     {
 
     }
+
+    //template<typename T>
+    //requires (is_not_instance_of_v<std::decay_t<T>, std::tuple>)
+    template<std::size_t depth, std::size_t index, class Elem, std::size_t... Ints>
+    constexpr void tuple_each_tree(const Elem& elem, auto each_elem, auto each_tuple, const std::index_sequence<Ints...>)
+    {
+        each_elem(depth, index, elem);
+    }
+
+    template<std::size_t depth, std::size_t index, class Tuple, std::size_t... Ints>
+    requires (is_instance_of_v<std::decay_t<Tuple>, std::tuple>)
+    constexpr void tuple_each_tree(const Tuple& tuple, auto each_elem, auto each_tuple, const std::index_sequence<Ints...>)
+    {
+        each_tuple(depth, index, true);
+        (tuple_each_tree<depth + 1, Ints>(std::get<Ints>(tuple), each_elem, each_tuple, std::make_index_sequence<tuple_size_or_none<std::tuple_element_t<Ints, std::decay_t<Tuple>>>>{}),...);
+        each_tuple(depth, index, false);
+    }
 } // cfg_helpers
 
 
@@ -284,6 +301,13 @@ constexpr bool tuple_each_or_return(const Tuple& tuple, auto each_elem)
 {
     if constexpr (std::tuple_size_v<Tuple>() != 0) return cfg_helpers::do_tuple_each<0>(tuple, each_elem);
     else return false;
+}
+
+
+template<class Tuple>
+constexpr void tuple_each_tree(const Tuple& tuple, auto each_elem, auto each_tuple)
+{
+    cfg_helpers::tuple_each_tree<0, 0>(tuple, each_elem, each_tuple, std::make_index_sequence<tuple_size_or_none<std::decay_t<Tuple>>>{});
 }
 
 

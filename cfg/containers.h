@@ -92,7 +92,7 @@ struct ConstStrWrapper
 
  /**
   * @brief Constexpr string class. Not advised to use in runtime
-  * @tparam SIZE Deduced string length, including '\0'
+  * @tparam STR Deduced string container, including '\0'
   */
 template<ConstStrContainer STR>
 class ConstStr
@@ -135,6 +135,9 @@ public:
 
     template<class... TArgs>
     constexpr const auto& bake(auto... args) const { return *this; } // Baking operation on a string always returns string
+
+    //template<ConstStrContainer LHS>
+    friend std::ostream& operator<<(std::ostream& os, const ConstStr<STR>& lhs) { return os << lhs.c_str(); }
 };
 
 template<ConstStrContainer STR>

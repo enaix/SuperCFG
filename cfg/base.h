@@ -241,6 +241,24 @@ struct get_second { typedef std::tuple_element_t<1, typename std::remove_cvref_t
 template<class TSymbol> using get_first_t = typename get_first<TSymbol>::type;
 template<class TSymbol> using get_second_t = typename get_second<TSymbol>::type;
 
+template<class Tuple>
+std::ostream& print_symbols_tuple(const Tuple& tuple, bool is_op = false)
+{
+    tuple_each_tree(tuple, [&]<typename TSymbol>(std::size_t d, std::size_t i, const TSymbol& elem)
+    {
+        if constexpr (is_operator<std::decay_t<TSymbol>>())
+        {
+            std::cout << "(" << static_cast<int>(get_operator<std::decay_t<TSymbol>>()) << ")<";
+            print_symbols_tuple(elem.terms, true);
+            std::cout << "> ";
+        }
+        else
+            std::cout << elem.type() << ", ";
+    },
+    [&](std::size_t d, std::size_t i, bool tuple_start){ std::cout << (tuple_start || is_op ? "" : "; "); });
+    return std::cout;
+}
+
 
 template<typename Callable>
 concept ReturnsBool = requires(Callable f)

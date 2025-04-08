@@ -384,16 +384,19 @@ public:
     {
         // Initialize point at zero
         std::vector<GSymbolV> stack{GSymbolV(tokens[0])};
+        std::size_t i;
         if constexpr (enabled<SRConfEnum::Lookahead>())
         {
             if (tokens.size() > 1) [[likely]]
+            {
                 stack.push_back(GSymbolV(tokens[1])); // Add one symbol of lookahead
-        }
+                i = 2;
+            } else i = 1;
+        } else i = 1;
 
-        std::size_t i = 1;
         while (true) //(i < tokens.size())
         {
-            if (!reduce_runtime(stack, &node))
+            if (!reduce_runtime(stack, &node, tokens.size() - i))
             {
                 // Shift operation
                 if (i == tokens.size()) [[unlikely]]
@@ -556,15 +559,15 @@ protected:
         return false;
     }
 
-    bool reduce_runtime(std::vector<GSymbolV>& stack, Tree* root)
+    bool reduce_runtime(std::vector<GSymbolV>& stack, Tree* root, std::size_t remaining)
     {
         // First loop over the stack
 
         std::int64_t last;
         if constexpr (enabled<SRConfEnum::Lookahead>())
         {
-            // Edge case: last symbol
-            if (stack.size() == 1) [[unlikely]] last = 0;
+            // Edge case: no more symbols ahead
+            if (remaining == 0) [[unlikely]] last = 0;
             else last = 1;
         } else last = 0;
 
@@ -657,9 +660,11 @@ protected:
                     // Get definition of the common type
                     const auto& def = std::get<1>(defs.get(match)->terms);
 
+                    // Check lookahead symbol
                     if constexpr (enabled<SRConfEnum::Lookahead>())
                     {
-                        if (stack.size() > 1) [[likely]]
+                        // Check if we need to check the last symbol on stack
+                        if (i > 0) [[likely]]
                         {
                             if (!look.check(symbols_ht, match, stack[i - 1])) return false;
                         } // else it's the last symbol on the stack, do nothing
