@@ -290,6 +290,13 @@ public:
     void set_size(std::size_t n) { _n = n; }
 
     void erase() { _n = 0; }
+
+    friend std::ostream& operator<<(std::ostream& os, const ConstVec<T>& lhs)
+    {
+        for (std::size_t i = 0; i < lhs.size(); i++)
+            os << lhs[i] << " ";
+        return os;
+    }
 };
 
 

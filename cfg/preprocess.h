@@ -76,7 +76,7 @@ public:
     std::variant<true_t, false_t> symbol_type; // true if it's a token, false if a nterm
 
     // Term
-    constexpr explicit GrammarSymbol(const Token<VStr, Type>& token) : value(token.value), type(token.type), symbol_type(true_t()) {}
+    constexpr explicit GrammarSymbol(const VStr& value, const Type& type) : value(value), type(type), symbol_type(true_t()) {}
 
     // NTerm
     constexpr explicit GrammarSymbol(const Type& type) : value(), type(type), symbol_type(false_t()) {}
@@ -471,6 +471,12 @@ public:
         return ht;
     }
 
+    template<class VStr>
+    void prettyprint() const
+    {
+        do_print<0, VStr>();
+    }
+
 protected:
     template<std::size_t depth, class TSymbol>
     constexpr auto do_get(const TSymbol& symbol) const
@@ -481,6 +487,18 @@ protected:
             return std::get<depth>(tree);
         }
         else return do_get<depth + 1, TSymbol>(symbol);
+    }
+
+    template<std::size_t depth, class VStr>
+    void do_print() const
+    {
+        const auto& nt = std::get<depth>(defs);
+        const auto& tree_rhs = std::get<depth>(tree);
+        std::cout << VStr(std::get<0>(nt.terms).type()) << " -> ";
+        print_symbols_tuple(tree_rhs) << std::endl;
+
+        if constexpr (depth + 1 < std::tuple_size_v<decltype(defs)>)
+            do_print<depth+1, VStr>();
     }
 };
 

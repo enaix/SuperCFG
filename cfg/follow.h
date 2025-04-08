@@ -76,7 +76,7 @@ namespace cfg_helpers
             if constexpr (is_operator<symbol_type>())
             {
                 // is_target should be handled sequentially
-                if constexpr (strategy == IterStrategy::Normal)
+                /*if constexpr (strategy == IterStrategy::Normal)
                 {
                     if constexpr (i != last)
                     {
@@ -96,23 +96,42 @@ namespace cfg_helpers
                     {
                         return you_must_follow<dir, is_target>(target, std::get<i>(def.terms));
                     }
+                }*/
+                if constexpr (strategy == IterStrategy::Repeat)
+                {
+                    constexpr bool has_target = peek_into<Target, TSymbol>();
+                    // Check if the element is present in alternation symbol using PermuteAll strategy
+                    //const auto[found_repeat, res_repeat] = follow_symbol<dir, symbol, IterStrategy::PermuteAll, ret_strategy, true>(target, def);
+                    // Default check
+                    const auto[found_once, res] = follow_symbol<dir, symbol, IterStrategy::PermuteAll, ret_strategy, has_target>(target, def);
+                    if constexpr (has_target)
+                    {
+                        // Alternation contains target, we add the target to follow set
+                        const auto res_total = std::tuple_cat(res, std::make_tuple(target));
+                        return std::make_pair(found_once, res_total);
+                    } else {
+                        return std::make_pair(found_once, res);
+                    }
                 }
+
                 // is_target should remain unchanged for all calls, return found if at least one match exists
-                else if constexpr (strategy == IterStrategy::PermuteAll)
+                else if constexpr (strategy == IterStrategy::Normal || strategy == IterStrategy::PermuteAll)
                 {
                     if constexpr (i != last)
                     {
+                        // Check if we need to pass target_found
+                        constexpr bool found_next = (strategy == IterStrategy::PermuteAll ? is_target : target_found);
+                        // Check the first element
                         const auto [found, cur_tuple] = you_must_follow<dir, is_target>(target, std::get<i>(def.terms));
-                        const auto [found_in_next, tail] = follow_symbol<dir, symbol+1, strategy, ret_strategy, is_target>(target, def);
+                        // Recursively process symbols 1-end in def
+                        const auto [found_in_next, tail] = follow_symbol<dir, symbol+1, strategy, ret_strategy, found_next>(target, def);
                         // Return found OR found_in_next
-                        constexpr bool found_ret = decltype(found)::value || decltype(found_in_next)::value;
+                        constexpr auto found_optional = std::integral_constant<bool, (is_target || decltype(found_in_next)::value)>();
 
                         if constexpr (symbol == 0 && ret_strategy == ReturnStrategy::Optional)
-                            return std::make_pair(std::integral_constant<bool, (is_target || found_ret)>(),
-                                std::tuple_cat(cur_tuple, tail));
+                            return std::make_pair(found_optional, std::tuple_cat(cur_tuple, tail));
                         else
-                            return std::make_pair(std::integral_constant<bool, found_ret>(),
-                                std::tuple_cat(cur_tuple, tail));
+                            return std::make_pair(found_in_next, std::tuple_cat(cur_tuple, tail));
                     }
                     else
                     {
@@ -138,7 +157,8 @@ namespace cfg_helpers
                 {
                     // Check if we need to pass target_found
                     constexpr bool found_next = (strategy == IterStrategy::PermuteAll ? is_target : target_found);
-
+                    if constexpr (strategy == IterStrategy::PermuteAll)
+                        std::cout << "PermuteAll: is_tgt: " << is_target << ", next:" << found_next << std::endl;
                     if constexpr (i != last)
                     {
                         const auto[found_in_next, tail] = follow_symbol<dir, symbol + 1, strategy, ret_strategy, found_next>(target, def);
@@ -176,13 +196,13 @@ namespace cfg_helpers
                 {
                     constexpr bool has_target = peek_into<Target, TSymbol>();
                     // Check if the element is present in alternation symbol using PermuteAll strategy
-                    const auto[found_repeat, res_repeat] = follow_symbol<dir, symbol, IterStrategy::PermuteAll, ret_strategy, true>(target, def);
+                    //const auto[found_repeat, res_repeat] = follow_symbol<dir, symbol, IterStrategy::PermuteAll, ret_strategy, true>(target, def);
                     // Default check
                     const auto[found_once, res] = follow_symbol<dir, symbol, IterStrategy::PermuteAll, ret_strategy, has_target>(target, def);
                     if constexpr (has_target)
                     {
-                        // Alternation contains target, we need to check if the symbol can occur >=2 times
-                        const auto res_total = std::tuple_cat(res, res_repeat);
+                        // Alternation contains target, we add the target to follow set
+                        const auto res_total = std::tuple_cat(res, std::make_tuple(target));
                         return std::make_pair(found_once, res_total);
                     } else {
                         return std::make_pair(found_once, res);
@@ -230,12 +250,12 @@ namespace cfg_helpers
 
                 // Repeat, Sequential: the next operator should follow itself, include only the next operator in the follow set (except when RepeatRange starts with 0 elements)
                 else if constexpr (get_operator<TSymbol>() == OpType::RepeatExact || get_operator<TSymbol>() == OpType::RepeatGE ||
-                    !(get_operator<TSymbol>() == OpType::RepeatRange && get_range_from<TSymbol>() == 0))
+                    (get_operator<TSymbol>() == OpType::RepeatRange && get_range_from<TSymbol>() != 0))
                     return follow_symbol<dir, 0, IterStrategy::Repeat, ReturnStrategy::Sequential, is_target>(target, def);
 
                 // Repeat, Optional: the next operator should follow itself, include the next and the following operator (only when RepeatRange starts with 0 elements)
                 else if constexpr (get_operator<TSymbol>() == OpType::Repeat ||
-                    !(get_operator<TSymbol>() == OpType::RepeatRange && get_range_from<TSymbol>() > 0))
+                    (get_operator<TSymbol>() == OpType::RepeatRange && get_range_from<TSymbol>() == 0))
                     return follow_symbol<dir, 0, IterStrategy::Repeat, ReturnStrategy::Optional, is_target>(target, def);
 
                 // PermuteAll, Optional: permute over all symbols, include the next and the following operator
@@ -314,14 +334,13 @@ public:
     template<class TSymbol>
     constexpr auto get(const TSymbol& symbol) const
     {
-        //return std::get<0>(follow);
         return do_get<0>(symbol);
     }
 
     template<class Target, class TSymbol>
-    constexpr bool check(const Target& match, const TSymbol& next) const
+    constexpr bool can_reduce(const Target& match, const TSymbol& next) const
     {
-        return tuple_contains_v<TSymbol, decltype(get(match))>;
+        return !tuple_contains_v<TSymbol, decltype(get(match))>;
     }
 
 protected:
@@ -362,31 +381,32 @@ public:
     void set_lookahead(std::size_t lookahead) { _lookahead_state = lookahead; }
 
     template<class SymbolsHT, class Target, class GSymbolV>
-    bool check(SymbolsHT& ht, const Target& match, const GSymbolV& next)
+    bool can_reduce(SymbolsHT& ht, const Target& match, const GSymbolV& next) const
     {
         if (next.is_token())
         {
             // term
             return ht.get_term(next.value, [&](const auto& term){
-                return follow_set.check(match, term);
+                return follow_set.can_reduce(match, term);
             });
         }
         // nterm
         return ht.get_nterm(next.type, [&](const auto& nterm){
-            return follow_set.check(match, nterm);
+            return follow_set.can_reduce(match, nterm);
         });
     }
 
     template<class Target, class TSymbol>
-    bool check(const Target& match, const TSymbol& next)
+    bool can_reduce(const Target& match, const TSymbol& next) const
     {
-        return follow_set.check(match, next);
+        return follow_set.can_reduce(match, next);
     }
 
     template<class VStr>
     void prettyprint() const
     {
         std::cout << "SimpleLookahead::prettyprint() : " << std::endl;
+        std::cout << "  FOLLOW SET : " << std::endl;
         do_print<0, VStr>();
     }
 

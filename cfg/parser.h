@@ -383,7 +383,7 @@ public:
     bool run(Tree& node, const RootSymbol& root, std::vector<TokenV>& tokens)
     {
         // Initialize point at zero
-        std::vector<GSymbolV> stack{GSymbolV(tokens[0])};
+        std::vector<GSymbolV> stack{GSymbolV(tokens[0].value, tokens[0].type)};
         std::size_t i = 1;
 
         while (true) //(i < tokens.size())
@@ -394,7 +394,7 @@ public:
                 if (i == tokens.size()) [[unlikely]]
                     //return false;
                     break;
-                stack.push_back(GSymbolV(tokens[i]));
+                stack.push_back(GSymbolV(tokens[i].value, tokens[i].type));
                 i++;
                 if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "[sh] s: [";
             } else if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "[re] s: [";
@@ -557,12 +557,14 @@ protected:
         {
             if (tokens_ind != tokens.size()) [[likely]]
             {
-                return symbols_ht.get_term(tokens[tokens_ind].value, [&](const auto& lookahead){
+                return symbols_ht.get_nterm(tokens[tokens_ind].type, [&](const auto& lookahead){
+                    if constexpr (enabled<SRConfEnum::PrettyPrint>())
+                        std::cout << "l: " << lookahead.name << std::endl;
                     return reduce_runtime(stack, root, tokens, tokens_ind, lookahead);
                 });
             }
             // Disable lookahead check
-            else return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type());
+            return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type());
         } else return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type());
     }
 
@@ -577,7 +579,7 @@ protected:
             // Efficient vector of common types
             ConstVec<TokenType> intersect;
             // First element (optimized j=0)
-            GSymbolV& first = stack[i];
+            const GSymbolV& first = stack[i];
             if (first.is_token())
             {
                 // Size of the set will only be one symbol
@@ -597,9 +599,9 @@ protected:
             for (std::int64_t j = i + 1; j < stack.size(); j++)
             {
                 if (intersect.size() == 0) break;
-                GSymbolV& elem = stack[j];
+                const GSymbolV& elem = stack[j];
 
-                if (first.is_token())
+                if (elem.is_token())
                 {
                     // Size of the set will only be one symbol
                     [&]{
@@ -612,7 +614,7 @@ protected:
                             }
                         }
                         intersect.erase(); // Failure
-                    };
+                    }();
                 } else {
                     // Size of the set will be not greater than the related element
                     symbols_ht.get_nterm(elem.type, [&](const auto& nterm){
@@ -664,7 +666,13 @@ protected:
                     // Check lookahead symbol
                     if constexpr (enabled<SRConfEnum::Lookahead>() && !std::is_same_v<std::decay_t<LookaheadS>, std::false_type>)
                     {
-                        if (!look.check(match, lookahead)) return false;
+                        // The next symbol is of the same type
+                        if (!look.can_reduce(match, lookahead))
+                        {
+                            if constexpr (enabled<SRConfEnum::PrettyPrint>())
+                                std::cout << "^ look mismatch" << std::endl;
+                            return false;
+                        }
                     }
 
                     std::size_t index = 0;
@@ -889,7 +897,12 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, Conf conf)
         auto defs = NTermsConstHashTable(rules);
         auto look = simple_lookahead_factory(rr_tree, defs);
         if constexpr (conf.template flag<SRConfEnum::PrettyPrint>())
+        {
+            std::cout << "  REVERSE RULES TREE : " << std::endl;
+            rr_tree.template prettyprint<VStr>();
+
             look.template prettyprint<VStr>();
+        }
         return SRParser<VStr, TokenType, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), decltype(look)>(rules, rr_tree, symbols_ht, terms_map, conf, look);
     } else
         return SRParser<VStr, TokenType, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), NoLookahead>(rules, rr_tree, symbols_ht, terms_map, conf, NoLookahead());

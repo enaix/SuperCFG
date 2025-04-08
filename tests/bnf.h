@@ -294,10 +294,11 @@ bool test_sr_calc()
     constexpr auto arithmetic = NTerm(cs<"arithmetic">());
     constexpr auto group = NTerm(cs<"group">());
 
-    constexpr auto d_add = Define(add, Concat(number, Term(cs<"+">()), number));
-    constexpr auto d_sub = Define(sub, Concat(number, Term(cs<"-">()), number));
-    constexpr auto d_mul = Define(mul, Concat(number, Term(cs<"*">()), number));
-    constexpr auto d_div = Define(div, Concat(number, Term(cs<"/">()), number));
+    // There is no operator precedence calculation
+    constexpr auto d_add = Define(add, Concat(op, Term(cs<"+">()), op));
+    constexpr auto d_sub = Define(sub, Concat(op, Term(cs<"-">()), op));
+    constexpr auto d_mul = Define(mul, Concat(op, Term(cs<"*">()), op));
+    constexpr auto d_div = Define(div, Concat(op, Term(cs<"/">()), op));
 
     constexpr auto d_group = Define(group, Concat(Term(cs<"(">()), op, Term(cs<")">())));
     constexpr auto d_arithmetic = Define(arithmetic, Alter(add, sub, mul, div));
