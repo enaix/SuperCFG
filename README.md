@@ -16,21 +16,23 @@ WIP!!
 
 ### Grammar Definition Example
 
-The first step is to define your grammar using the templated EBNF API:
+The first step is to define your grammar:
 
 ```cpp
 #include "cfg/gbnf.h"
 #include "cfg/str.h"
 #include "cfg/base.h"
+#include "cfg/parser.h"
+#include "cfg/containers.h"
 
-// Initialize the EBNF grammar rules
-constexpr EBNFBakery rules;
+// ...
 
 // Define non-terminals
 constexpr auto digit = NTerm(cs<"digit">());
 constexpr auto number = NTerm(cs<"number">());
 
 // Define terminals and grammar rules
+// digit := '0'-'9'
 constexpr auto d_digit = Define(digit, Alter(
     Term(cs<"1">()), Term(cs<"2">()), Term(cs<"3">()), 
     Term(cs<"4">()), Term(cs<"5">()), Term(cs<"6">()), 
@@ -41,7 +43,7 @@ constexpr auto d_digit = Define(digit, Alter(
 // Define a rule for numbers (sequence of digits)
 constexpr auto d_number = Define(number, Repeat(digit));
 
-// Combine rules into a ruleset
+// Combine rules into a ruleset, it's a top-level root definition
 constexpr auto ruleset = RulesDef(d_digit, d_number);
 ```
 
@@ -50,19 +52,21 @@ constexpr auto ruleset = RulesDef(d_digit, d_number);
 Once you have defined your grammar, you can create and use the parser:
 
 ```cpp
-#include "cfg/parser.h"
-#include "cfg/containers.h"
+// ...
 
-// Define string types for your parser
-using VStr = StdStr<char>;
-using TokenType = StdStr<char>;
+// rules definition
+
+// Define string container types for your parser
+using VStr = StdStr<char>; // Variable string class inherited from std::string<TChar>
+using TokenType = StdStr<char>; // Class used for storing a token type in runtime
 
 // Configure the parser with desired options
 constexpr auto conf = mk_sr_parser_conf<
     SRConfEnum::PrettyPrint,  // Enable pretty printing for debugging
-    SRConfEnum::Lookahead>(); // Enable lookahead for better parsing
+    SRConfEnum::Lookahead>(); // Enable lookahead(1)
 
 // Create the shift-reduce parser
+// TreeNode<VStr> is the AST class
 auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, conf);
 
 // Initialize the tokenizer
