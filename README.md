@@ -225,4 +225,4 @@ constexpr auto ruleset = RulesDef(d_digit, d_number, d_add, d_sub, d_mul, d_div,
 
 ### JSON
 
-JSON parser without escape characters and whitespaces can be found in `examples/json.cpp`. Example strings: `42`, `"hello"`, `[1,2,3]`, `[1,["abc",2],["d","e","f"]]`, `{"a":123}`
+JSON parser without escape characters and whitespaces can be found in `examples/json.cpp`. Example strings: `42`, `"hello"`, `[1,2,3]`, `[1,["abc",2],["d","e","f"]]`, `{"a":123;"b":456}`, `{"a":[1,2,"asdf"];"b":["q","w","e"]}`, `{"a":{"b":42;"c":"abc"};"qwerty":{1:"uiop";42:10}}`
