@@ -21,7 +21,11 @@ Tested on the following configurations:
 - clang version 19.1.7, target: x86_64-pc-linux-gnu
 - clang version 19.1.7, target: arm64-apple-darwin24.3.0
 
-### Building
+At this moment, gcc support is limited.
+
+### Building the examples
+
+`cd examples`
 
 `mkdir -p build && cd build`
 
@@ -29,7 +33,7 @@ Tested on the following configurations:
 
 `make -j<threads>`
 
-`./SuperCFG # Execute tests`
+`./calc # Execute interactive calc example`
 
 ### Grammar Definition Example
 
@@ -101,7 +105,7 @@ if (ok) {
     // Create a parse tree
     TreeNode<VStr> tree;
     
-    // Parse the tokens starting with the 'number' non-terminal
+    // Parse the tokens with 'number' being the root
     ok = parser.run(tree, number, tokens);
     
     if (ok) {
@@ -188,7 +192,7 @@ Here's a more complex example for a simple calculator grammar:
 
 ```cpp
 constexpr auto digit = NTerm(cs<"digit">());
-constexpr auto d_digit = Define(digit, Alter(Term(cs<"1">()), Term(cs<"2">()), /* ... */));
+constexpr auto d_digit = Define(digit, Repeat(Alter(Term(cs<"1">()), Term(cs<"2">()), /* ... */)));
 
 constexpr auto number = NTerm(cs<"number">());
 constexpr auto d_number = Define(number, Repeat(digit));

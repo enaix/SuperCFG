@@ -157,8 +157,8 @@ namespace cfg_helpers
                 {
                     // Check if we need to pass target_found
                     constexpr bool found_next = (strategy == IterStrategy::PermuteAll ? is_target : target_found);
-                    if constexpr (strategy == IterStrategy::PermuteAll)
-                        std::cout << "PermuteAll: is_tgt: " << is_target << ", next:" << found_next << std::endl;
+                    //if constexpr (strategy == IterStrategy::PermuteAll)
+                    //    std::cout << "PermuteAll: is_tgt: " << is_target << ", next:" << found_next << std::endl;
                     if constexpr (i != last)
                     {
                         const auto[found_in_next, tail] = follow_symbol<dir, symbol + 1, strategy, ret_strategy, found_next>(target, def);
@@ -302,16 +302,16 @@ namespace cfg_helpers
         {
             // Iterate over all targets and descend over the related rules
             const auto target = std::get<depth>(nterms);
-            std::cout << "tgt: <" << target.type() << "> ";
+            //std::cout << "tgt: <" << target.type() << "> ";
 
             // Get related symbols at i + the symbol definition itself
             const auto includes = std::tuple_cat(std::make_tuple(target), reverse_rules.get(target));
-            std::cout << "includes tuple : ";
+            //std::cout << "includes tuple : ";
             print_symbols_tuple(includes) << std::endl;
 
             // Morph the matching symbols into their definitions
             const auto defs = tuple_morph([&]<std::size_t i>(const auto& c){ return std::get<1>(nterms2defs.get(std::get<i>(c))->terms); }, includes);
-            std::cout << "defs tuple : ";
+            //std::cout << "defs tuple : ";
             print_symbols_tuple(defs) << std::endl;
 
             // Descend into each definition
