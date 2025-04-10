@@ -50,6 +50,10 @@ constexpr void concat_str(const char (&lhs)[N], const char (&rhs)[M], const char
 }
 
 
+template<class T, T arg>
+struct TemplateArgWrapper {};
+
+
 template<std::size_t SIZE>
 class ConstStrContainer
 {
@@ -72,6 +76,20 @@ public:
         std::copy_n(rhs, M, str + N - 1);
     }
 
+    template<std::size_t N, ConstStrContainer<N> src, std::size_t START, std::size_t LEN>
+    constexpr explicit ConstStrContainer(const TemplateArgWrapper<ConstStrContainer<N>, src>, const std::integral_constant<std::size_t, START>, const std::integral_constant<std::size_t, LEN>)
+    {
+        static_assert(START+LEN <= N, "Substring cannot be larger than a source string");
+
+        std::copy_n(src.str + START, LEN, str);
+        /*if constexpr (SIZE > LEN)
+        {
+            constexpr char zeros[SIZE - LEN] = ""; // zero-init
+            std::copy_n(zeros, SIZE - LEN, str + START + LEN);
+        }*/
+        str[SIZE-1] = '\0';
+    }
+
     template<class... TArg>
     constexpr explicit ConstStrContainer(const std::tuple<TArg...>& c)
     {
@@ -89,6 +107,19 @@ struct ConstStrWrapper
 {
     static constexpr auto value() { return STR; }
 };
+
+
+namespace cfg_helpers
+{
+    template<ConstStrContainer STR, size_t START, size_t LEN>
+    constexpr auto make_slice(auto builder)
+    {
+        constexpr std::integral_constant<std::size_t, START> start;
+        constexpr std::integral_constant<std::size_t, LEN> len;
+        constexpr ConstStrContainer<LEN+1> container(TemplateArgWrapper<decltype(STR), STR>{}, start, len);
+        return builder.template operator()<decltype(container), container>();
+    }
+}
 
 
  /**
@@ -122,6 +153,15 @@ public:
         constexpr ConstStrContainer<new_size> c(STR.str, RHS.str);
         return ConstStr<c>();
     }
+
+    template<std::size_t START, std::size_t LEN>
+    static constexpr auto slice()
+    {
+        static_assert(START + LEN <= size(), "Substring cannot be larger than a source string");
+
+        return cfg_helpers::make_slice<STR, START, LEN>([&]<class T, T Cnt>(){ return ConstStr<Cnt>(); });
+    }
+
 
     template<ConstStrContainer RHS>
     constexpr bool operator==(const ConstStr<RHS>& rhs) const

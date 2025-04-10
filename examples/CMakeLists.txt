@@ -8,4 +8,5 @@ include_directories("..")
 #add_library(supercfg STATIC "..")
 
 add_executable(calc calc.cpp)
+add_executable(json json.cpp)
 #target_link_libraries(calc supercfg)

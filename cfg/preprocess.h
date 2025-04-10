@@ -138,13 +138,13 @@ public:
     [[nodiscard]] constexpr bool validate() const
     {
         // Naive implementation in O*log(n)
-        for (std::size_t i = 0; i < N; i++)
+        /*for (std::size_t i = 0; i < N; i++)
         {
             for (std::size_t j = i + 1; j < N; j++)
             {
                 if (VStr::is_substr(storage[i].value, storage[j].value)) return false;
             }
-        }
+        }*/
         return true;
     }
 

@@ -174,12 +174,6 @@ namespace cfg_helpers
         return do_tuple_merge(std::get<Ints>(src)...);
     }
 
-    template<class Tuple, std::size_t depth>
-    constexpr auto do_tuple_unique(const Tuple& tuple)
-    {
-
-    }
-
     //template<typename T>
     //requires (is_not_instance_of_v<std::decay_t<T>, std::tuple>)
     template<std::size_t depth, std::size_t index, class Elem, std::size_t... Ints>
@@ -195,6 +189,47 @@ namespace cfg_helpers
         each_tuple(depth, index, true);
         (tuple_each_tree<depth + 1, Ints>(std::get<Ints>(tuple), each_elem, each_tuple, std::make_index_sequence<tuple_size_or_none<std::tuple_element_t<Ints, std::decay_t<Tuple>>>>{}),...);
         each_tuple(depth, index, false);
+    }
+
+    template<std::size_t i, class Tuple, class Elem>
+    constexpr bool is_type_present_in()
+    {
+        if constexpr (i >= std::tuple_size_v<Tuple>)
+            return false;
+        else
+        {
+            if constexpr (std::is_same_v<std::decay_t<Elem>, std::decay_t<std::tuple_element_t<i, Tuple>>>)
+            {
+                return true;
+            } else {
+                if constexpr (i + 1 < std::tuple_size_v<Tuple>)
+                    return is_type_present_in<i+1, Tuple, Elem>();
+            }
+            return false;
+        }
+    }
+
+    template<std::size_t i, class Tuple>
+    constexpr auto remove_empty_tuples(const Tuple& tuple)
+    {
+        if constexpr (std::is_same_v<std::tuple_element_t<i, Tuple>, std::tuple<>>)
+        {
+            if constexpr (i + 1 < std::tuple_size_v<Tuple>)
+                return remove_empty_tuples<i+1>(tuple);
+            else
+                return std::tuple<>();
+        } else {
+            if constexpr (i + 1 < std::tuple_size_v<Tuple>)
+                return std::tuple_cat(std::make_tuple(std::get<i>(tuple)), remove_empty_tuples<i+1>(tuple));
+            else
+                return std::make_tuple(std::get<i>(tuple));
+        }
+        /*return std::tuple_cat([&](){
+            if constexpr (std::is_same_v<std::tuple_element_t<Ints, Tuple>, std::tuple<>>)
+                return std::get<Ints>(tuple);
+            else
+                std::make_tuple(std::get<Ints>(tuple));
+        }()...);*/
     }
 } // cfg_helpers
 
@@ -315,7 +350,17 @@ template<class Tuple>
 constexpr auto tuple_unique(const Tuple& tuple)
 {
     // TODO implement tuple unique() operator
-    return tuple;
+    if constexpr (std::tuple_size_v<Tuple> == 0)
+        return tuple;
+    else
+    {
+        return cfg_helpers::remove_empty_tuples<0>(tuple_morph([&]<std::size_t i>(const auto& src){
+            if constexpr (!cfg_helpers::is_type_present_in<i+1, Tuple, std::tuple_element_t<i, Tuple>>())
+                return std::get<i>(src);
+            else
+                return std::tuple<>();
+        }, tuple));
+    }
 }
 
 /**

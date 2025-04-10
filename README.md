@@ -35,6 +35,8 @@ At this moment, gcc support is limited.
 
 `./calc # Execute interactive calc example`
 
+`./json # Execute interactive json example (this is not json spec: no escape characters and whitespaces)`
+
 ### Grammar Definition Example
 
 The first step is to define your grammar:
@@ -186,7 +188,9 @@ static_assert(cs<expected>() == root, "Grammar has changed!");
 
 The serialization also supports automatic operators grouping by analyzing their order.
 
-## Complex Example: Calculator Grammar
+## Complex Examples
+
+### Calculator Grammar
 
 Here's a more complex example for a simple calculator grammar:
 
@@ -218,3 +222,7 @@ constexpr auto d_op = Define(op, Alter(number, arithmetic, group));
 constexpr auto ruleset = RulesDef(d_digit, d_number, d_add, d_sub, d_mul, d_div, 
                                  d_arithmetic, d_op, d_group);
 ```
+
+### JSON
+
+JSON parser without escape characters and whitespaces can be found in `examples/json.cpp`. Example strings: `42`, `"hello"`, `[1,2,3]`, `[1,["abc",2],["d","e","f"]]`, `{"a":123}`
