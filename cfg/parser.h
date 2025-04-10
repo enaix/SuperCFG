@@ -698,10 +698,10 @@ protected:
                     else
                     {
                         // We need to move these nodes from root into the new element
-                        Tree& elem = root->nodes.front();
+                        Tree& elem = root->nodes.back(); // Get the nterm from root
                         elem.parent = &new_node; // It will be invalidated anyway!
                         new_node.add(elem);
-                        root->nodes.erase(root->nodes.begin()); // Hella inefficient
+                        root->nodes.erase(root->nodes.end() - 1); // Hella inefficient
                     }
                 }
                 // Insert the new node

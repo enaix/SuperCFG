@@ -109,6 +109,9 @@ namespace cfg_helpers
         else return false; // We need to gracefully handle this case
     }
 
+    /**
+     * @brief Find which rule definitions contain nterm
+     */
     template<std::size_t depth, class RulesSymbol, class TSymbol>
     constexpr auto rr_tree_iterate_over_rules(const RulesSymbol& rules, const TSymbol& nterm)
     {
@@ -144,6 +147,9 @@ namespace cfg_helpers
         }
     }
 
+    /**
+     * @brief Generate a reverse rules set for i-th definition
+     */
     template<std::size_t depth, class RulesSymbol>
     constexpr auto rr_tree_for_symbol(const RulesSymbol& rules)
     {
