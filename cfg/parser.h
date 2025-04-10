@@ -801,6 +801,8 @@ protected:
     template<class TSymbol>
     constexpr bool descend_batch_runtime(const std::vector<GSymbolV>& stack, std::size_t start, const TSymbol& symbol, std::size_t& index) const
     {
+        if (start + index >= stack.size()) return false;
+
         if constexpr (is_operator<TSymbol>())
         {
             if constexpr (get_operator<TSymbol>() == OpType::Concat)
