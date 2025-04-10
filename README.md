@@ -29,7 +29,7 @@ At this moment, gcc support is limited.
 
 `mkdir -p build && cd build`
 
-`cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-ftemplate-depth=1000 # May be needed for larger grammars`
+`cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=/usr/bin/clang++ -DCMAKE_CXX_FLAGS=-ftemplate-depth=1000 # May be needed for larger grammars`
 
 `make -j<threads>`
 
