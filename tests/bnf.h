@@ -309,6 +309,7 @@ bool test_sr_calc()
     using VStr = StdStr<char>;
     using TokenType = StdStr<char>;
 
+    std::cout << ruleset.bake(rules) << std::endl;
     // Parser classes init
     // ===================
 

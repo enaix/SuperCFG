@@ -12,6 +12,7 @@
 #include <cstring>
 #include <limits>
 #include <cstdint>
+#include <memory>
 
 #include "cfg/common.h"
 #include "cfg/helpers.h"

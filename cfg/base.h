@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <tuple>
 #include <vector>
+#include <limits>
 #include "cfg/containers.h"
 
 
@@ -201,7 +202,7 @@ template<class TSymbol>
 constexpr inline std::size_t get_repeat_times()
 {
     if constexpr (is_numeric_operator<TSymbol>()) return TSymbol::_times::value;
-    else return SIZE_T_MAX;
+    else return std::numeric_limits<size_t>::max();
 }
 
 template<class TSymbol>
@@ -209,7 +210,7 @@ constexpr inline std::size_t get_range_from()
 {
     if constexpr (is_range_operator<TSymbol>())
         return TSymbol::_from::value;
-    else return SIZE_T_MAX;
+    else return std::numeric_limits<size_t>::max();;
 }
 
 template<class TSymbol>
@@ -217,7 +218,7 @@ constexpr inline std::size_t get_range_to()
 {
     if constexpr (is_range_operator<TSymbol>())
         return TSymbol::_to::value;
-    else return SIZE_T_MAX;
+    else return std::numeric_limits<size_t>::max();;
 }
 
 
