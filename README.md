@@ -2,8 +2,6 @@
 
 A C++ header-only templated shift-reduce parser generator library. Original name stands for context-free-grammar superset generator.
 
-WIP!!
-
 ## Features
 
 - Grammar rules definition using templates
@@ -13,6 +11,25 @@ WIP!!
 - Compile-time rules serialization in custom \*EBNF-like notation
 
 ## Getting Started
+
+### Requirements
+
+This project requires C++20 support, no additional libraries needed.
+
+Tested on the following configurations:
+
+- clang version 19.1.7, target: x86_64-pc-linux-gnu
+- clang version 19.1.7, target: arm64-apple-darwin24.3.0
+
+### Building
+
+`mkdir -p build && cd build`
+
+`cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-ftemplate-depth=1000 # May be needed for larger grammars`
+
+`make -j<threads>`
+
+`./SuperCFG # Execute tests`
 
 ### Grammar Definition Example
 

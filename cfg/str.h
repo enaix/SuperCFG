@@ -14,9 +14,12 @@ template<class TChar>
 class StdStr : public std::basic_string<TChar>
 {
 public:
-    //StdStr() = default;
+    constexpr StdStr() : std::basic_string<TChar>() {}
 
-    using std::basic_string<TChar>::basic_string;
+    constexpr explicit StdStr(const TChar* ch, std::size_t N) : std::basic_string<TChar>(ch, N) {}
+
+    constexpr explicit StdStr(const TChar* ch) : std::basic_string<TChar>(ch) {}
+    // using std::basic_string<TChar>::basic_string;
 
     using std::basic_string<TChar>::operator+=;
 
