@@ -12,6 +12,7 @@
 #include <queue>
 #include <typeindex>
 #include <variant>
+#include <utility>
 
 #include "cfg/base.h"
 #include "cfg/helpers.h"
@@ -61,6 +62,25 @@ public:
 };
 
 
+template<class Type>
+class TypeSet
+{
+public:
+    ConstVec<Type> types;
+
+    // Initialize a singleton
+    constexpr explicit TypeSet(const Type& type) : types(type) {}
+
+    // Initialize with an array of types
+    template<std::size_t N>
+    constexpr explicit TypeSet(const std::array<Type, N>& src) : types(to_homogeneous_tuple(src)) {} // May be slower than direct init from a tuple
+
+    // Initialize with an array of types
+    template<class... Elems>
+    constexpr explicit TypeSet(const std::tuple<Elems...>& src) : types(src) {}
+};
+
+
 
 /**
  * @brief Wrapper class that stores either a token or a nonterminal (type)
@@ -104,23 +124,21 @@ public:
 
 /**
  * @brief Container of tokens (terminals), handles the mapping between string and its related type
- * @tparam TERMS_MAX Container size
  * @tparam VStr Token string container
  * @tparam TokenType Related nonterminal type (name) container
  */
-template<std::size_t TERMS_MAX, class VStr, class TokenType>
+template<class VStr, class TokenType>
 class TermsStorage
 {
 public:
-    Token<VStr, TokenType> storage[TERMS_MAX];
-    std::size_t N;
+    std::vector<Token<VStr, TokenType>> storage;
 
     using hashtable = std::unordered_map<VStr, TokenType>; //, typename VStr::hash>; // Should be injected in std
 
     template<class RulesSymbol>
     constexpr explicit TermsStorage(const RulesSymbol& rules_def)
     {
-        N = iterate(rules_def, 0);
+        iterate(rules_def);
         //for (std::size_t i = N; i < TERMS_MAX; i++) { storage[i] = Token<VStr, TokenType>(); }
     }
 
@@ -128,7 +146,7 @@ public:
     {
         // TODO create optimal implementation for the hash function
         hashtable map;
-        for (std::size_t i = 0; i < N; i++)
+        for (std::size_t i = 0; i < storage.size(); i++)
         {
             map.insert({storage[i].value, storage[i].type});
         }
@@ -150,35 +168,32 @@ public:
 
 protected:
     template<class TSymbol>
-    constexpr std::size_t iterate(const TSymbol& s, std::size_t ind)
+    constexpr void iterate(const TSymbol& s)
     {
         s.each([&](const auto& symbol){
             if constexpr (is_operator<TSymbol>())
             {
-                ind = iterate(symbol, symbol, ind); // Will always return bigger index
+                iterate(symbol, symbol); // Will always return bigger index
             }
         });
-        return ind;
     }
 
     template<class TSymbol, class TDef>
-    constexpr std::size_t iterate(const TSymbol& s, const TDef& def, std::size_t ind)
+    constexpr void iterate(const TSymbol& s, const TDef& def)
     {
         s.each([&](const auto& symbol){
             if constexpr (is_operator<decltype(symbol)>())
             {
-                ind = iterate(symbol, def, ind); // Will always return bigger index
+                iterate(symbol, def); // Will always return bigger index
             } else {
                 if constexpr (is_term<decltype(symbol)>())
                 {
                     // Found a terminal symbol
-                    storage[ind] = Token<VStr, TokenType>(VStr(symbol.name), TokenType(std::get<0>(def.terms).type()));
-                    assert(ind + 1 < TERMS_MAX && "Maximum terminals limit reached");
-                    ind++;
+                    storage.push_back(Token<VStr, TokenType>(VStr(symbol.name), TokenType(std::get<0>(def.terms).type())));
                 }
             }
         });
-        return ind; // Maximum index at this iteration
+        //return ind; // Maximum index at this iteration
     }
 };
 
@@ -304,16 +319,15 @@ protected:
 
 /**
  * @brief Single-pass tokenizer class
- * @tparam TERMS_MAX Maximum number of terminals
  * @tparam VStr Variable string class
  * @tparam TokenType Nonterminal type (name) container
  */
-template<std::size_t TERMS_MAX, class VStr, class TokenType>
+template<class VStr, class TokenType>
 class Tokenizer
 {
 protected:
-    TermsStorage<TERMS_MAX, VStr, TokenType> storage;
-    using hashtable = typename TermsStorage<TERMS_MAX, VStr, TokenType>::hashtable;
+    TermsStorage<VStr, TokenType> storage;
+    using hashtable = typename TermsStorage<VStr, TokenType>::hashtable;
 
 public:
     template<class RulesSymbol>

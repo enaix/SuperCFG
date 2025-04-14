@@ -23,6 +23,10 @@ Tested on the following configurations:
 
 At this moment, gcc support is limited.
 
+### Documentation
+
+This project uses doxygen for documentation (WIP). [Feature progress can be found in `docs`](docs/)
+
 ### Building the examples
 
 `cd examples`

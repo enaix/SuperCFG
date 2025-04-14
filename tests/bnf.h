@@ -103,7 +103,7 @@ bool test_gbnf_parse_1()
                                                                     Term(cs<"6">()), Term(cs<"7">()), Term(cs<"8">()), Term(cs<"9">()), Term(cs<"0">()))));
     constexpr auto root = RulesDef(d_digit);
 
-    Tokenizer<64, StdStr<char>, StdStr<char>> lexer(root);
+    Tokenizer<StdStr<char>, StdStr<char>> lexer(root);
     StdStr<char> in("1452");
     bool ok;
     auto ht = lexer.init_hashtable();
@@ -174,7 +174,7 @@ bool test_gbnf_parse_calc()
     auto bake = ruleset.bake(rules);
     //std::cout << res.c_str() << std::endl;
 
-    Tokenizer<64, StdStr<char>, StdStr<char>> lexer(ruleset);
+    Tokenizer<StdStr<char>, StdStr<char>> lexer(ruleset);
     auto ht = lexer.init_hashtable();
     std::cout << "======" << std::endl << "terminals hashtable : " << std::endl;
     for (const auto& kv : ht)
@@ -242,7 +242,7 @@ bool test_sr_init()
     constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint, SRConfEnum::Lookahead>();
     auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(root, conf);
 
-    Tokenizer<64, VStr, TokenType> lexer(root);
+    Tokenizer<VStr, TokenType> lexer(root);
     StdStr<char> in("1452");
     bool ok;
     auto ht = lexer.init_hashtable();
@@ -317,7 +317,7 @@ bool test_sr_calc()
     constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint, SRConfEnum::Lookahead>();
     auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, conf);
 
-    Tokenizer<64, VStr, TokenType> lexer(ruleset);
+    Tokenizer<VStr, TokenType> lexer(ruleset);
     StdStr<char> in("12*(3+42)");
     bool ok;
     auto ht = lexer.init_hashtable();

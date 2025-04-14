@@ -80,7 +80,7 @@ int main()
     auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, conf);
 
     // Initialize the tokenizer
-    Tokenizer<256, VStr, TokenType> lexer(ruleset);
+    Tokenizer<VStr, TokenType> lexer(ruleset);
 
     // Generate hashtable for terminals
     auto ht = lexer.init_hashtable();

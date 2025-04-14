@@ -272,11 +272,24 @@ class ConstVec
 {
 protected:
     std::unique_ptr<T[]> _st;
-    std::size_t _n;
-    std::size_t _cap;
+    std::size_t _n{};
+    std::size_t _cap{};
 
 public:
+    // Lazy init
     constexpr ConstVec() : _st(), _n(0), _cap(0) {}
+
+    // Initialize a singleton
+    constexpr explicit ConstVec(const T& elem) : _st(std::make_unique<T>(elem)), _n(1), _cap(1) {}
+
+    // Initialize from values
+    //constexpr explicit ConstVec(const T...& elems) : _st(std::make_unique<T>(elems...)), _n(sizeof...(T)), _cap(sizeof...(T)) {}
+
+    // Initialize from homogeneous tuple
+    template<class... Elems>
+    constexpr explicit ConstVec(const std::tuple<Elems...>& elems) : _st(init_from_tuple(elems, std::make_index_sequence<sizeof...(Elems)>{})), _n(sizeof...(Elems)), _cap(sizeof...(Elems))
+    { static_assert(are_same_v<T, Elems...>, "Element types are non-homogeneous"); }
+
 
     /**
      * @brief Initialize from singleton
@@ -303,7 +316,7 @@ public:
         _cap = sizeof...(Elems);
         _n = sizeof...(Elems);
 
-        tuple_each(elems, [&](std::size_t i, const auto& elem){ _st[i] = elem; });
+        tuple_each(elems, [&](std::size_t i, const auto& elem){ _st[i] = elem; }); // Sub-optimal
     }
 
     [[nodiscard]] std::size_t size() const noexcept { return _n; }
@@ -337,6 +350,13 @@ public:
         for (std::size_t i = 0; i < lhs.size(); i++)
             os << lhs[i] << " ";
         return os;
+    }
+
+protected:
+    template<class SrcTuple, std::size_t... N>
+    constexpr auto init_from_tuple(const SrcTuple& src, const std::index_sequence<N...>)
+    {
+        return std::make_unique<T>(std::forward<T>(std::get<N>(src)...));
     }
 };
 
