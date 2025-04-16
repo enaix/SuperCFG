@@ -7,7 +7,7 @@
 
 ## Lexer
 
-- [ ] Move current lexer class to legacy mode
+- [X] Move current lexer class to legacy mode
 - [ ] Add support for multiple terminals with the same name in the new Lexer
 
 ## Global

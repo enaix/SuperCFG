@@ -160,39 +160,47 @@ namespace cfg_helpers
         else return std::tuple_cat(std::make_tuple(nterms), rr_tree_for_symbol<depth+1>(rules));
     }
 
-    template<std::size_t depth, class RulesSymbol>
-    constexpr auto terms_cache_each_rule(const RulesSymbol& rules)
-    {
-        const auto& def = std::get<depth>(rules.terms);
-        auto terms = each_elem(std::get<1>(def));
-        // Build a mapping
-        if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<decltype(rules.terms)>>)
-            return std::tuple_cat(std::make_tuple(terms), each_rule<depth + 1>(rules));
-        else return std::make_tuple(terms);
-    }
-
     template<class TSymbol>
     constexpr auto terms_cache_each_elem(const TSymbol& symbol)
     {
         if constexpr (is_operator<TSymbol>())
         {
             // Morph each symbol s into each_elem(s) and concat
-            return tuple_morph_each(symbol.terms, [&](const auto& s){ return each_elem(s); });
+            return tuple_morph_each(symbol.terms, [&](std::size_t i, const auto& s){ return terms_cache_each_elem(s); });
         }
         else if constexpr (is_term<TSymbol>())
         {
-            return symbol;
+            return std::make_tuple(symbol);
         } else return std::tuple<>();
+    }
+
+    template<std::size_t depth, class RulesSymbol>
+    constexpr auto terms_cache_each_rule(const RulesSymbol& rules)
+    {
+        const auto& def = std::get<depth>(rules.terms);
+        auto terms = terms_cache_each_elem(std::get<1>(def.terms));
+        // Build a mapping
+        if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<decltype(rules.terms)>>)
+            return std::tuple_cat(std::make_tuple(terms), terms_cache_each_rule<depth + 1>(rules));
+        else return std::make_tuple(terms);
     }
 
     template<std::size_t i, class TSymbol, class TypesCache>
     constexpr auto find_term_in_cache_all(const TSymbol& symbol, const TypesCache& cache)
     {
-        auto res = (tuple_contains_v<TSymbol, std::decay_t<decltype(std::get<i>(cache.terms))>> ? std::make_tuple(std::get<i>(cache.defs)) : std::tuple<>());
-        if constexpr (i + 1 < std::tuple_size_v<std::decay_t<decltype(cache.terms)>>)
-            return std::tuple_cat(res, find_term_in_cache_all<i+1>(symbol, cache));
-        else
-            return res;
+        if constexpr (tuple_contains_v<TSymbol, std::decay_t<decltype(std::get<i>(cache.terms))>>)
+        {
+            if constexpr (i + 1 < std::tuple_size_v<std::decay_t<decltype(cache.terms)>>)
+                return std::tuple_cat(std::make_tuple(std::get<i>(cache.defs)), find_term_in_cache_all<i+1>(symbol, cache));
+            else
+                return std::make_tuple(std::get<i>(cache.defs));
+        } else {
+            if constexpr (i + 1 < std::tuple_size_v<std::decay_t<decltype(cache.terms)>>)
+                return find_term_in_cache_all<i+1>(symbol, cache);
+            else
+                return std::tuple<>();
+        }
+
     }
 
     template<std::size_t i, class TSymbol, class TypesCache>
@@ -245,9 +253,9 @@ template<class RulesSymbol>
 auto terms_tree_cache_factory(const RulesSymbol& rules)
 {
     auto terms = cfg_helpers::terms_cache_each_rule<0>(rules);
-    auto defs = tuple_take_along_axis<0>(rules.terms);
+    auto defs = tuple_morph([]<std::size_t i>(const auto src){ return std::get<0>(std::get<i>(src).terms); }, rules.terms);
     auto all_terms = tuple_flatten_layer(terms);
-    return TermsTreeCache(defs, terms, all_terms);
+    return TermsTreeCache<std::decay_t<decltype(defs)>, std::decay_t<decltype(terms)>, std::decay_t<decltype(all_terms)>>(defs, terms, all_terms);
 }
 
 template<class VStr, class TokenType, class TypesCache>
@@ -265,8 +273,47 @@ auto terms_type_map_factory(const TypesCache& cache)
 
     // It's faster to find all related elements in the cache
     // We should check intersecting elements in range
-    auto terms_map = tuple_each(cache.all_terms, [&](std::size_t i, const auto& elem){ return cfg_helpers::find_term_in_cache_all<0>(elem, cache); });
+    auto terms_map = tuple_morph_each(cache.all_terms, [&](std::size_t i, const auto& elem){ return cfg_helpers::find_term_in_cache_all<0>(elem, cache); });
     return TermsTypeMap<VStr, TokenType, std::decay_t<decltype(cache.defs)>, std::decay_t<decltype(terms_map)>>(cache.defs, terms_map);
+}
+
+
+enum class LexerConfEnum : std::uint64_t
+{
+    AdvancedLexer = 0x1,
+};
+
+template<std::uint64_t Conf>
+class LexerConfig
+{
+public:
+    constexpr explicit LexerConfig() {}
+
+    static constexpr std::uint64_t value() { return Conf; }
+
+    template<LexerConfEnum value>
+    [[nodiscard]] static constexpr bool flag() { return (Conf & static_cast<std::uint64_t>(value)) > 0; }
+};
+
+template<LexerConfEnum... Values>
+constexpr auto mk_lexer_conf()
+{
+    constexpr std::uint64_t conf = (static_cast<const std::uint64_t>(Values) | ...);
+    return LexerConfig<conf>();
+}
+
+
+template<class VStr, class TokenType, class RulesSymbol, class Conf>
+constexpr auto make_lexer(const RulesSymbol& rules, Conf conf)
+{
+    if constexpr (conf.template flag<LexerConfEnum::AdvancedLexer>())
+    {
+        auto terms_cache = terms_tree_cache_factory(rules);
+        auto terms_type_map = terms_type_map_factory<VStr, TokenType>(terms_cache);
+        return Lexer<VStr, TokenType, std::decay_t<decltype(terms_type_map)>>(terms_type_map);
+    } else {
+        return LexerLegacy<VStr, TokenType>(rules);
+    }
 }
 
 #endif //PREPROCESS_FACTORIES_H

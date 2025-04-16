@@ -53,12 +53,12 @@ int main()
         SRConfEnum::PrettyPrint,  // Enable pretty printing for debugging
         SRConfEnum::Lookahead>(); // Enable lookahead(1)
 
-    // Create the shift-reduce parser
-    // TreeNode<VStr> is the AST class
-    auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, conf);
-
     // Initialize the tokenizer
     LexerLegacy<VStr, TokenType> lexer(ruleset);
+
+    // Create the shift-reduce parser
+    // TreeNode<VStr> is the AST class
+    auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf);
 
     // Generate hashtable for terminals
     auto ht = lexer.init_hashtable();

@@ -61,7 +61,7 @@ int main()
 
     constexpr auto d_array = Define(array, Concat(Term(cs<"[">()), json, Repeat(Concat(Term(cs<",">()), json)), Term(cs<"]">())));
     constexpr auto d_member = Define(member, Concat(json, Term(cs<":">()), json));
-    constexpr auto d_object = Define(object, Concat(Term(cs<"{">()), member, Repeat(Concat(Term(cs<";">()), member)), Term(cs<"}">())));
+    constexpr auto d_object = Define(object, Concat(Term(cs<"{">()), member, Repeat(Concat(Term(cs<",">()), member)), Term(cs<"}">())));
 
     constexpr auto d_json = Define(json, Alter(array, boolean, null, number, object, string));
 
@@ -75,15 +75,16 @@ int main()
         SRConfEnum::PrettyPrint,  // Enable pretty printing for debugging
         SRConfEnum::Lookahead>(); // Enable lookahead(1)
 
-    // Create the shift-reduce parser
-    // TreeNode<VStr> is the AST class
-    auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, conf);
 
     // Initialize the tokenizer
-    LexerLegacy<VStr, TokenType> lexer(ruleset);
+    //LexerLegacy<VStr, TokenType> lexer(ruleset);
+    auto lexer_conf = mk_lexer_conf<LexerConfEnum::AdvancedLexer>();
+    auto lexer = make_lexer<VStr, TokenType>(ruleset, lexer_conf);
 
-    // Generate hashtable for terminals
-    auto ht = lexer.init_hashtable();
+
+    // Create the shift-reduce parser
+    // TreeNode<VStr> is the AST class
+    auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf);
 
     while(true)
     {
@@ -96,7 +97,7 @@ int main()
 
         // Tokenize the input
         volatile std::chrono::steady_clock::time_point lex_start = std::chrono::steady_clock::now();
-        auto tokens = lexer.run(ht, input, ok);
+        auto tokens = lexer.run(input, ok);
         volatile std::chrono::steady_clock::time_point lex_end = std::chrono::steady_clock::now();
 
         if (!ok) {

@@ -367,7 +367,8 @@ protected:
     template<class SrcTuple, std::size_t... N>
     constexpr auto init_from_tuple(const SrcTuple& src, const std::index_sequence<N...>)
     {
-        return std::make_unique<T>(std::forward<T>(std::get<N>(src)...));
+        // return std::make_unique<T>(T(std::get<N>(src))...);
+        return new T[std::tuple_size_v<std::decay_t<SrcTuple>>]{ T(std::get<N>(src))... };
     }
 
     void deepcopy(const ConstVec<T>& rhs)

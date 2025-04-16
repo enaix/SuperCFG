@@ -317,7 +317,7 @@ protected:
     template<std::size_t i>
     constexpr void populate_ht()
     {
-        storage.insert({std::get<i>(defs).type(), TypeSet<TokenType>(tuple_morph([]<std::size_t k>(const auto& src){ return std::get<k>(src).type(); }, std::get<i>(terms)))});
+        storage.insert({VStr(std::get<i>(defs).type()), TypeSet<TokenType>(tuple_morph([]<std::size_t k>(const auto& src){ return VStr(std::get<k>(src).type()); }, std::get<i>(terms)))});
         if constexpr (i + 1 < std::tuple_size_v<std::decay_t<TDefsTuple>>)
             populate_ht<i+1>();
     }
@@ -472,7 +472,7 @@ public:
     template<class RulesSymbol>
     constexpr explicit LexerLegacy(const RulesSymbol& root) : storage(root) { assert(storage.validate() && "Duplicate terminals found, cannot build tokens storage"); }
 
-    hashtable init_hashtable() { return storage.compile_hashmap(); }
+    hashtable init_hashtable() { return storage.compile_hashmap(); } // TODO store hashtable in lexer
 
     template<class VText>
     std::vector<Token<VStr, TypeSingleton<TokenType>>> run(const hashtable& ht, const VText& text, bool& ok) const

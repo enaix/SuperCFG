@@ -236,7 +236,7 @@ namespace cfg_helpers
     constexpr auto do_tuple_morph_each(const Tuple& tuple, auto each_elem)
     {
         if constexpr (depth + 1 < std::tuple_size_v<Tuple>)
-            return std::tuple_cat(std::make_tuple(each_elem(depth, std::get<depth>(tuple))), do_tuple_each<depth+1>(tuple, each_elem));
+            return std::tuple_cat(std::make_tuple(each_elem(depth, std::get<depth>(tuple))), do_tuple_morph_each<depth+1>(tuple, each_elem));
         else
             return std::make_tuple(each_elem(depth, std::get<depth>(tuple)));
     }
@@ -370,7 +370,7 @@ constexpr void tuple_each(const Tuple& tuple, auto each_elem)
  * @param each_elem Lambda that takes an index and the tuple element and returns a new element
  */
 template<class Tuple>
-constexpr void tuple_morph_each(const Tuple& tuple, auto each_elem)
+constexpr auto tuple_morph_each(const Tuple& tuple, auto each_elem)
 {
     if constexpr (std::tuple_size_v<Tuple> != 0)
         return cfg_helpers::do_tuple_morph_each<0>(tuple, each_elem);
