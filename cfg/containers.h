@@ -279,6 +279,9 @@ public:
     // Lazy init
     constexpr ConstVec() : _st(), _n(0), _cap(0) {}
 
+    // Copy ctor
+    constexpr ConstVec(const ConstVec<T>& rhs) : _st(new T[rhs.size()]), _n(rhs.size()), _cap(rhs.size()) { deepcopy(rhs); }
+
     // Initialize a singleton
     constexpr explicit ConstVec(const T& elem) : _st(std::make_unique<T>(elem)), _n(1), _cap(1) {}
 
@@ -319,13 +322,21 @@ public:
         tuple_each(elems, [&](std::size_t i, const auto& elem){ _st[i] = elem; }); // Sub-optimal
     }
 
+    void init(const ConstVec<T>& rhs)
+    {
+        _st.reset(new T[rhs.size()]);
+        deepcopy(rhs);
+        _cap = rhs.size();
+        _n = rhs.size();
+    }
+
     [[nodiscard]] std::size_t size() const noexcept { return _n; }
 
     [[nodiscard]] std::size_t cap() const noexcept { return _cap; }
 
     T& operator[](std::size_t i) { return _st[i]; }
 
-    const T& operator[](std::size_t i) const { return _st[i]; }
+    constexpr const T& operator[](std::size_t i) const { return _st[i]; }
 
     /**
      * @brief Replace array with a single element
@@ -357,6 +368,12 @@ protected:
     constexpr auto init_from_tuple(const SrcTuple& src, const std::index_sequence<N...>)
     {
         return std::make_unique<T>(std::forward<T>(std::get<N>(src)...));
+    }
+
+    void deepcopy(const ConstVec<T>& rhs)
+    {
+        // Perform a deepcopy of the rhs array up to rhs.size elements
+        std::copy_n(rhs._st.get(), rhs.size(), _st.get());
     }
 };
 

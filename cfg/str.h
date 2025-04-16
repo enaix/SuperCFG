@@ -16,6 +16,8 @@ class StdStr : public std::basic_string<TChar>
 public:
     constexpr StdStr() : std::basic_string<TChar>() {}
 
+    constexpr StdStr(const StdStr<TChar>& rhs) : std::basic_string<TChar>(rhs) {}
+
     constexpr explicit StdStr(const TChar* ch, std::size_t N) : std::basic_string<TChar>(ch, N) {}
 
     constexpr explicit StdStr(const TChar* ch) : std::basic_string<TChar>(ch) {}

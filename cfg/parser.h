@@ -80,16 +80,16 @@ public:
      * @param root Rules starting point
      * @param tokens List of tokens from Tokenizer
      */
-    template<class RootSymbol>
-    bool run(Tree& node, const RootSymbol& root, const std::vector<TokenV>& tokens)
+    template<class RootSymbol, class TokenTWrapper>
+    bool run(Tree& node, const RootSymbol& root, const std::vector<TokenTWrapper>& tokens)
     {
         std::size_t index = 0;
         return parse(root, node, index, tokens, 0);
     }
 
 protected:
-    template<class TSymbol>
-    bool parse(const TSymbol& symbol, Tree& node, std::size_t& index, const std::vector<TokenV>& tokens, std::size_t depth)
+    template<class TSymbol, class TokenTWrapper>
+    bool parse(const TSymbol& symbol, Tree& node, std::size_t& index, const std::vector<TokenTWrapper>& tokens, std::size_t depth)
     {
         if (index >= tokens.size()) return false;
 //        std::cout << "<d " << depth << "> ";
@@ -236,8 +236,8 @@ protected:
         return true;
     }
 
-    template<class TSymbol>
-    inline bool parse_alter(const TSymbol& symbol, Tree& node, std::size_t& index, const std::vector<TokenV>& tokens, std::size_t depth)
+    template<class TSymbol, class TokenTWrapper>
+    inline bool parse_alter(const TSymbol& symbol, Tree& node, std::size_t& index, const std::vector<TokenTWrapper>& tokens, std::size_t depth)
     {
         if constexpr (ParserOpt::alter_conf() == LL1AlterSolver::PickFirst)
         {
@@ -360,7 +360,7 @@ constexpr auto mk_sr_parser_conf()
 }
 
 
-template<class VStr, class TokenType, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf, class Lookahead>
+template<class VStr, class TokenType, class TokenTSet, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf, class Lookahead>
 class SRParser
 {
 protected:
@@ -373,8 +373,8 @@ protected:
     using SrC = SRParserConfig<Conf>;
     Lookahead look;
 
-    using TokenV = Token<VStr, TokenType>;
-    using GSymbolV = GrammarSymbol<VStr, TokenType>;
+    using TokenV = Token<VStr, TokenTSet>;
+    using GSymbolV = GrammarSymbol<VStr, TokenTSet>;
 public:
     constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map, SRParserConfig<Conf> conf, const Lookahead& lookahead) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules), conf(conf), look(lookahead) {}
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
@@ -582,7 +582,7 @@ protected:
             const GSymbolV& first = stack[i];
             if (first.is_token())
             {
-                // Size of the set will only be one symbol
+                // Size of the set will be N symbols where it is present
                 intersect.init(first.type);
             } else {
                 //intersect.push_back(reverse_rules_ht[first.type]);
@@ -603,18 +603,40 @@ protected:
 
                 if (elem.is_token())
                 {
-                    // Size of the set will only be one symbol
-                    [&]{
-                        for (std::size_t k = 0; k < intersect.size(); k++)
-                        {
-                            if (intersect[k] == elem.type)
+                    if constexpr (TokenTSet::is_singleton())
+                    {
+                        // Find intersection with token - only a single type
+                        [&]{
+                            for (std::size_t k = 0; k < intersect.size(); k++)
                             {
-                                intersect.replace_with(elem.type);
-                                return; // Success
+                                if (intersect[k] == elem.type)
+                                {
+                                    intersect.replace_with(elem.type);
+                                    return; // Success
+                                }
+                            }
+                            intersect.erase(); // Failure
+                        }();
+                    } else {
+                        // We need to iterate over all types
+                        std::size_t found = 0;
+                        for (std::size_t l = 0; l < elem.type.size(); l++)
+                        {
+                            // Iterate over the set
+                            for (std::size_t k = found; k < intersect.size(); k++)
+                            {
+                                if (intersect[k] == elem.type[l])
+                                {
+                                    // Move to the beginning
+                                    std::swap(intersect[found], intersect[k]); // We assume that same element swap is safe
+                                    found++;
+                                }
                             }
                         }
-                        intersect.erase(); // Failure
-                    }();
+                        // Crop the array to the new size
+                        intersect.set_size(found);
+                    }
+
                 } else {
                     // Size of the set will be not greater than the related element
                     symbols_ht.get_nterm(elem.type, [&](const auto& nterm){
@@ -624,7 +646,7 @@ protected:
                         // Number of elements already found. Matching elements are pushed to the beginning of the array
                         std::size_t found = 0;
                         // Iterate over the set
-                        for (std::size_t k = found; k < intersect.size(); k++)
+                        for (std::size_t k = 0; k < intersect.size(); k++)
                         {
                             tuple_each(related_types, [&](std::size_t l, const auto& t){
                                 // Found
@@ -708,7 +730,7 @@ protected:
                 root->add(new_node);
 
                 stack.erase(stack.begin() + i, stack.end()); // May be inefficient
-                stack.push_back(GSymbolV(intersect[k])); // insert the matched nterm
+                stack.push_back(GSymbolV(TokenTSet(intersect[k]))); // insert the matched nterm
                 return true; // Performed reduce, return to shift
             }
         }
@@ -883,8 +905,8 @@ protected:
 };
 
 
-template<class VStr, class TokenType, class Tree, class RulesSymbol, class Conf>
-constexpr auto make_sr_parser(const RulesSymbol& rules, Conf conf)
+template<class VStr, class TokenType, class Tree, class RulesSymbol, class TLexer, class Conf>
+constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf conf)
 {
     // Initialize reverse rules tree
     auto rr_tree = reverse_rules_tree_factory(rules); //ReverseRuleTreeFactory().build(root);
@@ -893,6 +915,10 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, Conf conf)
     auto symbols_ht = symbols_ht_factory<TokenType>(rules); //SymbolsHashTableFactory().build<TokenType>(root);
     // Initialize terms2nterms map
     auto terms_map = terms_map_factory(rules); //TermsMapFactory::build(root);
+
+    // Get tokens container class
+    using TokenSetClass = typename TLexer::TokenSetClass;
+
     // Parser init
     if constexpr (conf.template flag<SRConfEnum::Lookahead>())
     {
@@ -905,9 +931,9 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, Conf conf)
 
             look.template prettyprint<VStr>();
         }
-        return SRParser<VStr, TokenType, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), decltype(look)>(rules, rr_tree, symbols_ht, terms_map, conf, look);
+        return SRParser<VStr, TokenType, TokenSetClass, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), decltype(look)>(rules, rr_tree, symbols_ht, terms_map, conf, look);
     } else
-        return SRParser<VStr, TokenType, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), NoLookahead>(rules, rr_tree, symbols_ht, terms_map, conf, NoLookahead());
+        return SRParser<VStr, TokenType, TokenSetClass, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), NoLookahead>(rules, rr_tree, symbols_ht, terms_map, conf, NoLookahead());
 }
 
 

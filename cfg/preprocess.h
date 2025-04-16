@@ -62,6 +62,10 @@ public:
 };
 
 
+/**
+ * @brief A set of N types in a constant vector
+ * @tparam Type Runtime nterm type class
+ */
 template<class Type>
 class TypeSet
 {
@@ -78,8 +82,47 @@ public:
     // Initialize with an array of types
     template<class... Elems>
     constexpr explicit TypeSet(const std::tuple<Elems...>& src) : types(src) {}
+
+    // Copy ctor
+    constexpr TypeSet(const TypeSet<Type>& rhs) : types(rhs.types) {}
+
+    // Is this types container a singleton
+    static constexpr bool is_singleton() { return false; }
+
+    [[nodiscard]] constexpr std::size_t size() const { return types.size(); }
+
+    constexpr const Type& operator[](std::size_t i) const { return types[i]; }
+
+    Type& operator[](std::size_t i) { return types[i]; }
+
+    constexpr const Type& front() const { return types[0]; }
+
+    Type& front() { return types[0]; }
+
+    // Operations
+    friend std::ostream& operator<<(std::ostream& os, const TypeSet<Type>& type)
+    {
+        os << "{" << type << "}";
+        return os;
+    }
 };
 
+
+/**
+ * @brief Legacy type container. Is a proxy for Type class
+ */
+template<class Type>
+class TypeSingleton : public Type
+{
+public:
+    // Include ctors
+    using Type::Type;
+
+    // Implicit copy ctor
+    constexpr TypeSingleton(const Type& rhs) : Type(rhs) {}
+
+    static constexpr bool is_singleton() { return true; }
+};
 
 
 /**
@@ -194,6 +237,100 @@ protected:
             }
         });
         //return ind; // Maximum index at this iteration
+    }
+};
+
+
+/**
+ * @brief Cache that contains the list of all rules and the mapping between rule and terms that it contains. Used for the TermsTypeMap calculation
+ */
+template<class TDefsTuple, class TermsTuple, class TermsUnion>
+class TermsTreeCache
+{
+public:
+    TDefsTuple defs;
+    TermsTuple terms;
+    TermsUnion all_terms;
+
+    constexpr explicit TermsTreeCache(const TDefsTuple& defs_t, const TermsTuple& terms_t, const TermsUnion& all_t) : defs(defs_t), terms(terms_t), all_terms(all_t) {}
+
+    template<class TSymbol>
+    constexpr auto get(const TSymbol& symbol) const
+    {
+        return do_get<0>(symbol);
+    }
+
+protected:
+    template<std::size_t depth, class TSymbol>
+    constexpr auto do_get(const TSymbol& symbol) const
+    {
+        static_assert(depth < std::tuple_size_v<TDefsTuple>, "NTerm type not found");
+        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::tuple_element_t<0, typename std::tuple_element_t<depth, TDefsTuple>::term_types_tuple>>)
+        {
+            return std::get<depth>(terms);
+        }
+        else return do_get<depth + 1, TSymbol>(symbol);
+    }
+};
+
+
+/**
+ * @brief Calculate the full type for a token, including the rules where each token is present
+ * @tparam VStr Token string container
+ * @tparam TokenType Container for multiple token types
+ */
+template<class VStr, class TokenType, class TDefsTuple, class TermsMapTuple>
+class TermsTypeMap
+{
+public:
+    TDefsTuple defs;
+    TermsMapTuple terms;
+    //std::vector<Token<VStr, TokenType>> storage;
+    std::unordered_map<VStr, TypeSet<TokenType>> storage;
+
+    constexpr explicit TermsTypeMap(const TDefsTuple& defs_t, const TermsMapTuple& terms_t) : defs(defs_t), terms(terms_t)
+    {
+        populate_ht<0>();
+    }
+
+    template<class TSymbol>
+    constexpr auto get(const TSymbol& symbol) const
+    {
+        return do_get<0>(symbol);
+    }
+
+    constexpr auto get_rt(const VStr& token_str) const
+    {
+        // Returns a ConstVec of types
+        return storage[token_str];
+    }
+
+    constexpr auto get_it(const VStr& token_str) const
+    {
+        // Returns an iterator to ConstVec of types
+        return storage.find(token_str);
+    }
+
+    constexpr auto end() const { return storage.end(); }
+
+protected:
+    template<std::size_t i>
+    constexpr void populate_ht()
+    {
+        storage.insert({std::get<i>(defs).type(), TypeSet<TokenType>(tuple_morph([]<std::size_t k>(const auto& src){ return std::get<k>(src).type(); }, std::get<i>(terms)))});
+        if constexpr (i + 1 < std::tuple_size_v<std::decay_t<TDefsTuple>>)
+            populate_ht<i+1>();
+    }
+
+    template<std::size_t depth, class TSymbol>
+    constexpr auto do_get(const TSymbol& symbol) const
+    {
+        static_assert(depth < std::tuple_size_v<TDefsTuple>, "NTerm type not found");
+        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::tuple_element_t<0, typename std::tuple_element_t<depth, TDefsTuple>::term_types_tuple>>)
+        {
+            return std::get<depth>(terms);
+        }
+        else return do_get<depth + 1, TSymbol>(symbol);
     }
 };
 
@@ -318,27 +455,29 @@ protected:
 
 
 /**
- * @brief Single-pass tokenizer class
+ * @brief Single-pass tokenizer class. Does not support multiple tokens of the same type
  * @tparam VStr Variable string class
  * @tparam TokenType Nonterminal type (name) container
  */
 template<class VStr, class TokenType>
-class Tokenizer
+class LexerLegacy
 {
 protected:
     TermsStorage<VStr, TokenType> storage;
     using hashtable = typename TermsStorage<VStr, TokenType>::hashtable;
 
 public:
+    using TokenSetClass = TypeSingleton<TokenType>;
+
     template<class RulesSymbol>
-    constexpr explicit Tokenizer(const RulesSymbol& root) : storage(root) { assert(storage.validate() && "Duplicate terminals found, cannot build tokens storage"); }
+    constexpr explicit LexerLegacy(const RulesSymbol& root) : storage(root) { assert(storage.validate() && "Duplicate terminals found, cannot build tokens storage"); }
 
     hashtable init_hashtable() { return storage.compile_hashmap(); }
 
     template<class VText>
-    std::vector<Token<VStr, TokenType>> run(const hashtable& ht, const VText& text, bool& ok) const
+    std::vector<Token<VStr, TypeSingleton<TokenType>>> run(const hashtable& ht, const VText& text, bool& ok) const
     {
-        std::vector<Token<VStr, TokenType>> tokens;
+        std::vector<Token<VStr, TypeSingleton<TokenType>>> tokens;
         std::size_t pos = 0;
         for (std::size_t i = 0; i < text.size(); i++)
         {
@@ -352,7 +491,7 @@ public:
                 // We shouldn't actually merge tokens
                 // if (n > 0 && tokens[n - 1].type == it->second) tokens[n - 1].value += it->first;
                 // else tokens.push_back(Token<VStr, TokenType>(it->first, it->second));
-                tokens.push_back(Token<VStr, TokenType>(it->first, it->second));
+                tokens.push_back(Token<VStr, TypeSingleton<TokenType>>(it->first, TypeSingleton<TokenType>(it->second)));
                 pos = i + 1;
             }
         }
@@ -362,6 +501,52 @@ public:
         return tokens;
     }
 };
+
+
+/**
+ * @brief Single-pass tokenizer class with complete tokens typing support
+ * @tparam VStr Variable string class
+ * @tparam TokenType Nonterminal type (name) container
+ */
+template<class VStr, class TokenType, class TermsTMap>
+class Lexer
+{
+protected:
+    TermsTMap terms_map;
+
+public:
+    using TokenSetClass = TypeSet<TokenType>;
+
+    constexpr explicit Lexer(const TermsTMap& terms) : terms_map(terms) {}
+
+    template<class VText>
+    std::vector<Token<VStr, TypeSet<TokenType>>> run(const VText& text, bool& ok) const
+    {
+        std::vector<Token<VStr, TypeSet<TokenType>>> tokens;
+        std::size_t pos = 0;
+        for (std::size_t i = 0; i < text.size(); i++)
+        {
+            VStr tok = VStr::from_slice(text, pos, i + 1);
+            const auto it = terms_map.get_it(tok);
+
+            if (it != terms_map.end())
+            {
+                // Terminal found
+                // std::size_t n = tokens.size();
+                // We shouldn't actually merge tokens
+                // if (n > 0 && tokens[n - 1].type == it->second) tokens[n - 1].value += it->first;
+                // else tokens.push_back(Token<VStr, TokenType>(it->first, it->second));
+                tokens.push_back(Token<VStr, TypeSet<TokenType>>(it->first, it->second));
+                pos = i + 1;
+            }
+        }
+
+        //        assert(pos == text.size() && "Tokenization error: found unrecognized tokens");
+        ok = (pos == text.size());
+        return tokens;
+    }
+};
+
 
 
 template<class TRulesDefOp>

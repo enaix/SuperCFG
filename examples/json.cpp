@@ -39,7 +39,7 @@ int main()
     constexpr auto object = NTerm(cs<"object">());
     constexpr auto null = NTerm(cs<"null">());
     constexpr auto string = NTerm(cs<"string">());
-    constexpr auto ws = NTerm(cs<"ws">());
+    //constexpr auto ws = NTerm(cs<"ws">());
     constexpr auto array = NTerm(cs<"array">());
     constexpr auto member = NTerm(cs<"member">());
 
@@ -57,7 +57,7 @@ int main()
     constexpr auto d_null = Define(null, Alter(Term(cs<"null">())));
     constexpr auto d_string = Define(string, Concat(Term(cs<"\"">()), Repeat(character), Term(cs<"\"">())));
 
-    constexpr auto d_ws = Define(ws, Optional(Term(cs<" ">())));
+    //constexpr auto d_ws = Define(ws, Optional(Term(cs<" ">())));
 
     constexpr auto d_array = Define(array, Concat(Term(cs<"[">()), json, Repeat(Concat(Term(cs<",">()), json)), Term(cs<"]">())));
     constexpr auto d_member = Define(member, Concat(json, Term(cs<":">()), json));
@@ -65,7 +65,7 @@ int main()
 
     constexpr auto d_json = Define(json, Alter(array, boolean, null, number, object, string));
 
-    constexpr auto ruleset = RulesDef(d_character, d_digit, d_number, d_boolean, d_null, d_string, d_ws, d_array, d_member, d_object, d_json);
+    constexpr auto ruleset = RulesDef(d_character, d_digit, d_number, d_boolean, d_null, d_string, d_array, d_member, d_object, d_json);
 
     using VStr = StdStr<char>; // Variable string class inherited from std::string<TChar>
     using TokenType = StdStr<char>; // Class used for storing a token type in runtime
@@ -80,7 +80,7 @@ int main()
     auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, conf);
 
     // Initialize the tokenizer
-    Tokenizer<VStr, TokenType> lexer(ruleset);
+    LexerLegacy<VStr, TokenType> lexer(ruleset);
 
     // Generate hashtable for terminals
     auto ht = lexer.init_hashtable();

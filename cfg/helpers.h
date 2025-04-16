@@ -231,6 +231,41 @@ namespace cfg_helpers
                 std::make_tuple(std::get<Ints>(tuple));
         }()...);*/
     }
+
+    template<std::size_t depth, class Tuple>
+    constexpr auto do_tuple_morph_each(const Tuple& tuple, auto each_elem)
+    {
+        if constexpr (depth + 1 < std::tuple_size_v<Tuple>)
+            return std::tuple_cat(std::make_tuple(each_elem(depth, std::get<depth>(tuple))), do_tuple_each<depth+1>(tuple, each_elem));
+        else
+            return std::make_tuple(each_elem(depth, std::get<depth>(tuple)));
+    }
+
+    template<std::size_t j, bool expand_result, class SrcTuple, class TElem>
+    constexpr auto do_tuple_apply_pairwise_loop(const SrcTuple& src, const TElem& elem, auto func)
+    {
+        auto func_res = func(elem, std::get<j>(src));
+        auto res = (expand_result ? func_res: (std::is_same_v<std::decay_t<decltype(func_res)>, std::tuple<>> ? func_res : std::make_tuple(func_res)));
+        if constexpr (j + 1 < std::tuple_size_v<std::decay_t<SrcTuple>>)
+            return std::tuple_cat(res, do_tuple_apply_pairwise_loop<j+1, expand_result>(src, elem, func));
+        else
+            return res;
+    }
+
+    template<std::size_t i, bool expand_result, class SrcTuple>
+    constexpr auto do_tuple_apply_pairwise(const SrcTuple& src, auto func)
+    {
+        if constexpr (i + 1 >= std::tuple_size_v<std::decay_t<SrcTuple>>)
+            return std::tuple<>();
+        else
+        {
+            auto loop = do_tuple_apply_pairwise_loop<i+1, expand_result>(src, std::get<i>(src), func);
+            if constexpr (i + 1 < std::tuple_size_v<std::decay_t<SrcTuple>>)
+                return std::tuple_cat(loop, do_tuple_apply_pairwise<i+1, expand_result>(src, func));
+            else
+                return loop;
+        }
+    }
 } // cfg_helpers
 
 
@@ -330,6 +365,17 @@ constexpr void tuple_each(const Tuple& tuple, auto each_elem)
     if constexpr (std::tuple_size_v<Tuple> != 0) cfg_helpers::do_tuple_each<0>(tuple, each_elem);
 }
 
+/**
+ * @brief Iterate over each tuple element and concatenate the result into a new tuple
+ * @param each_elem Lambda that takes an index and the tuple element and returns a new element
+ */
+template<class Tuple>
+constexpr void tuple_morph_each(const Tuple& tuple, auto each_elem)
+{
+    if constexpr (std::tuple_size_v<Tuple> != 0)
+        return cfg_helpers::do_tuple_morph_each<0>(tuple, each_elem);
+}
+
 
 template<class Tuple>
 constexpr bool tuple_each_or_return(const Tuple& tuple, auto each_elem)
@@ -339,6 +385,9 @@ constexpr bool tuple_each_or_return(const Tuple& tuple, auto each_elem)
 }
 
 
+/**
+ * @brief Descend over all elements in a tuple
+ */
 template<class Tuple>
 constexpr void tuple_each_tree(const Tuple& tuple, auto each_elem, auto each_tuple)
 {
@@ -349,7 +398,6 @@ constexpr void tuple_each_tree(const Tuple& tuple, auto each_elem, auto each_tup
 template<class Tuple>
 constexpr auto tuple_unique(const Tuple& tuple)
 {
-    // TODO implement tuple unique() operator
     if constexpr (std::tuple_size_v<Tuple> == 0)
         return tuple;
     else
@@ -654,6 +702,18 @@ constexpr auto tuple_merge_along_axis(const TupleA& lhs, const TupleB& rhs)
     return tuple_morph([&]<std::size_t i>(const auto& container){ return std::make_tuple(lhs, rhs); }, lhs);
 }
 
+
+/**
+ * @brief Apply a pairwise operation on a tuple
+ * @tparam expand_result Expand the result of func into N individual elements
+ * @param src Source tuple
+ * @param func Lambda which takes two elements and returns either a new element or tuple<>
+ */
+template<bool expand_result, class SrcTuple>
+constexpr auto tuple_apply_pairwise(const SrcTuple& src, auto func)
+{
+    return cfg_helpers::do_tuple_apply_pairwise<0, expand_result>(src, func);
+}
 
 
 #endif //SUPERCFG_HELPERS_H
