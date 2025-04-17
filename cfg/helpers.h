@@ -232,13 +232,21 @@ namespace cfg_helpers
         }()...);*/
     }
 
-    template<std::size_t depth, class Tuple>
+    template<std::size_t depth, bool expand_result, class Tuple>
     constexpr auto do_tuple_morph_each(const Tuple& tuple, auto each_elem)
     {
-        if constexpr (depth + 1 < std::tuple_size_v<Tuple>)
-            return std::tuple_cat(std::make_tuple(each_elem(depth, std::get<depth>(tuple))), do_tuple_morph_each<depth+1>(tuple, each_elem));
-        else
-            return std::make_tuple(each_elem(depth, std::get<depth>(tuple)));
+        if constexpr (expand_result)
+        {
+            if constexpr (depth + 1 < std::tuple_size_v<Tuple>)
+                return std::tuple_cat(each_elem(depth, std::get<depth>(tuple)), do_tuple_morph_each<depth+1, expand_result>(tuple, each_elem));
+            else
+                return each_elem(depth, std::get<depth>(tuple));
+        } else {
+            if constexpr (depth + 1 < std::tuple_size_v<Tuple>)
+                return std::tuple_cat(std::make_tuple(each_elem(depth, std::get<depth>(tuple))), do_tuple_morph_each<depth+1, expand_result>(tuple, each_elem));
+            else
+                return std::make_tuple(each_elem(depth, std::get<depth>(tuple)));
+        }
     }
 
     template<std::size_t j, bool expand_result, class SrcTuple, class TElem>
@@ -367,13 +375,14 @@ constexpr void tuple_each(const Tuple& tuple, auto each_elem)
 
 /**
  * @brief Iterate over each tuple element and concatenate the result into a new tuple
+ * @tparam expand_result Expand the result of func into N individual elements
  * @param each_elem Lambda that takes an index and the tuple element and returns a new element
  */
-template<class Tuple>
+template<bool expand_result = false, class Tuple>
 constexpr auto tuple_morph_each(const Tuple& tuple, auto each_elem)
 {
     if constexpr (std::tuple_size_v<Tuple> != 0)
-        return cfg_helpers::do_tuple_morph_each<0>(tuple, each_elem);
+        return cfg_helpers::do_tuple_morph_each<0, expand_result>(tuple, each_elem);
 }
 
 

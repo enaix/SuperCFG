@@ -283,7 +283,7 @@ public:
     constexpr ConstVec(const ConstVec<T>& rhs) : _st(new T[rhs.size()]), _n(rhs.size()), _cap(rhs.size()) { deepcopy(rhs); }
 
     // Initialize a singleton
-    constexpr explicit ConstVec(const T& elem) : _st(std::make_unique<T>(elem)), _n(1), _cap(1) {}
+    constexpr explicit ConstVec(const T& elem) : _st(new T[1]), _n(1), _cap(1) { _st[0] = elem; }
 
     // Initialize from values
     //constexpr explicit ConstVec(const T...& elems) : _st(std::make_unique<T>(elems...)), _n(sizeof...(T)), _cap(sizeof...(T)) {}
@@ -355,6 +355,12 @@ public:
     void set_size(std::size_t n) { _n = n; }
 
     void erase() { _n = 0; }
+
+    ConstVec<T>& operator=(const ConstVec& rhs)
+    {
+        init(rhs);
+        return *this;
+    }
 
     friend std::ostream& operator<<(std::ostream& os, const ConstVec<T>& lhs)
     {

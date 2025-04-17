@@ -86,6 +86,9 @@ public:
     // Copy ctor
     constexpr TypeSet(const TypeSet<Type>& rhs) : types(rhs.types) {}
 
+    // Move assignment
+    TypeSet<Type>& operator=(const TypeSet<Type>& rhs) = default;
+
     // Is this types container a singleton
     static constexpr bool is_singleton() { return false; }
 
@@ -99,10 +102,14 @@ public:
 
     Type& front() { return types[0]; }
 
+    ConstVec<Type>& vec() { return types; }
+
+    constexpr const ConstVec<Type>& vec() const { return types; }
+
     // Operations
     friend std::ostream& operator<<(std::ostream& os, const TypeSet<Type>& type)
     {
-        os << "{" << type << "}";
+        os << "{" << type.types << "}";
         return os;
     }
 };
@@ -121,7 +128,20 @@ public:
     // Implicit copy ctor
     constexpr TypeSingleton(const Type& rhs) : Type(rhs) {}
 
+    // Move assignment
+    TypeSingleton<Type>& operator=(const TypeSingleton<Type>& rhs) = default;
+
     static constexpr bool is_singleton() { return true; }
+
+    constexpr const auto& front() const { return *this; }
+
+    auto& front() { return *this; }
+
+    constexpr std::size_t size() const { return 1; }
+
+    constexpr const Type& operator[](std::size_t i) const { return *this; }
+
+    Type& operator[](std::size_t i) { return *this; }
 };
 
 
@@ -146,6 +166,9 @@ public:
 
     // Copy constructor
     constexpr GrammarSymbol(const GrammarSymbol& rhs) : value(rhs.value), type(rhs.type), symbol_type(rhs.symbol_type) {}
+
+    // Move assignment
+    GrammarSymbol& operator=(const GrammarSymbol& rhs) = default;
 
     constexpr auto visit(auto process_token, auto process_nterm) const
     {
@@ -279,16 +302,16 @@ protected:
  * @tparam VStr Token string container
  * @tparam TokenType Container for multiple token types
  */
-template<class VStr, class TokenType, class TDefsTuple, class TermsMapTuple>
+template<class VStr, class TokenType, class TermsTuple, class TermsDefsTuple>
 class TermsTypeMap
 {
 public:
-    TDefsTuple defs;
-    TermsMapTuple terms;
+    TermsTuple terms;
+    TermsDefsTuple nterms;
     //std::vector<Token<VStr, TokenType>> storage;
     std::unordered_map<VStr, TypeSet<TokenType>> storage;
 
-    constexpr explicit TermsTypeMap(const TDefsTuple& defs_t, const TermsMapTuple& terms_t) : defs(defs_t), terms(terms_t)
+    constexpr explicit TermsTypeMap(const TermsTuple& defs_t, const TermsDefsTuple& terms_t) : terms(defs_t), nterms(terms_t)
     {
         populate_ht<0>();
     }
@@ -317,18 +340,18 @@ protected:
     template<std::size_t i>
     constexpr void populate_ht()
     {
-        storage.insert({VStr(std::get<i>(defs).type()), TypeSet<TokenType>(tuple_morph([]<std::size_t k>(const auto& src){ return VStr(std::get<k>(src).type()); }, std::get<i>(terms)))});
-        if constexpr (i + 1 < std::tuple_size_v<std::decay_t<TDefsTuple>>)
+        storage.insert({VStr(std::get<i>(terms).type()), TypeSet<TokenType>(tuple_morph([]<std::size_t k>(const auto& src){ return VStr(std::get<k>(src).type()); }, std::get<i>(nterms)))});
+        if constexpr (i + 1 < std::tuple_size_v<std::decay_t<TermsTuple>>)
             populate_ht<i+1>();
     }
 
     template<std::size_t depth, class TSymbol>
     constexpr auto do_get(const TSymbol& symbol) const
     {
-        static_assert(depth < std::tuple_size_v<TDefsTuple>, "NTerm type not found");
-        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::tuple_element_t<0, typename std::tuple_element_t<depth, TDefsTuple>::term_types_tuple>>)
+        static_assert(depth < std::tuple_size_v<TermsTuple>, "NTerm type not found");
+        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::tuple_element_t<0, typename std::tuple_element_t<depth, TermsTuple>::term_types_tuple>>)
         {
-            return std::get<depth>(terms);
+            return std::get<depth>(nterms);
         }
         else return do_get<depth + 1, TSymbol>(symbol);
     }
@@ -499,6 +522,8 @@ public:
         ok = (pos == text.size());
         return tokens;
     }
+
+    void prettyprint() const { } // Nothing to print
 };
 
 
@@ -543,6 +568,20 @@ public:
         //        assert(pos == text.size() && "Tokenization error: found unrecognized tokens");
         ok = (pos == text.size());
         return tokens;
+    }
+
+    void prettyprint() const { do_print<0>(); }
+protected:
+    template<std::size_t depth>
+    void do_print() const
+    {
+        const auto& term = std::get<depth>(terms_map.terms);
+        const auto& types = std::get<depth>(terms_map.nterms);
+        std::cout << term.type() << " -> ";
+        print_symbols_tuple(types) << std::endl;
+
+        if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<decltype(terms_map.terms)>>)
+            do_print<depth+1>();
     }
 };
 

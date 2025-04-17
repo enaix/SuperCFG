@@ -350,9 +350,79 @@ bool test_sr_calc()
 }
 
 
+bool test_adv_lexer()
+{
+    std::cout << "test_adv_lexer() :" << std::endl;
+
+    constexpr EBNFBakery rules;
+    //    constexpr auto nozero = NTerm(cs("digit excluding zero"));
+    //    constexpr auto d_nozero = Define(nozero, );
+    constexpr auto digit = NTerm(cs<"digit">());
+    constexpr auto d_digit = Define(digit, Repeat(Alter(Term(cs<"1">()), Term(cs<"2">()), Term(cs<"3">()), Term(cs<"4">()), Term(cs<"5">()),
+                                                        Term(cs<"6">()), Term(cs<"7">()), Term(cs<"8">()), Term(cs<"9">()), Term(cs<"0">()))));
+
+    constexpr auto number = NTerm(cs<"number">());
+    constexpr auto d_number = Define(number, Repeat(digit));
+    constexpr auto add = NTerm(cs<"add">());
+    constexpr auto sub = NTerm(cs<"sub">());
+    constexpr auto mul = NTerm(cs<"mul">());
+    constexpr auto div = NTerm(cs<"div">());
+    constexpr auto op = NTerm(cs<"op">()); // any operator
+    constexpr auto group = NTerm(cs<"group">());
+    constexpr auto array = NTerm(cs<"array">());
+
+    constexpr auto d_group = Define(group, Concat(Term(cs<"(">()), op, Repeat(Concat(Term(cs<",">()), op)), Term(cs<")">())));
+    constexpr auto d_array = Define(array, Concat(Term(cs<"[">()), op, Repeat(Concat(Term(cs<",">()), op)), Term(cs<"]">())));
+    constexpr auto d_op = Define(op, Alter(number, group, array));
+
+    constexpr auto ruleset = RulesDef(d_digit, d_number, d_op, d_group, d_array);
+
+    using VStr = StdStr<char>;
+    using TokenType = StdStr<char>;
+
+    std::cout << ruleset.bake(rules) << std::endl;
+    // Parser classes init
+    // ===================
+
+    auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer>());
+    //LexerLegacy<VStr, TokenType> lexer(ruleset); // Lexer init
+
+    // Parser init
+    constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint, SRConfEnum::Lookahead>();
+    auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf);
+
+    StdStr<char> in("(12,42,[45,(4,24)])");
+    bool ok;
+    auto tokens = lexer.run(in, ok);
+
+    if (!ok)
+    {
+        std::cout << "lexer build error" << std::endl;
+        return false;
+    }
+
+    TreeNode<VStr> tree;
+    std::cout << "======" << std::endl << "SR parser routine : " << std::endl;
+    ok = parser.run(tree, op, tokens);
+
+    std::cout << "======" << std::endl << "parser output : " << std::endl;
+    tree.traverse([&](const auto& node, std::size_t depth){
+        for (std::size_t i = 0; i < depth; i++) std::cout << "|  ";
+        std::cout << node.name << " (" << node.nodes.size() << " elems) : " << node.value << std::endl;
+    });
+
+    if (!ok)
+    {
+        std::cout << "parser error" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+
 bool test_gbnf()
 {
-    return test_gbnf_basic() && test_gbnf_complex1() && test_gbnf_extended() && test_gbnf_parse_1() && test_gbnf_parse_calc() && test_sr_init() && test_sr_calc();
+    return test_gbnf_basic() && test_gbnf_complex1() && test_gbnf_extended() && test_gbnf_parse_1() && test_gbnf_parse_calc() && test_sr_init() && test_sr_calc() && test_adv_lexer();
 }
 
 #endif //SUPERCFG_BNF_H

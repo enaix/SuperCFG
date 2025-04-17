@@ -166,7 +166,7 @@ namespace cfg_helpers
         if constexpr (is_operator<TSymbol>())
         {
             // Morph each symbol s into each_elem(s) and concat
-            return tuple_morph_each(symbol.terms, [&](std::size_t i, const auto& s){ return terms_cache_each_elem(s); });
+            return tuple_morph_each<true>(symbol.terms, [&](std::size_t i, const auto& s){ return terms_cache_each_elem(s); });
         }
         else if constexpr (is_term<TSymbol>())
         {
@@ -274,7 +274,7 @@ auto terms_type_map_factory(const TypesCache& cache)
     // It's faster to find all related elements in the cache
     // We should check intersecting elements in range
     auto terms_map = tuple_morph_each(cache.all_terms, [&](std::size_t i, const auto& elem){ return cfg_helpers::find_term_in_cache_all<0>(elem, cache); });
-    return TermsTypeMap<VStr, TokenType, std::decay_t<decltype(cache.defs)>, std::decay_t<decltype(terms_map)>>(cache.defs, terms_map);
+    return TermsTypeMap<VStr, TokenType, std::decay_t<decltype(cache.all_terms)>, std::decay_t<decltype(terms_map)>>(cache.all_terms, terms_map);
 }
 
 

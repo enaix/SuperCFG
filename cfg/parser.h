@@ -401,7 +401,7 @@ public:
             if constexpr (enabled<SRConfEnum::PrettyPrint>()) { prettyprint(stack); std::cout << "]" << std::endl; }
         }
         // We only have the root symbol, nothing to parse
-        if (stack.size() == 1 && !stack[0].is_token() && stack[0].type == root.type())
+        if (stack.size() == 1 && !stack[0].is_token() && stack[0].type.front() == root.type())
             return true;
         return false;
     }
@@ -557,11 +557,9 @@ protected:
         {
             if (tokens_ind != tokens.size()) [[likely]]
             {
-                return symbols_ht.get_nterm(tokens[tokens_ind].type, [&](const auto& lookahead){
-                    if constexpr (enabled<SRConfEnum::PrettyPrint>())
-                        std::cout << "l: " << lookahead.name << std::endl;
-                    return reduce_runtime(stack, root, tokens, tokens_ind, lookahead);
-                });
+                if constexpr (enabled<SRConfEnum::PrettyPrint>())
+                    std::cout << "l: " << tokens[tokens_ind].type << std::endl;
+                return reduce_runtime(stack, root, tokens, tokens_ind, tokens[tokens_ind].type);
             }
             // Disable lookahead check
             return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type());
@@ -583,12 +581,15 @@ protected:
             if (first.is_token())
             {
                 // Size of the set will be N symbols where it is present
-                intersect.init(first.type);
+                if constexpr (TokenTSet::is_singleton())
+                    intersect.init(first.type);
+                else
+                    intersect.init(first.type.vec());
             } else {
                 //intersect.push_back(reverse_rules_ht[first.type]);
 
                 // Size of the set will be no greater than the related element
-                symbols_ht.get_nterm(first.type, [&](const auto& nterm){
+                symbols_ht.get_nterm(first.type.front(), [&](const auto& nterm){
                     // Tuple of related elements
                     const auto& related_types = tuple_morph([&]<std::size_t k>(const auto& rr){ return TokenType(std::get<k>(rr).type()); }, reverse_rules.get(nterm));
                     intersect.init(related_types);
@@ -639,7 +640,7 @@ protected:
 
                 } else {
                     // Size of the set will be not greater than the related element
-                    symbols_ht.get_nterm(elem.type, [&](const auto& nterm){
+                    symbols_ht.get_nterm(elem.type.front(), [&](const auto& nterm){
                         // Tuple of related elements
                         const auto& related_types = reverse_rules.get(nterm);
 
@@ -689,12 +690,18 @@ protected:
                     if constexpr (enabled<SRConfEnum::Lookahead>() && !std::is_same_v<std::decay_t<LookaheadS>, std::false_type>)
                     {
                         // The next symbol is of the same type
-                        if (!look.can_reduce(match, lookahead))
-                        {
+                        if (![&](){
+                            for (std::size_t l = 0; l < lookahead.size(); l++)
+                            {
+                                if (symbols_ht.get_nterm(lookahead[l], [&](const auto& nterm){ return look.can_reduce(match, nterm); }))
+                                    return true; // exit lambda
+                            }
+                            // No suitable symbol found
                             if constexpr (enabled<SRConfEnum::PrettyPrint>())
                                 std::cout << "^ look mismatch" << std::endl;
                             return false;
-                        }
+                        }())
+                            return false; // exit on failure
                     }
 
                     std::size_t index = 0;
@@ -880,7 +887,7 @@ protected:
             }
         } else if constexpr (is_nterm<TSymbol>()) {
             const GSymbolV& elem = stack[start + index];
-            if (!elem.is_token() && elem.type == symbol.type())
+            if (!elem.is_token() && elem.type.front() == symbol.type())
             {
                 index++;
                 return true;
@@ -928,8 +935,9 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
         {
             std::cout << "  REVERSE RULES TREE : " << std::endl;
             rr_tree.template prettyprint<VStr>();
-
             look.template prettyprint<VStr>();
+            std::cout << "  LEXER TERMS TYPES : " << std::endl;
+            lex.prettyprint();
         }
         return SRParser<VStr, TokenType, TokenSetClass, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), decltype(look)>(rules, rr_tree, symbols_ht, terms_map, conf, look);
     } else
