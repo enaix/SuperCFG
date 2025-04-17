@@ -468,14 +468,13 @@ protected:
 
 public:
     using TokenSetClass = TypeSingleton<TokenType>;
+    hashtable ht;
 
     template<class RulesSymbol>
-    constexpr explicit LexerLegacy(const RulesSymbol& root) : storage(root) { assert(storage.validate() && "Duplicate terminals found, cannot build tokens storage"); }
-
-    hashtable init_hashtable() { return storage.compile_hashmap(); } // TODO store hashtable in lexer
+    constexpr explicit LexerLegacy(const RulesSymbol& root) : storage(root), ht(storage.compile_hashmap()) { assert(storage.validate() && "Duplicate terminals found, cannot build tokens storage"); }
 
     template<class VText>
-    std::vector<Token<VStr, TypeSingleton<TokenType>>> run(const hashtable& ht, const VText& text, bool& ok) const
+    std::vector<Token<VStr, TypeSingleton<TokenType>>> run(const VText& text, bool& ok) const
     {
         std::vector<Token<VStr, TypeSingleton<TokenType>>> tokens;
         std::size_t pos = 0;

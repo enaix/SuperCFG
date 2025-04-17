@@ -280,6 +280,7 @@ auto terms_type_map_factory(const TypesCache& cache)
 
 enum class LexerConfEnum : std::uint64_t
 {
+    Legacy = 0x0,
     AdvancedLexer = 0x1,
 };
 

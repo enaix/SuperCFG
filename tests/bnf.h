@@ -103,15 +103,15 @@ bool test_gbnf_parse_1()
                                                                     Term(cs<"6">()), Term(cs<"7">()), Term(cs<"8">()), Term(cs<"9">()), Term(cs<"0">()))));
     constexpr auto root = RulesDef(d_digit);
 
-    LexerLegacy<StdStr<char>, StdStr<char>> lexer(root);
+    auto lexer = make_lexer<StdStr<char>, StdStr<char>>(root, mk_lexer_conf<LexerConfEnum::Legacy>());
+    //LexerLegacy<StdStr<char>, StdStr<char>> lexer(root);
     StdStr<char> in("1452");
     bool ok;
-    auto ht = lexer.init_hashtable();
     std::cout << "======" << std::endl << "terminals hashtable : " << std::endl;
-    for (const auto& kv : ht)
+    for (const auto& kv : lexer.ht)
         std::cout << kv.first << ": " << kv.second << std::endl;
 
-    auto res = lexer.run(ht, in, ok);
+    auto res = lexer.run(in, ok);
 
     std::cout << "======" << std::endl << "lexer output : " << std::endl;
     for (const auto& tok : res)
@@ -174,15 +174,15 @@ bool test_gbnf_parse_calc()
     auto bake = ruleset.bake(rules);
     //std::cout << res.c_str() << std::endl;
 
-    LexerLegacy<StdStr<char>, StdStr<char>> lexer(ruleset);
-    auto ht = lexer.init_hashtable();
+    auto lexer = make_lexer<StdStr<char>, StdStr<char>>(ruleset, mk_lexer_conf<LexerConfEnum::Legacy>());
+    // LexerLegacy<StdStr<char>, StdStr<char>> lexer(ruleset);
     std::cout << "======" << std::endl << "terminals hashtable : " << std::endl;
-    for (const auto& kv : ht)
+    for (const auto& kv : lexer.ht)
         std::cout << kv.first << ": " << kv.second << std::endl;
 
     StdStr<char> in("5*1234");
     bool ok;
-    auto res = lexer.run(ht, in, ok);
+    auto res = lexer.run(in, ok);
 
     std::cout << "======" << std::endl << "lexer output : " << std::endl;
     for (const auto& tok : res)
@@ -238,7 +238,8 @@ bool test_sr_init()
     // Parser classes init
     // ===================
 
-    LexerLegacy<VStr, TokenType> lexer(root); // Lexer init
+    //LexerLegacy<VStr, TokenType> lexer(root); // Lexer init
+    auto lexer = make_lexer<VStr, TokenType>(root, mk_lexer_conf<LexerConfEnum::Legacy>());
 
     // Parser init
     constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint, SRConfEnum::Lookahead>();
@@ -246,8 +247,7 @@ bool test_sr_init()
 
     StdStr<char> in("1452");
     bool ok;
-    auto ht = lexer.init_hashtable();
-    auto tokens = lexer.run(ht, in, ok);
+    auto tokens = lexer.run(in, ok);
 
     if (!ok)
     {
@@ -314,7 +314,8 @@ bool test_sr_calc()
     // Parser classes init
     // ===================
 
-    LexerLegacy<VStr, TokenType> lexer(ruleset); // Lexer init
+    auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::Legacy>());
+    //LexerLegacy<VStr, TokenType> lexer(ruleset); // Lexer init
 
     // Parser init
     constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint, SRConfEnum::Lookahead>();
@@ -322,8 +323,7 @@ bool test_sr_calc()
 
     StdStr<char> in("12*(3+42)");
     bool ok;
-    auto ht = lexer.init_hashtable();
-    auto tokens = lexer.run(ht, in, ok);
+    auto tokens = lexer.run(in, ok);
 
     if (!ok)
     {

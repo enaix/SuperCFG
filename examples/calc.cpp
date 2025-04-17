@@ -54,14 +54,11 @@ int main()
         SRConfEnum::Lookahead>(); // Enable lookahead(1)
 
     // Initialize the tokenizer
-    LexerLegacy<VStr, TokenType> lexer(ruleset);
+    auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::Legacy>());
 
     // Create the shift-reduce parser
     // TreeNode<VStr> is the AST class
     auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf);
-
-    // Generate hashtable for terminals
-    auto ht = lexer.init_hashtable();
 
     while(true)
     {
@@ -74,7 +71,7 @@ int main()
 
         // Tokenize the input
         volatile std::chrono::steady_clock::time_point lex_start = std::chrono::steady_clock::now();
-        auto tokens = lexer.run(ht, input, ok);
+        auto tokens = lexer.run(input, ok);
         volatile std::chrono::steady_clock::time_point lex_end = std::chrono::steady_clock::now();
 
         if (!ok) {
