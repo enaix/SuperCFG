@@ -92,20 +92,27 @@ constexpr auto conf = mk_sr_parser_conf<
     SRConfEnum::PrettyPrint,  // Enable pretty printing for debugging
     SRConfEnum::Lookahead>(); // Enable lookahead(1)
 
+// Initialize the lexer
+// There are two lexer types available:
+
+// 1. Legacy Lexer - simpler but with limitations
+// Use this for simple grammars where tokens don't appear in multiple rules
+auto legacy_lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::Legacy>());
+
+// 2. Advanced Lexer - more powerful but slightly slower
+// Use this for complex grammars where the same token may appear in different rules
+// (e.g., in JSON grammar where ',' appears in both object members and other contexts)
+auto advanced_lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer>());
+
 // Create the shift-reduce parser
 // TreeNode<VStr> is the AST class
-auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, conf);
+auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, advanced_lexer, conf);
 
-// Initialize the tokenizer
-Tokenizer<64, VStr, TokenType> lexer(ruleset);
 VStr input("12345");
 bool ok;
 
-// Generate hashtable for terminals
-auto ht = lexer.init_hashtable();
-
 // Tokenize the input
-auto tokens = lexer.run(ht, input, ok);
+auto tokens = advanced_lexer.run(input, ok);
 
 if (ok) {
     // Create a parse tree
@@ -196,15 +203,17 @@ The serialization also supports automatic operators grouping by analyzing their 
 
 ### Calculator Grammar
 
-Here's a more complex example for a simple calculator grammar:
+Here's a more complex example for a simple calculator grammar that supports basic arithmetic operations and parentheses:
 
 ```cpp
+// Define basic number components
 constexpr auto digit = NTerm(cs<"digit">());
 constexpr auto d_digit = Define(digit, Repeat(Alter(Term(cs<"1">()), Term(cs<"2">()), /* ... */)));
 
 constexpr auto number = NTerm(cs<"number">());
 constexpr auto d_number = Define(number, Repeat(digit));
 
+// Define arithmetic operations
 constexpr auto add = NTerm(cs<"add">());
 constexpr auto sub = NTerm(cs<"sub">());
 constexpr auto mul = NTerm(cs<"mul">());
@@ -219,14 +228,97 @@ constexpr auto d_sub = Define(sub, Concat(op, Term(cs<"-">()), op));
 constexpr auto d_mul = Define(mul, Concat(op, Term(cs<"*">()), op));
 constexpr auto d_div = Define(div, Concat(op, Term(cs<"/">()), op));
 
+// Define grouping and operator rules
 constexpr auto d_group = Define(group, Concat(Term(cs<"(">()), op, Term(cs<")">())));
 constexpr auto d_arithmetic = Define(arithmetic, Alter(add, sub, mul, div));
 constexpr auto d_op = Define(op, Alter(number, arithmetic, group));
 
-constexpr auto ruleset = RulesDef(d_digit, d_number, d_add, d_sub, d_mul, d_div, 
+// Combine all rules
+constexpr auto ruleset = RulesDef(d_digit, d_number, d_add, d_sub, d_mul, d_div,
                                  d_arithmetic, d_op, d_group);
 ```
 
-### JSON
+### JSON Grammar
 
-JSON parser without escape characters and whitespaces can be found in `examples/json.cpp`. Example strings: `42`, `"hello"`, `[1,2,3]`, `[1,["abc",2],["d","e","f"]]`, `{"a":123;"b":456}`, `{"a":[1,2,"asdf"];"b":["q","w","e"]}`, `{"a":{"b":42;"c":"abc"};"qwerty":{1:"uiop";42:10}}`
+Here's a complete JSON grammar example that supports objects, arrays, strings, numbers, booleans, and null values:
+
+```cpp
+// Define character set for strings
+constexpr char s[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ _-.!";
+
+// Define basic components
+constexpr auto character = NTerm(cs<"char">());
+constexpr auto digit = NTerm(cs<"digit">());
+constexpr auto number = NTerm(cs<"number">());
+constexpr auto boolean = NTerm(cs<"bool">());
+constexpr auto json = NTerm(cs<"json">());
+constexpr auto object = NTerm(cs<"object">());
+constexpr auto null = NTerm(cs<"null">());
+constexpr auto string = NTerm(cs<"string">());
+constexpr auto array = NTerm(cs<"array">());
+constexpr auto member = NTerm(cs<"member">());
+
+// Define character set using build_range helper
+constexpr auto d_character = Define(character, Repeat(build_range(cs<s>(), 
+    [](const auto&... str){ return Alter(Term(str)...); }, 
+    std::make_index_sequence<sizeof(s)-1>{})));
+
+// Define number components
+constexpr auto d_digit = Define(digit, Repeat(Alter(
+    Term(cs<"1">()), Term(cs<"2">()), Term(cs<"3">()),
+    Term(cs<"4">()), Term(cs<"5">()), Term(cs<"6">()),
+    Term(cs<"7">()), Term(cs<"8">()), Term(cs<"9">()),
+    Term(cs<"0">())
+)));
+constexpr auto d_number = Define(number, Repeat(digit));
+
+// Define JSON value types
+constexpr auto d_boolean = Define(boolean, Alter(Term(cs<"true">()), Term(cs<"false">())));
+constexpr auto d_null = Define(null, Term(cs<"null">()));
+constexpr auto d_string = Define(string, Concat(Term(cs<"\"">()), Repeat(character), Term(cs<"\"">())));
+
+// Define array and object structures
+constexpr auto d_array = Define(array, Concat(
+    Term(cs<"[">()), 
+    json, 
+    Repeat(Concat(Term(cs<",">()), json)), 
+    Term(cs<"]">())
+));
+
+constexpr auto d_member = Define(member, Concat(
+    json, 
+    Term(cs<":">()), 
+    json
+));
+
+constexpr auto d_object = Define(object, Concat(
+    Term(cs<"{">()), 
+    member, 
+    Repeat(Concat(Term(cs<",">()), member)), 
+    Term(cs<"}">())
+));
+
+// Define the root JSON rule
+constexpr auto d_json = Define(json, Alter(
+    array, boolean, null, number, object, string
+));
+
+// Combine all rules
+constexpr auto ruleset = RulesDef(
+    d_character, d_digit, d_number, d_boolean, 
+    d_null, d_string, d_array, d_member, 
+    d_object, d_json
+);
+```
+
+This JSON grammar supports:
+- Numbers (e.g., `42`, `123`)
+- Strings (e.g., `"hello"`, `"world"`)
+- Booleans (`true`, `false`)
+- Null values (`null`)
+- Arrays (e.g., `[1,2,3]`, `["a","b","c"]`)
+- Objects (e.g., `{"key":"value"}`, `{"a":1,"b":2}`)
+- Nested structures (e.g., `{"a":[1,2,3],"b":{"c":"d"}}`)
+
+JSON parser without escape characters and whitespaces can be found in `examples/json.cpp`. Example strings: `42`, `"hello"`, `[1,2,3]`, `[1,["abc",2],["d","e","f"]]`, `{"a":123,"b":456}`, `{"a":[1,2,"asdf"];"b":["q","w","e"]}`, `{"a":{"b":42,"c":"abc"};"qwerty":{1:"uiop",42:10}}`
+
