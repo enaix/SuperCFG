@@ -3,12 +3,12 @@
 ## Parsers
 
 - [X] Implement shift-reduce parsing (beta)
-- [ ] Refactor `GrammarSymbol` class to hold multiple types
+- [X] Refactor `GrammarSymbol` class to hold multiple types
 
 ## Lexer
 
 - [X] Move current lexer class to legacy mode
-- [ ] Add support for multiple terminals with the same name in the new Lexer
+- [X] Add support for multiple terminals with the same name in the new Lexer
 
 ## Global
 
