@@ -340,7 +340,16 @@ protected:
     template<std::size_t i>
     constexpr void populate_ht()
     {
-        storage.insert({VStr(std::get<i>(terms).type()), TypeSet<TokenType>(tuple_morph([]<std::size_t k>(const auto& src){ return VStr(std::get<k>(src).type()); }, std::get<i>(nterms)))});
+        const auto& symbol = std::get<i>(terms);
+        const auto value = TypeSet<TokenType>(tuple_morph([]<std::size_t k>(const auto& src){ return VStr(std::get<k>(src).type()); }, std::get<i>(nterms)));
+
+        if constexpr (is_term<decltype(symbol)>())
+            storage.insert({VStr(std::get<i>(terms).type()), value});
+        else
+        {
+            // Terms range
+            symbol.each_range([&](const auto s){ storage.insert({VStr(s), value}); });
+        }
         if constexpr (i + 1 < std::tuple_size_v<std::decay_t<TermsTuple>>)
             populate_ht<i+1>();
     }

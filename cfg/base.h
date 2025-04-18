@@ -92,10 +92,11 @@ class Term
 {
 public:
     CStr name;
-    constexpr explicit Term(const CStr& n) : name(n) {}
-    //static constexpr bool is_operator() { return false; };
     using _is_operator = std::false_type;
     using _name_type = CStr;
+
+    constexpr explicit Term(const CStr& n) : name(n) {}
+    //static constexpr bool is_operator() { return false; };
 
     constexpr Term() : name() {}
 
@@ -108,6 +109,35 @@ public:
     constexpr auto bake(const BNFBakery& rules) const { return bake(rules); }
 
     constexpr auto flatten() const { return *this; } // flatten() operation on a term always returns term
+};
+
+
+template<class CStrStart, class CStrEnd>
+class TermsRange
+{
+public:
+    CStrStart start;
+    CStrEnd end;
+    using _is_operator = std::false_type;
+
+    using _name_type_start = CStrStart;
+    using _name_type_end = CStrEnd;
+
+    constexpr TermsRange(const CStrStart& start, const CStrEnd& end) : start(start), end(end)
+    {
+        static_assert(CStrStart::size() == 1 && CStrEnd::size() == 1, "Terms range should contain strings of length 1");
+    }
+
+    constexpr TermsRange() = default;
+
+    // Need to implement recursive bake operations
+
+    constexpr void each_range(auto func) const
+    {
+        return lexical_range<decltype(CStrStart::char_t), CStrStart::template at<0>(), CStrEnd::template at<0>()>(func);
+    }
+
+    constexpr auto flatten() const { return *this; }
 };
 
 
@@ -171,15 +201,16 @@ template<class TSymbol>
 constexpr inline bool is_term()
 {
     if constexpr (is_operator<TSymbol>()) return false;
-    else return std::is_same_v<std::remove_cvref_t<TSymbol>, Term<typename std::remove_cvref_t<TSymbol>::_name_type>>;
+    else return std::is_same_v<std::decay_t<TSymbol>, Term<typename std::decay_t<TSymbol>::_name_type>>;
 }
 
 template<class TSymbol>
 constexpr inline bool is_term(const TSymbol& s) { return is_term<TSymbol>(); }
 
- /**
-  * @brief Helper function that returns whether an object is an nonterminal
-  */
+
+/**
+ * @brief Helper function that returns whether an object is an nonterminal
+ */
 template<class TSymbol>
 constexpr inline bool is_nterm()
 {
@@ -189,6 +220,80 @@ constexpr inline bool is_nterm()
 
 template<class TSymbol>
 constexpr inline bool is_nterm(const TSymbol& s) { return is_nterm<TSymbol>(); }
+
+
+/**
+ * @brief Helper function that returns whether an object is a terminals range
+ */
+template<class TSymbol>
+constexpr inline bool is_terms_range()
+{
+    if constexpr (is_operator<TSymbol>() || is_term<TSymbol>() || is_nterm<TSymbol>()) return false;
+    else return std::is_same_v<std::decay_t<TSymbol>, TermsRange<typename std::decay_t<TSymbol>::_name_type_start, typename std::decay_t<TSymbol>::_name_type_end>>;
+}
+
+template<class TSymbol>
+constexpr inline bool is_terms_range(const TSymbol& s) { return is_terms_range<TSymbol>(); }
+
+
+template<class TSymbolA, class TSymbolB>
+struct terms_intersect
+{
+    static constexpr bool value()
+    {
+        if constexpr (is_term<TSymbolA>() && is_term<TSymbolB>())
+            // Both are terms
+            return std::is_same_v<TSymbolA, TSymbolB>;
+        else if constexpr (is_term<TSymbolA>() && is_terms_range<TSymbolB>())
+            // Term and TermsRange
+            return check_intersect_ab<TSymbolB, TSymbolA>();
+        else if constexpr (is_terms_range<TSymbolA>() && is_term<TSymbolB>())
+            // Term and TermsRange
+            return check_intersect_ab<TSymbolA, TSymbolB>();
+        else if constexpr (is_terms_range<TSymbolA>() && is_terms_range<TSymbolB>())
+            // Both are TermsRange
+            return check_intersect_ranges<TSymbolA, TSymbolB>();
+        else return false;
+    }
+
+protected:
+    template<class TRange, class TSybmol>
+    static constexpr bool check_intersect_ab()
+    {
+        // Iterate over a term and check each symbol
+        return do_check_intersect_ab_step<0, TRange, TSybmol>();
+    }
+
+    template<std::size_t i, class TRange, class TSybmol>
+    static constexpr bool do_check_intersect_ab_step()
+    {
+        if constexpr (TSybmol::template at<i>() >= TRange::_name_type_start::template at<0>() && TSybmol::template at<i>() <= TRange::_name_type_end::template at<0>())
+            return true;
+        else
+        {
+            if constexpr (i + 1 < TSybmol::template size())
+                return do_check_intersect_ab_step<i+1, TRange, TSybmol>();
+            else return false;
+        }
+    }
+
+    template<class TRangeA, class TRangeB>
+    static constexpr bool check_intersect_ranges()
+    {
+        // Iterate over a term and check each symbol
+        constexpr bool a_start = TRangeA::_name_type_start::template at<0>();
+        constexpr bool a_end = TRangeA::_name_type_end::template at<0>();
+        constexpr bool b_start = TRangeB::_name_type_start::template at<0>();
+        constexpr bool b_end = TRangeB::_name_type_end::template at<0>();
+
+        // [   ( ]   )  or  [  (   )  ]
+        return (b_start <= a_end && b_end >= a_start) || (a_start <= b_end || a_end >= b_start);
+    }
+};
+
+template<class TSymbolA, class TSymbolB>
+constexpr bool terms_intersect_v = terms_intersect<TSymbolA, TSymbolB>::value();
+
 
 template<class TSymbol>
 constexpr bool is_range_operator() { return std::decay_t<TSymbol>::_range_operator::value; }

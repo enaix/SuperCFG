@@ -102,7 +102,11 @@ auto legacy_lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConf
 // 2. Advanced Lexer - more powerful but slightly slower
 // Use this for complex grammars where the same token may appear in different rules
 // (e.g., in JSON grammar where ',' appears in both object members and other contexts)
-auto advanced_lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer>());
+
+// HandleDuplicates flag enables terms range support and tokens which are present in >2 rules at once. Imposes compile-time overhead on grammars with a high number of terminals
+
+auto advanced_lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer, LexerConfEnum::HandleDuplicates>());
+
 
 // Create the shift-reduce parser
 // TreeNode<VStr> is the AST class

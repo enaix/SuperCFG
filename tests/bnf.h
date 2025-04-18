@@ -384,7 +384,7 @@ bool test_adv_lexer()
     // Parser classes init
     // ===================
 
-    auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer>());
+    auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer, LexerConfEnum::HandleDuplicates>());
     //LexerLegacy<VStr, TokenType> lexer(ruleset); // Lexer init
 
     // Parser init

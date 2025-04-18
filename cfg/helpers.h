@@ -12,10 +12,18 @@
 #include "cfg/common.h"
 
 
+/**
+ * @brief Pairwise lambda return type enum
+ */
+enum class PairwiseLambdaRT
+{
+    Singleton, /** Returns a single type, it will be wrapped into a tuple */
+    ExpandResult, /** Expand the result of func into N individual elements (do not wrap into tuple) */
+    CustomReturnType, /** The functions returns a pair of elements instead: the first element is treated as a result (it must be a tuple, like in ExpandResult), while the second element is a tuple of elements to concat to the result */
+};
+
 namespace cfg_helpers
 {
-
-
     template<template<class...> class Target, std::size_t... Ints>
     constexpr auto do_type_morph_t(auto morph, const std::integer_sequence<std::size_t, Ints...>)
     {
@@ -80,8 +88,17 @@ namespace cfg_helpers
     constexpr bool do_tuple_each_or_return(const Tuple& tuple, auto each_elem)
     {
         if (each_elem(depth, std::get<depth>(tuple))) return true;
-        if constexpr (depth + 1 < std::tuple_size_v<Tuple>())
-            return do_tuple_each<depth+1>(tuple, each_elem);
+        if constexpr (depth + 1 < std::tuple_size_v<Tuple>)
+            return do_tuple_each_or_return<depth+1>(tuple, each_elem);
+        else return false;
+    }
+
+    template<std::size_t depth, class Tuple>
+    constexpr bool do_tuple_each_type_or_return(auto each_elem)
+    {
+        if constexpr (each_elem.template operator()<depth, std::tuple_element_t<depth, std::decay_t<Tuple>>>()) return true;
+        if constexpr (depth + 1 < std::tuple_size_v<Tuple>)
+            return do_tuple_each_type_or_return<depth+1, Tuple>(each_elem);
         else return false;
     }
 
@@ -249,13 +266,13 @@ namespace cfg_helpers
         }
     }
 
-    template<std::size_t j, bool expand_result, class SrcTuple, class TElem>
+    template<std::size_t i, std::size_t j, bool expand_result, class SrcTuple, class TElem>
     constexpr auto do_tuple_apply_pairwise_loop(const SrcTuple& src, const TElem& elem, auto func)
     {
-        auto func_res = func(elem, std::get<j>(src));
-        auto res = (expand_result ? func_res: (std::is_same_v<std::decay_t<decltype(func_res)>, std::tuple<>> ? func_res : std::make_tuple(func_res)));
+        auto func_res = func.template operator()<i, j>(elem, std::get<j>(src));
+        auto res = (expand_result ? func_res : (std::is_same_v<std::decay_t<decltype(func_res)>, std::tuple<>> ? func_res : std::make_tuple(func_res)));
         if constexpr (j + 1 < std::tuple_size_v<std::decay_t<SrcTuple>>)
-            return std::tuple_cat(res, do_tuple_apply_pairwise_loop<j+1, expand_result>(src, elem, func));
+            return std::tuple_cat(res, do_tuple_apply_pairwise_loop<i, j+1, expand_result>(src, elem, func));
         else
             return res;
     }
@@ -267,11 +284,81 @@ namespace cfg_helpers
             return std::tuple<>();
         else
         {
-            auto loop = do_tuple_apply_pairwise_loop<i+1, expand_result>(src, std::get<i>(src), func);
+            auto loop = do_tuple_apply_pairwise_loop<i, i+1, expand_result>(src, std::get<i>(src), func);
             if constexpr (i + 1 < std::tuple_size_v<std::decay_t<SrcTuple>>)
                 return std::tuple_cat(loop, do_tuple_apply_pairwise<i+1, expand_result>(src, func));
             else
                 return loop;
+        }
+    }
+
+
+    template<std::size_t i, std::size_t j, PairwiseLambdaRT rt, std::size_t... Ints>
+    constexpr auto do_tuple_apply_pairwise_loop_if(const auto& src, const auto& elem, auto func)
+    {
+        using SrcTuple = decltype(src);
+        using TElem = decltype(elem);
+
+        auto func_res = func.template operator()<i, j>(std::get<0>(elem), std::get<j>(src));
+        auto res = [&](){
+            if constexpr (rt == PairwiseLambdaRT::ExpandResult)
+                return func_res;
+            else if constexpr (rt == PairwiseLambdaRT::Singleton)
+                return (std::is_same_v<std::decay_t<decltype(func_res)>, std::tuple<>> ? func_res : std::make_tuple(func_res));
+            else
+                return func_res.first;
+        }();
+
+        auto tail = (rt == PairwiseLambdaRT::CustomReturnType ? func_res.second : std::tuple<>());
+
+        // Check if original return type is not empty - we need to add the index to exclude list
+        if constexpr (!std::is_same_v<std::decay_t<decltype(res)>, std::tuple<>>)
+        {
+            // We need to set res as the new elem - the original elem is discarded
+            if constexpr (j + 1 < std::tuple_size_v<std::decay_t<SrcTuple>>)
+            {
+                return std::tuple_cat(tail, do_tuple_apply_pairwise_loop_if<i, j+1, rt, Ints..., j>(src, res, func));
+            }
+            else // elem is replaced with res
+                return std::make_pair(std::tuple_cat(tail, res), std::make_tuple(std::integral_constant<std::size_t, Ints>()..., std::integral_constant<std::size_t, j>()));
+        }
+        else
+        {
+            // Do not modify the exclude list
+            if constexpr (j + 1 < std::tuple_size_v<std::decay_t<SrcTuple>>)
+            {
+                // Do not concat with empty tuple
+                return do_tuple_apply_pairwise_loop_if<i, j+1, rt, Ints...>(src, elem, func);
+            }
+            else // Include the original elem. If no func() was called, it would be the original element. Otherwise it is the latest call to func
+                return std::make_pair(elem, std::make_tuple(std::integral_constant<std::size_t, Ints>()...));
+        }
+
+    }
+
+    template<std::size_t i, PairwiseLambdaRT rt, class SrcTuple, class IndsTuple>
+    constexpr auto do_tuple_apply_pairwise_if(const SrcTuple& src, auto func, const IndsTuple& inds, auto each_or_return, auto tuple_expand)
+    {
+        if constexpr (i + 1 >= std::tuple_size_v<std::decay_t<SrcTuple>>)
+            return std::make_tuple(std::get<i>(src)); // Include the original element
+        else
+        {
+            // We need to check the exclusion list
+            if constexpr (each_or_return.template operator()<IndsTuple>([&]<std::size_t k, class TElem>(){ return std::is_same_v<std::integral_constant<std::size_t, i>, std::decay_t<TElem>>; }))
+            {
+                // Skip this element
+                if constexpr (i + 1 < std::tuple_size_v<std::decay_t<SrcTuple>>)
+                    return do_tuple_apply_pairwise_if<i+1, rt>(src, func, inds, each_or_return, tuple_expand);
+                else
+                    return std::tuple<>();
+            } else {
+                auto [loop, inds_next] = tuple_expand(inds, [&]<class... T>(){ return do_tuple_apply_pairwise_loop_if<i, i+1, rt, T::value...>(src, std::make_tuple(std::get<i>(src)), func); });
+                // If the loop is empty, then no apply() was performed -> leave the original element
+                if constexpr (i + 1 < std::tuple_size_v<std::decay_t<SrcTuple>>)
+                    return std::tuple_cat(loop, do_tuple_apply_pairwise_if<i+1, rt>(src, func, inds_next, each_or_return, tuple_expand));
+                else
+                    return loop;
+            }
         }
     }
 } // cfg_helpers
@@ -386,10 +473,26 @@ constexpr auto tuple_morph_each(const Tuple& tuple, auto each_elem)
 }
 
 
+/**
+ * @brief Iterate over each tuple element and return if the tuple returns true
+ * @param each_elem Lambda that takes an index and tuple element and returns true to return
+ */
 template<class Tuple>
 constexpr bool tuple_each_or_return(const Tuple& tuple, auto each_elem)
 {
-    if constexpr (std::tuple_size_v<Tuple>() != 0) return cfg_helpers::do_tuple_each<0>(tuple, each_elem);
+    if constexpr (std::tuple_size_v<Tuple> != 0) return cfg_helpers::do_tuple_each_or_return<0>(tuple, each_elem);
+    else return false;
+}
+
+
+/**
+ * @brief Constexpr version of tuple_each_or_return which passes only a type
+ * @param each_elem Lambda that takes an index and tuple element and returns true to return
+ */
+template<class Tuple>
+constexpr bool tuple_each_type_or_return(auto each_elem)
+{
+    if constexpr (std::tuple_size_v<Tuple> != 0) return cfg_helpers::do_tuple_each_type_or_return<0, Tuple>(each_elem);
     else return false;
 }
 
@@ -713,15 +816,41 @@ constexpr auto tuple_merge_along_axis(const TupleA& lhs, const TupleB& rhs)
 
 
 /**
+ * @brief Expand a tuple into T types and call lambda with T template arguments
+ * @param src Deduced tuple of T types
+ * @param func Lambda to call
+ */
+template<class... T>
+constexpr auto tuple_expand_t(const std::tuple<T...>& src, auto func)
+{
+    return func.template operator()<std::decay_t<T>...>();
+}
+
+
+/**
  * @brief Apply a pairwise operation on a tuple
  * @tparam expand_result Expand the result of func into N individual elements
  * @param src Source tuple
- * @param func Lambda which takes two elements and returns either a new element or tuple<>
+ * @param func Lambda which takes i-th and j-th index in a template and two elements as arguments. It returns either a new element or tuple<>
  */
 template<bool expand_result, class SrcTuple>
 constexpr auto tuple_apply_pairwise(const SrcTuple& src, auto func)
 {
     return cfg_helpers::do_tuple_apply_pairwise<0, expand_result>(src, func);
+}
+
+
+/**
+ * @brief Conditional tuple_apply_pairwise operator which replaces two elements with the function result
+ * @tparam expand_result Expand the result of func into N individual elements
+ * @tparam custom_return_type The functions returns a pair of elements instead: the first one is the
+ * @param src Source tuple
+ * @param func Lambda which takes i-th and j-th index in a template and two elements as arguments. It returns either a new element or tuple<>. An empty tuple is returned if no elements should be altered
+ */
+template<PairwiseLambdaRT rt, class SrcTuple>
+constexpr auto tuple_apply_pairwise_if(const SrcTuple& src, auto func)
+{
+    return cfg_helpers::do_tuple_apply_pairwise_if<0, rt>(src, func, std::tuple<>(), []<class... T>(const auto&... args){ return tuple_each_type_or_return<T...>(args...); }, [](const auto&... args){ return tuple_expand_t(args...); });
 }
 
 

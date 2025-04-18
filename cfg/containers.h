@@ -59,6 +59,8 @@ class ConstStrContainer
 {
 public:
     using underlying_t = char[SIZE];
+    using char_t = char;
+    // TODO add templated char type
 
     char str[SIZE];
 
@@ -99,6 +101,9 @@ public:
     [[nodiscard]] constexpr const char* c_str() const { return str; }
 
     static constexpr std::size_t size() { return SIZE; }
+
+    template<std::size_t i>
+    constexpr char at() const { return str[i]; }
 };
 
 
@@ -119,6 +124,14 @@ namespace cfg_helpers
         constexpr ConstStrContainer<LEN+1> container(TemplateArgWrapper<decltype(STR), STR>{}, start, len);
         return builder.template operator()<decltype(container), container>();
     }
+
+    template<std::size_t i, class TChar, TChar start, TChar end>
+    constexpr void do_lexical_range(auto func)
+    {
+        func(static_cast<TChar>(static_cast<std::size_t>(start) + i));
+        if constexpr (i + 1 <= static_cast<std::size_t>(end))
+            return do_lexical_range<i+1, TChar, start, end>();
+    }
 }
 
 
@@ -133,6 +146,7 @@ public:
     static constexpr std::size_t size() { return STR.size(); }
     [[nodiscard]] constexpr const char* c_str() const { return STR.c_str(); }
 
+    using char_t = typename decltype(STR)::char_t;
     constexpr explicit ConstStr() = default;
 
     //template<std::size_t SIZE>
@@ -162,6 +176,8 @@ public:
         return cfg_helpers::make_slice<STR, START, LEN>([&]<class T, T Cnt>(){ return ConstStr<Cnt>(); });
     }
 
+    template<std::size_t i>
+    static constexpr auto at() { return STR.template at<i>(); }
 
     template<ConstStrContainer RHS>
     constexpr bool operator==(const ConstStr<RHS>& rhs) const
@@ -217,6 +233,13 @@ template<std::size_t N>
     constexpr auto chars = itoc<N>();
     constexpr auto c = ConstStrContainer<std::tuple_size_v<decltype(chars)>>(chars);
     return ConstStr<c>();
+}
+
+
+template<class TChar, TChar start, TChar end>
+constexpr void lexical_range(auto func)
+{
+    return cfg_helpers::do_lexical_range<0, TChar, start, end>(func);
 }
 
 
