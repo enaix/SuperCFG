@@ -257,6 +257,7 @@ protected:
                     // Found a terminal symbol
                     storage.push_back(Token<VStr, TokenType>(VStr(symbol.name), TokenType(std::get<0>(def.terms).type())));
                 }
+                static_assert(!is_terms_range<decltype(symbol)>(), "Legacy lexer does not support TermsRange");
             }
         });
         //return ind; // Maximum index at this iteration

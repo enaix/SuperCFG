@@ -242,6 +242,12 @@ constexpr void lexical_range(auto func)
     return cfg_helpers::do_lexical_range<0, TChar, start, end>(func);
 }
 
+template<class TChar, TChar start, TChar end>
+constexpr bool in_lexical_range(TChar c)
+{
+    return static_cast<std::size_t>(start) <= static_cast<std::size_t>(c) && static_cast<std::size_t>(c) <= static_cast<std::size_t>(end);
+}
+
 
  /**
   * @brief Map enum to its index in increasing order

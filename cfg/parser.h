@@ -894,16 +894,25 @@ protected:
             }
             return false;
 
-        } else if constexpr (is_term<TSymbol>()) {
+        } else if constexpr (terminal_type<TSymbol>()) {
             const GSymbolV& elem = stack[start + index];
-            if (elem.is_token() && elem.value == symbol.name)
+            if constexpr (is_term<TSymbol>())
             {
-                index++;
-                return true;
+                if (elem.is_token() && elem.value == symbol.name)
+                {
+                    index++;
+                    return true;
+                }
+            } else {
+                if (elem.is_token() && in_terms_range(symbol, elem.value)) // TODO cover case when value is > 1 symbol
+                {
+                    index++;
+                    return true;
+                }
             }
             return false;
 
-        } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
+        } else static_assert(terminal_type<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
         return false;
     }
 

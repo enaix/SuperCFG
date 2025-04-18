@@ -125,12 +125,19 @@ public:
 
     constexpr TermsRange(const CStrStart& start, const CStrEnd& end) : start(start), end(end)
     {
-        static_assert(CStrStart::size() == 1 && CStrEnd::size() == 1, "Terms range should contain strings of length 1");
+        static_assert(CStrStart::size() == 2 && CStrEnd::size() == 2, "Terms range should contain strings of length 1");
     }
 
     constexpr TermsRange() = default;
 
-    // Need to implement recursive bake operations
+    // TODO implement recursive bake operations
+
+    // Print semantic type of this elem. This cannot be treated as a literal type
+    constexpr auto semantic_type() const { return "[" + start + "-" + end + "]"; }
+
+    static constexpr auto get_start() { return CStrStart::template at<0>(); }
+
+    static constexpr auto get_end() { return CStrEnd::template at<0>(); }
 
     constexpr void each_range(auto func) const
     {
@@ -234,6 +241,23 @@ constexpr inline bool is_terms_range()
 
 template<class TSymbol>
 constexpr inline bool is_terms_range(const TSymbol& s) { return is_terms_range<TSymbol>(); }
+
+
+/**
+ * @brief Helper function that returns whether an object is a single term or TermsRange
+ */
+template<class TSymbol>
+constexpr inline bool terminal_type()
+{
+    return is_term<TSymbol>() || is_terms_range<TSymbol>();
+}
+
+template<class TSymbol>
+constexpr inline bool terminal_type(const TSymbol& s) { return terminal_type<TSymbol>(); }
+
+
+template<class TSymbol, class TChar>
+constexpr bool in_terms_range(TChar c) { return in_lexical_range<TChar, TSymbol::get_start(), TSymbol::get_end()>(c); }
 
 
 template<class TSymbolA, class TSymbolB>

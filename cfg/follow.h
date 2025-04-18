@@ -44,7 +44,8 @@ namespace cfg_helpers
             if constexpr (is_operator<TSymbol>())
                 return peek_into<Target, TSymbol>(std::make_index_sequence<std::tuple_size_v<typename TSymbol::term_types_tuple>>{});
             else
-                return std::is_same_v<std::decay_t<Target>, std::decay_t<TSymbol>>;
+                // Check if the symbols are equal or terminals interlap
+                return std::is_same_v<std::decay_t<Target>, std::decay_t<TSymbol>> || terms_intersect_v<std::decay_t<Target>, std::decay_t<TSymbol>>;
         }
 
         template<class Target, class TSymbol, std::size_t... Ints>
@@ -70,7 +71,9 @@ namespace cfg_helpers
             constexpr std::size_t i = (dir == LookaheadDirection::Forward ? symbol : std::tuple_size_v<decltype(def.terms)> - symbol - 1);
             constexpr std::size_t last = (dir == LookaheadDirection::Forward ? std::tuple_size_v<decltype(def.terms)> - 1 : 0);
             using symbol_type = std::tuple_element_t<i, decltype(def.terms)>;
-            constexpr bool target_found = std::is_same_v<symbol_type, std::decay_t<Target>>;
+
+            // Check if the symbols are equal or terminals interlap
+            constexpr bool target_found = std::is_same_v<symbol_type, std::decay_t<Target>> || terms_intersect_v<symbol_type, std::decay_t<Target>>;
 
             // We need to recursively process the operator
             if constexpr (is_operator<symbol_type>())
@@ -438,7 +441,9 @@ protected:
             {
                 if constexpr (is_term<TSymbol>()) std::cout << "t:";
                 else std::cout << "n:";
-                std::cout << elem.type() << ", ";
+                if constexpr (is_terms_range<TSymbol>())
+                    std::cout << elem.semantic_type() << ", ";
+                else std::cout << elem.type() << ", ";
             }
         },
         [&](std::size_t d, std::size_t i, bool tuple_start){ std::cout << (tuple_start || is_op ? "" : "; "); });
