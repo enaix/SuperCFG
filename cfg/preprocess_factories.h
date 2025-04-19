@@ -22,7 +22,9 @@ namespace cfg_helpers
             return std::make_tuple<>();
         } else if constexpr (is_term<TSymbol>()) {
             return std::make_tuple(std::make_tuple(symbol, lhs));
-        } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
+        } else if constexpr (is_terms_range<TSymbol>()) {
+            return std::make_tuple<>(); // Does not support range
+        } else static_assert(terminal_type<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
     }
 
     template<class SrcTuple, class NTerm, std::size_t... Ints>
@@ -67,7 +69,9 @@ namespace cfg_helpers
             return std::make_tuple<>();
         } else if constexpr (is_term<TSymbol>()) {
             return std::make_tuple(elem);
-        } else static_assert(is_term<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
+        } else if constexpr (is_terms_range<TSymbol>()) {
+            return std::make_tuple<>(); // Do not include range
+        } else static_assert(terminal_type<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
     }
 
     // rr_tree_helpers

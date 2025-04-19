@@ -120,6 +120,7 @@ public:
     CStrEnd end;
     using _is_operator = std::false_type;
 
+    using _name_type = CStrStart;
     using _name_type_start = CStrStart;
     using _name_type_end = CStrEnd;
 
@@ -133,7 +134,7 @@ public:
     // TODO implement recursive bake operations
 
     // Print semantic type of this elem. This cannot be treated as a literal type
-    constexpr auto semantic_type() const { return "[" + start + "-" + end + "]"; }
+    constexpr auto semantic_type() const { return cs<CStrStart, "[">() + start + cs<CStrStart, "-">() + end + cs<CStrStart, "]">(); }
 
     static constexpr auto get_start() { return CStrStart::template at<0>(); }
 
@@ -141,7 +142,7 @@ public:
 
     constexpr void each_range(auto func) const
     {
-        return lexical_range<decltype(CStrStart::char_t), CStrStart::template at<0>(), CStrEnd::template at<0>()>(func);
+        return lexical_range<typename CStrStart::char_t, CStrStart::template at<0>(), CStrEnd::template at<0>()>(func);
     }
 
     constexpr auto flatten() const { return *this; }
@@ -257,7 +258,7 @@ constexpr inline bool terminal_type(const TSymbol& s) { return terminal_type<TSy
 
 
 template<class TSymbol, class TChar>
-constexpr bool in_terms_range(TChar c) { return in_lexical_range<TChar, TSymbol::get_start(), TSymbol::get_end()>(c); }
+constexpr bool in_terms_range(TChar c) { return in_lexical_range<TChar>(c, TSymbol::get_start(), TSymbol::get_end()); }
 
 
 template<class TSymbolA, class TSymbolB>
@@ -291,11 +292,11 @@ protected:
     template<std::size_t i, class TRange, class TSybmol>
     static constexpr bool do_check_intersect_ab_step()
     {
-        if constexpr (TSybmol::template at<i>() >= TRange::_name_type_start::template at<0>() && TSybmol::template at<i>() <= TRange::_name_type_end::template at<0>())
+        if constexpr (TSybmol::_name_type::template at<i>() >= TRange::_name_type_start::template at<0>() && TSybmol::_name_type::template at<i>() <= TRange::_name_type_end::template at<0>())
             return true;
         else
         {
-            if constexpr (i + 1 < TSybmol::template size())
+            if constexpr (i + 1 < TSybmol::_name_type::size())
                 return do_check_intersect_ab_step<i+1, TRange, TSybmol>();
             else return false;
         }
@@ -383,7 +384,12 @@ std::ostream& print_symbols_tuple(const Tuple& tuple, bool is_op = false)
             std::cout << "> ";
         }
         else
-            std::cout << elem.type() << ", ";
+        {
+            if constexpr (is_terms_range<TSymbol>())
+                std::cout << elem.semantic_type() << ", ";
+            else
+                std::cout << elem.type() << ", ";
+        }
     },
     [&](std::size_t d, std::size_t i, bool tuple_start){ std::cout << (tuple_start || is_op ? "" : "; "); });
     return std::cout;

@@ -103,7 +103,7 @@ public:
     static constexpr std::size_t size() { return SIZE; }
 
     template<std::size_t i>
-    constexpr char at() const { return str[i]; }
+    [[nodiscard]] constexpr char at() const { return str[i]; }
 };
 
 
@@ -130,7 +130,7 @@ namespace cfg_helpers
     {
         func(static_cast<TChar>(static_cast<std::size_t>(start) + i));
         if constexpr (i + 1 <= static_cast<std::size_t>(end))
-            return do_lexical_range<i+1, TChar, start, end>();
+            return do_lexical_range<i+1, TChar, start, end>(func);
     }
 }
 
@@ -242,10 +242,10 @@ constexpr void lexical_range(auto func)
     return cfg_helpers::do_lexical_range<0, TChar, start, end>(func);
 }
 
-template<class TChar, TChar start, TChar end>
-constexpr bool in_lexical_range(TChar c)
+template<class TChar>
+constexpr bool in_lexical_range(TChar c, TChar start, TChar end)
 {
-    return static_cast<std::size_t>(start) <= static_cast<std::size_t>(c) && static_cast<std::size_t>(c) <= static_cast<std::size_t>(end);
+    return (start <= c) && (c <= end);
 }
 
 

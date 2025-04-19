@@ -587,7 +587,11 @@ protected:
     {
         const auto& term = std::get<depth>(terms_map.terms);
         const auto& types = std::get<depth>(terms_map.nterms);
-        std::cout << term.type() << " -> ";
+
+        if constexpr (is_terms_range<std::decay_t<decltype(term)>>())
+            std::cout << term.semantic_type() << " -> ";
+        else
+            std::cout << term.type() << " -> ";
         print_symbols_tuple(types) << std::endl;
 
         if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<decltype(terms_map.terms)>>)

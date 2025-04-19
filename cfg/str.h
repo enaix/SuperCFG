@@ -23,6 +23,8 @@ public:
     constexpr explicit StdStr(const TChar* ch) : std::basic_string<TChar>(ch) {}
     // using std::basic_string<TChar>::basic_string;
 
+    constexpr explicit StdStr(const TChar ch) : std::basic_string<TChar>(&ch, 1) {}
+
     using std::basic_string<TChar>::operator+=;
 
     template<std::size_t N>

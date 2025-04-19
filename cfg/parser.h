@@ -903,8 +903,8 @@ protected:
                     index++;
                     return true;
                 }
-            } else {
-                if (elem.is_token() && in_terms_range(symbol, elem.value)) // TODO cover case when value is > 1 symbol
+            } else { // Range
+                if (elem.is_token() && in_terms_range<TSymbol>(elem.value[0])) // TODO cover case when value is > 1 symbol
                 {
                     index++;
                     return true;
