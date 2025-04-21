@@ -303,6 +303,45 @@ namespace cfg_helpers
         else
             return std::make_tuple(res);
     }
+
+    /*template<std::size_t i, class TRange, class TSybmol>
+    static constexpr bool get_terms_intersection_symbols_ab_step()
+    {
+        // Need to cover cases where i > 0 (multiple chars in TSymbol)
+        // Range + symbol : (   * ) -> (    ) * ( )
+        // (Another call) : ( *   ) -> ( ) * (    )
+        // Result (next)  :            ( )( )( )( )
+        if constexpr (TSybmol::_name_type::template at<i>() >= TRange::_name_type_start::template at<0>() && TSybmol::_name_type::template at<i>() <= TRange::_name_type_end::template at<0>())
+            return true;
+        else
+        {
+            if constexpr (i + 1 < TSybmol::_name_type::size())
+                return get_terms_intersection_symbols_ab_step<i+1, TRange, TSybmol>();
+            else return false;
+        }
+    }
+
+    template<class TRange, class TSybmol>
+    static constexpr bool get_terms_intersection_symbols_ab()
+    {
+        // Iterate over a term and check each symbol
+        return get_terms_intersection_symbols_ab_step<0, TRange, TSybmol>();
+    }
+
+    template<class TSymbolA, class TSymbolB>
+    constexpr auto get_terms_intersection_symbols()
+    {
+        if constexpr (is_term<TSymbolA>() && is_terms_range<TSymbolB>())
+            // Term and TermsRange
+            return get_terms_intersection_symbols_ab<TSymbolB, TSymbolA>();
+        else if constexpr (is_terms_range<TSymbolA>() && is_term<TSymbolB>())
+            // Term and TermsRange
+            return get_terms_intersection_symbols_ab<TSymbolA, TSymbolB>();
+        else if constexpr (is_terms_range<TSymbolA>() && is_terms_range<TSymbolB>())
+            // Both are TermsRange
+                return check_intersect_ranges<TSymbolA, TSymbolB>();
+        else return false;
+    }*/
 };
 
 

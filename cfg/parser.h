@@ -694,18 +694,16 @@ protected:
                     if constexpr (enabled<SRConfEnum::Lookahead>() && !std::is_same_v<std::decay_t<LookaheadS>, std::false_type>)
                     {
                         // The next symbol is of the same type
-                        if (![&](){
-                            for (std::size_t l = 0; l < lookahead.size(); l++)
+                        for (std::size_t l = 0; l < lookahead.size(); l++)
+                        {
+                            if (!symbols_ht.get_nterm(lookahead[l], [&](const auto& nterm){ return look.can_reduce(match, nterm); }))
                             {
-                                if (symbols_ht.get_nterm(lookahead[l], [&](const auto& nterm){ return look.can_reduce(match, nterm); }))
-                                    return true; // exit lambda
-                            }
-                            // No suitable symbol found
-                            if constexpr (enabled<SRConfEnum::PrettyPrint>())
+                                // No suitable symbol found
+                                if constexpr (enabled<SRConfEnum::PrettyPrint>())
                                 std::cout << "^ look mismatch" << std::endl;
-                            return false;
-                        }())
-                            return false; // exit on failure
+                                return false; // Not found
+                            }
+                        }
                     }
 
                     std::size_t index = 0;

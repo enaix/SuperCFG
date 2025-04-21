@@ -388,6 +388,42 @@ namespace cfg_helpers
             }
         }
     }
+
+    template<std::size_t i, class Collapsed, class TElem>
+    constexpr auto perform_collapse(const Collapsed& lhs, const TElem& elem, auto collapse)
+    {
+        const auto& lhs_i = std::get<i>(lhs);
+        const auto res = collapse(elem, lhs_i);
+
+        if constexpr (i + 1 < std::tuple_size_v<Collapsed>)
+        {
+            const auto [new_elems, collapsed_next] = perform_collapse<i+1>(lhs, elem, collapse);
+            // No new elements, we should include lhs[i] in collapsed
+            if constexpr (std::tuple_size_v<std::decay_t<decltype(res)>> == 0)
+                return std::make_pair(new_elems, std::tuple_cat(std::make_tuple(lhs_i), collapsed_next));
+            else
+                return std::make_pair(std::tuple_cat(res, new_elems), collapsed_next);
+        } else {
+            if constexpr (std::tuple_size_v<std::decay_t<decltype(res)>> == 0)
+                return std::make_pair(res, std::make_tuple(lhs_i));
+            else
+                return std::make_pair(res, std::tuple<>());
+        }
+    }
+
+    template<class Collapsed, class ToCollapse>
+    constexpr auto do_tuple_pairwise_collapse(const Collapsed& lhs, const ToCollapse& rhs, auto collapse, auto tup_slice)
+    {
+        if constexpr (std::tuple_size_v<std::decay_t<ToCollapse>> == 0)
+            return lhs; // Finished!
+        else
+        {
+            // We need to take one element from ToCollapse and apply the pairwise collapse() operation
+            const auto& next = std::get<0>(rhs);
+            const auto [new_elems, collapsed] = perform_collapse<0>(lhs, next, collapse);
+            return do_tuple_pairwise_collapse(collapsed, std::tuple_cat(new_elems, tup_slice.template operator()<1, std::tuple_size_v<ToCollapse>>(rhs)));
+        }
+    }
 } // cfg_helpers
 
 
@@ -885,8 +921,7 @@ constexpr auto tuple_apply_pairwise(const SrcTuple& src, auto func)
 
 /**
  * @brief Conditional tuple_apply_pairwise operator which replaces two elements with the function result
- * @tparam expand_result Expand the result of func into N individual elements
- * @tparam custom_return_type The functions returns a pair of elements instead: the first one is the
+ * @tparam rt Return type enum
  * @param src Source tuple
  * @param func Lambda which takes i-th and j-th index in a template and two elements as arguments. It returns either a new element or tuple<>. An empty tuple is returned if no elements should be altered
  */
@@ -894,6 +929,18 @@ template<PairwiseLambdaRT rt, class SrcTuple>
 constexpr auto tuple_apply_pairwise_if(const SrcTuple& src, auto func)
 {
     return cfg_helpers::do_tuple_apply_pairwise_if<0, rt>(src, func, std::tuple<>(), []<class... T>(const auto&... args){ return tuple_each_type_or_return<T...>(args...); }, [](const auto&... args){ return tuple_expand_t(args...); });
+}
+
+
+/**
+ * @brief Pairwise collapse algorithm takes an element from the stack and collapses it with the remainder. If collapse(elem, rem[i]) returns new elements, they are added to the stack and rem[i] is deleted. If the remainder is collapsed (no operation was performed with elem), elem is added to the remainder
+ * @param src Tuple to collapse
+ * @param collapse Lambda which takes an element from the stack and a reduced element. It returns a tuple of new elements which are added to the remainder. If it returns an empty tuple, then no operation is performed.
+ */
+template<class SrcTuple>
+constexpr auto tuple_pairwise_collapse(const SrcTuple& src, auto collapse)
+{
+    return cfg_helpers::do_tuple_pairwise_collapse(std::tuple<>(), src, collapse, []<std::size_t Start, std::size_t End>(const auto& tuple){ return tuple_slice<Start, End>(tuple); });
 }
 
 
