@@ -164,6 +164,8 @@ namespace cfg_helpers
         else return std::tuple_cat(std::make_tuple(nterms), rr_tree_for_symbol<depth+1>(rules));
     }
 
+    // terms cache
+
     template<class TSymbol>
     constexpr auto terms_cache_each_elem(const TSymbol& symbol)
     {
@@ -216,6 +218,90 @@ namespace cfg_helpers
         else if constexpr (i + 1 < std::tuple_size_v<std::decay_t<decltype(cache.terms)>>)
             return find_term_in_cache_single<i+1>(symbol, cache);
         static_assert(i+1 < std::tuple_size_v<std::decay_t<decltype(cache.terms)>>, "Term not found in cache");
+    }
+
+    // reducibility checker
+
+    /**
+     * @brief Get the first element encounter position
+     * @param target Symbol to check
+     * @param symbol Symbol to descend into
+     * @param rule Original rule that we are checking
+     */
+    template<std::size_t pos, std::size_t i, class TDef, class TSymbol, class TRuleDef>
+    constexpr auto rc1_get_elem_pos_in_rule(const TDef& target, const TSymbol& symbol, const TRuleDef& rule)
+    {
+        if constexpr (is_operator<TSymbol>())
+        {
+            if constexpr (get_operator<TSymbol>() == OpType::Concat)
+            {
+                // At each step increase the pos and return if we find one encounter
+                if constexpr (i >= std::tuple_size_v<std::decay_t<decltype(symbol.terms)>>)
+                    return std::tuple<>();
+                else
+                {
+                    // Descend into symbol
+                    const auto res = rc1_get_elem_pos_in_rule<pos, 0>(target, std::get<i>(symbol.terms), rule);
+                    if constexpr (std::is_same_v<std::decay_t<decltype(res)>, std::tuple<>>)
+                    {
+                        // Target not found, check the next term in symbol
+                        return rc1_get_elem_pos_in_rule<pos+1, i+1>(target, symbol, rule);
+                    } else return res;
+                }
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Alter)
+            {
+                // Permute over all possible symbols and return all positions that match
+                if constexpr (i >= std::tuple_size_v<std::decay_t<decltype(symbol.terms)>>)
+                    return std::tuple<>();
+                else
+                {
+                    // Descend into symbol
+                    const auto res = rc1_get_elem_pos_in_rule<pos, 0>(target, std::get<i>(symbol.terms), rule);
+                    return std::tuple_cat(res, rc1_get_elem_pos_in_rule<pos, i+1>(target, symbol, rule));
+                }
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Group || get_operator<TSymbol>() == OpType::Repeat || get_operator<TSymbol>() == OpType::Optional)
+            {
+                // Check only the first symbol
+                if constexpr (std::tuple_size_v<std::decay_t<decltype(symbol.terms)>> == 0)
+                    return std::tuple<>();
+                else
+                    return rc1_get_elem_pos_in_rule<pos, 0>(target, std::get<0>(symbol.terms), rule);
+            }
+        }
+        else if constexpr (is_nterm<TSymbol>())
+        {
+            if constexpr (std::is_same_v<std::decay_t<TDef>, std::decay_t<TSymbol>>)
+                return std::make_tuple(std::make_pair(rule, std::integral_constant<std::size_t, pos>{}));
+            else
+                return std::tuple<>();
+        } else return std::tuple<>();
+        // TODO handle other symbols
+    }
+
+    /**
+     * @brief Iterate over each symbol, get the related rules and find the starting position
+     * @param defs RRTree defs tuple
+     * @param rules RRTree rules tuple
+     * @param nterms2defs NTerms to definitions mapping
+     */
+    template<std::size_t depth, class TDefsTuple, class TRuleTree, class NTermsMap>
+    constexpr auto rc1_get_match(const TDefsTuple& defs, const TRuleTree& rules, const NTermsMap& nterms2defs)
+    {
+        const auto& def = std::get<0>(std::get<depth>(defs).terms);
+        const auto& r_rules = std::get<depth>(rules);
+
+        const auto res = concat_each<std::tuple_size_v<std::decay_t<decltype(r_rules)>>, true>([&]<std::size_t i>(){
+            const auto& rule_nterm = std::get<i>(r_rules);
+            const auto& rule_def = std::get<1>(nterms2defs.get(rule_nterm)->terms);
+            return rc1_get_elem_pos_in_rule<0, 0>(def, rule_def, rule_nterm);
+        });
+
+        if constexpr (depth + 1 < std::tuple_size_v<TDefsTuple>)
+            return std::tuple_cat(std::make_tuple(res), rc1_get_match<depth+1>(defs, rules, nterms2defs));
+        else
+            return std::make_tuple(res);
     }
 };
 
@@ -311,6 +397,15 @@ auto terms_type_map_factory(const TypesCache& cache)
         auto terms_map = tuple_morph_each(cache.all_terms, [&](std::size_t i, const auto& elem){ return cfg_helpers::find_term_in_cache_all<0>(elem, cache); });
         return TermsTypeMap<VStr, TokenType, std::decay_t<decltype(cache.all_terms)>, std::decay_t<decltype(terms_map)>>(cache.all_terms, terms_map);
     }
+}
+
+
+template<class RRTree, class NTermsMap>
+constexpr auto make_reducibility_checker1(const RRTree& tree, const NTermsMap& nterms2defs)
+{
+    const auto all_related_rules = tuple_unique(tuple_flatten_layer(tree.tree)); // Get a tuple of all unique related rules
+    const auto pairs = cfg_helpers::rc1_get_match<0>(tree.defs, tree.tree, nterms2defs);
+    return ReducibilityChecker1<decltype(tree.defs), decltype(pairs), decltype(all_related_rules)>(tree.defs, pairs, all_related_rules);
 }
 
 

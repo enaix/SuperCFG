@@ -754,5 +754,155 @@ protected:
 };
 
 
+/**
+ * @brief A class that checks if a matching element can be reduced in current parsing context. The check is performed for 1 step ahead. At the initial step,
+ */
+template<class TMatches, class RulesPosPairs, class TRules>
+class ReducibilityChecker1
+{
+public:
+    TMatches matches;
+    RulesPosPairs pos;
+    TRules rules;
+    std::array<std::size_t, std::tuple_size_v<TRules>> context;
+
+    constexpr ReducibilityChecker1(const TMatches& m, const RulesPosPairs& p, const TRules& r) : matches(m), pos(p), rules(r) {}
+
+    /**
+     * @brief Reset the context of the array. Should be performed at the start of parsing
+     */
+    void reset_ctx() { context.fill(std::numeric_limits<std::size_t>::max()); }
+
+    /**
+     * @brief Check if a symbol can be reduced in the current context.
+     * @param match Potential match candidate
+     * @param stack_size Current size of the stack
+     * @param terms2nterms Terms to definitions mapping
+     * @param descend A function which takes a stack position and a definition and performs a recursive descend. It must return the number of matching elements. Note that it should descend over a stack with the original match applied
+     */
+    template<class TMatch, class NTermsMap>
+    bool can_reduce(const TMatch& match, std::size_t stack_size, const NTermsMap& terms2nterms, auto descend)
+    {
+        const auto& res = get(match);
+
+        if constexpr (std::tuple_size_v<std::decay_t<decltype(res)>> == 0)
+            return true; // Nothing to check
+
+        return tuple_each_or_return(res, [&](std::size_t i, const auto& rule_pair){
+            const auto& [rule, first_pos] = rule_pair;
+            constexpr std::size_t ctx_pos = get_ctx_index<0, std::decay_t<decltype(rule)>>();
+
+            // Check if the context exists
+            if (context[ctx_pos] != std::numeric_limits<std::size_t>::max())
+            {
+                // Context already exists, we should start from position
+                // It can be disabled for lazy evaluation
+                return true;
+            } else {
+                // No context found, pick the first appearance of char
+
+                // Out of bounds check: the rule cannot fit in current stack
+                if (first_pos() >= stack_size)
+                    return false; // Continue
+
+                std::size_t stack_i = stack_size - 1 - first_pos();
+                std::size_t parsed = descend(stack_i, std::get<1>(terms2nterms.get(rule)->terms));
+                if (parsed >= first_pos()) // We can theoretically reduce everything up to this symbol OR there is no match at all
+                {
+                    context[ctx_pos] = stack_i; // Successful match
+                    return true;
+                }
+                return false;
+            }
+        });
+
+        return true; // We don't need to check these symbols
+    }
+
+    /**
+     * @brief Update the context for the reduced symbol. This function should be called on each successful reduce operation
+     * @tparam TSymbol
+     */
+    template<class TSymbol>
+    void apply_reduce(const TSymbol& symbol)
+    {
+        do_apply_reduce<0>(symbol);
+    }
+
+    template<class TSymbol>
+    constexpr auto get(const TSymbol& symbol) const
+    {
+        return do_get<0>(symbol);
+    }
+
+    template<class VStr>
+    void prettyprint() const
+    {
+        do_print<0, VStr>();
+    }
+
+protected:
+    template<std::size_t depth, class TSymbol>
+    constexpr auto do_get(const TSymbol& symbol) const
+    {
+        static_assert(depth < std::tuple_size_v<TMatches>, "NTerm type not found");
+        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<std::tuple_element_t<0, typename std::tuple_element_t<depth, TMatches>::term_types_tuple>>>)
+        {
+            return std::get<depth>(pos);
+        } else {
+            return do_get<depth + 1, TSymbol>(symbol);
+        }
+    }
+
+    template<std::size_t depth, class TSymbol>
+    void do_apply_reduce(const TSymbol& symbol)
+    {
+        if constexpr (std::is_same_v<std::tuple_element_t<depth, TRules>, std::decay_t<TSymbol>>)
+            context[depth] = std::numeric_limits<std::size_t>::max(); // Reset context
+        else
+        {
+            if constexpr (depth + 1 < std::tuple_size_v<TRules>)
+                do_apply_reduce<depth+1>(symbol);
+            // Else we don't care about this symbol
+        }
+    }
+
+    template<std::size_t depth, class TSymbol>
+    [[nodiscard]] static constexpr std::size_t get_ctx_index()
+    {
+        if constexpr (depth >= std::tuple_size_v<TRules>)
+            return 0;
+        else
+        {
+            if constexpr (std::is_same_v<std::tuple_element_t<depth, TRules>, std::decay_t<TSymbol>>)
+                return depth;
+            else
+            {
+                return get_ctx_index<depth+1, TSymbol>();
+                // Else we don't care about this symbol
+            }
+        }
+    }
+
+    template<std::size_t depth, class VStr>
+    void do_print() const
+    {
+        const auto& nt = std::get<depth>(matches);
+        const auto& tree_rhs = std::get<depth>(pos);
+        std::cout << VStr(std::get<0>(nt.terms).type()) << " -> ";
+        tuple_each(tree_rhs, [&](std::size_t i, const auto& elem){
+            const auto& [rule, first_pos] = elem;
+            std::cout << "{" << VStr(rule.type()) << ", " << first_pos() << "}, ";
+        });
+        std::cout << std::endl;
+
+        if constexpr (depth + 1 < std::tuple_size_v<decltype(matches)>)
+            do_print<depth+1, VStr>();
+    }
+};
+
+
+class NoReducibilityChecker {};
+
 
 #endif //SUPERCFG_PREPROCESS_H

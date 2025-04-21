@@ -262,7 +262,24 @@ namespace cfg_helpers
             if constexpr (depth + 1 < std::tuple_size_v<Tuple>)
                 return std::tuple_cat(std::make_tuple(each_elem(depth, std::get<depth>(tuple))), do_tuple_morph_each<depth+1, expand_result>(tuple, each_elem));
             else
-                return std::make_tuple(each_elem(depth, std::get<depth>(tuple)));
+                return std::make_tuple(each_elem(depth, std::get<depth>(tuple))); // TODO fix this behavior
+        }
+    }
+
+    template<std::size_t depth, std::size_t N, bool expand_result>
+    constexpr auto do_concat_each(auto each_elem)
+    {
+        if constexpr (expand_result)
+        {
+            if constexpr (depth + 1 < N)
+                return std::tuple_cat(each_elem.template operator()<depth>(), do_concat_each<depth+1, N, expand_result>(each_elem));
+            else
+                return each_elem.template operator()<depth>();
+        } else {
+            if constexpr (depth + 1 < N)
+                return std::tuple_cat(std::make_tuple(each_elem.template operator()<depth>()), std::make_tuple(do_concat_each<depth+1, N, expand_result>(each_elem)));
+            else
+                return each_elem.template operator()<depth>();
         }
     }
 
@@ -309,18 +326,28 @@ namespace cfg_helpers
                 return func_res.first;
         }();
 
-        auto tail = (rt == PairwiseLambdaRT::CustomReturnType ? func_res.second : std::tuple<>());
-
         // Check if original return type is not empty - we need to add the index to exclude list
         if constexpr (!std::is_same_v<std::decay_t<decltype(res)>, std::tuple<>>)
         {
             // We need to set res as the new elem - the original elem is discarded
             if constexpr (j + 1 < std::tuple_size_v<std::decay_t<SrcTuple>>)
             {
-                return std::tuple_cat(tail, do_tuple_apply_pairwise_loop_if<i, j+1, rt, Ints..., j>(src, res, func));
+                if constexpr (rt == PairwiseLambdaRT::CustomReturnType)
+                {
+                    auto [next, inds] = do_tuple_apply_pairwise_loop_if<i, j+1, rt, Ints..., j>(src, res, func);
+                    return std::make_pair(std::tuple_cat(func_res.second, next), inds);
+                }
+                else
+                    return do_tuple_apply_pairwise_loop_if<i, j+1, rt, Ints..., j>(src, res, func);
             }
             else // elem is replaced with res
-                return std::make_pair(std::tuple_cat(tail, res), std::make_tuple(std::integral_constant<std::size_t, Ints>()..., std::integral_constant<std::size_t, j>()));
+            {
+                if constexpr (rt == PairwiseLambdaRT::CustomReturnType)
+                    return std::make_pair(std::tuple_cat(func_res.second, res), std::make_tuple(std::integral_constant<std::size_t, Ints>()..., std::integral_constant<std::size_t, j>()));
+                else
+                    return std::make_pair(res, std::make_tuple(std::integral_constant<std::size_t, Ints>()..., std::integral_constant<std::size_t, j>()));
+            }
+
         }
         else
         {
@@ -470,6 +497,22 @@ constexpr auto tuple_morph_each(const Tuple& tuple, auto each_elem)
 {
     if constexpr (std::tuple_size_v<Tuple> != 0)
         return cfg_helpers::do_tuple_morph_each<0, expand_result>(tuple, each_elem);
+    else return std::tuple<>();
+}
+
+
+/**
+ * @brief Similar to tuple_morph_each, but only concats the results of f<i>()
+ * @tparam N Number of times to call f
+ * @tparam expand_result Expand the result of func into N individual elements
+ * @param each_elem Lambda that takes an index as a template parameter and returns a new element
+ */
+template<std::size_t N, bool expand_result = false>
+constexpr auto concat_each(auto each_elem)
+{
+    if constexpr (N != 0)
+        return cfg_helpers::do_concat_each<0, N, expand_result>(each_elem);
+    else return std::tuple<>();
 }
 
 

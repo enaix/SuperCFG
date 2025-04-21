@@ -28,7 +28,7 @@ constexpr auto build_range(const CStr& s, auto builder, const std::index_sequenc
 
 int main()
 {
-    constexpr char s[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ _-.!";
+    //constexpr char s[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ _-.!";
 
     constexpr auto character = NTerm(cs<"char">());
 
@@ -43,7 +43,8 @@ int main()
     constexpr auto array = NTerm(cs<"array">());
     constexpr auto member = NTerm(cs<"member">());
 
-    constexpr auto d_character = Define(character, Repeat(build_range(cs<s>(), [](const auto&... str){ return Alter(Term(str)...); }, std::make_index_sequence<sizeof(s)-1>{})));
+    //constexpr auto d_character = Define(character, Repeat(build_range(cs<s>(), [](const auto&... str){ return Alter(Term(str)...); }, std::make_index_sequence<sizeof(s)-1>{})));
+    constexpr auto d_character = Define(character, Repeat(Alter(TermsRange(cs<"-">(), cs<"~">())), Term(cs<" ">())));
 
     constexpr auto d_digit = Define(digit, Repeat(Alter(
         Term(cs<"1">()), Term(cs<"2">()), Term(cs<"3">()),
@@ -73,12 +74,13 @@ int main()
     // Configure the parser with desired options
     constexpr auto conf = mk_sr_parser_conf<
         SRConfEnum::PrettyPrint,  // Enable pretty printing for debugging
-        SRConfEnum::Lookahead>(); // Enable lookahead(1)
+        SRConfEnum::Lookahead,     // Enable lookahead(1)
+        SRConfEnum::ReducibilityChecker>(); // Enable RC(1)
 
 
     // Initialize the tokenizer
     //LexerLegacy<VStr, TokenType> lexer(ruleset);
-    auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer>());
+    auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer, LexerConfEnum::HandleDuplicates>());
 
     // Create the shift-reduce parser
     // TreeNode<VStr> is the AST class

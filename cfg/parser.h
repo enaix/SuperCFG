@@ -337,6 +337,7 @@ enum class SRConfEnum : std::uint64_t
 {
     PrettyPrint = 0x1,
     Lookahead = 0x10,
+    ReducibilityChecker = 0x100,
 };
 
 
@@ -360,7 +361,7 @@ constexpr auto mk_sr_parser_conf()
 }
 
 
-template<class VStr, class TokenType, class TokenTSet, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf, class Lookahead>
+template<class VStr, class TokenType, class TokenTSet, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf, class Lookahead, class RChecker>
 class SRParser
 {
 protected:
@@ -372,16 +373,19 @@ protected:
     SRParserConfig<Conf> conf;
     using SrC = SRParserConfig<Conf>;
     Lookahead look;
+    RChecker r_checker;
 
     using TokenV = Token<VStr, TokenTSet>;
     using GSymbolV = GrammarSymbol<VStr, TokenTSet>;
 public:
-    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map, SRParserConfig<Conf> conf, const Lookahead& lookahead) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules), conf(conf), look(lookahead) {}
+    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map, SRParserConfig<Conf> conf, const Lookahead& lookahead, const RChecker& checker) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules), conf(conf), look(lookahead), r_checker(checker) {}
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
 
     template<class RootSymbol>
     bool run(Tree& node, const RootSymbol& root, std::vector<TokenV>& tokens)
     {
+        if constexpr (enabled<SRConfEnum::ReducibilityChecker>())
+            r_checker.reset_ctx();
         // Initialize point at zero
         std::vector<GSymbolV> stack{GSymbolV(tokens[0].value, tokens[0].type)};
         std::size_t i = 1;
@@ -713,7 +717,27 @@ protected:
                     }
 
                     // We need to cover all stack with one iteration
-                    return success && index + i == stack.size();
+                    bool match_success = success && index + i == stack.size();
+                    if (!match_success) return false;
+
+                    if constexpr (enabled<SRConfEnum::ReducibilityChecker>())
+                    {
+                        // We need to check if at least one top-level rule will be able to reduce the stack
+                        // This routine requires the stack to have the match to be applied
+                        std::vector<GSymbolV> stack_copy(stack.begin(), stack.begin() + i);
+                        stack_copy.push_back(GSymbolV(TokenTSet(intersect[k])));
+                        bool ok = r_checker.can_reduce(match, stack.size(), defs, [&](std::size_t index_stack, const auto& def_r){
+                            std::size_t index_check = 0;
+                            descend_batch_runtime(stack_copy, index_stack, def_r, index_check);
+                            return index_check;
+                        });
+
+                        if (ok)
+                            r_checker.apply_reduce(match); // We need to update context in any case
+                        else if (enabled<SRConfEnum::PrettyPrint>())
+                            std::cout << "  rc(1) doesn't allow to reduce" << std::endl;
+                        return ok;
+                    } else return true;
                 });
 
                 if (!found) continue;
@@ -931,26 +955,50 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
     auto symbols_ht = symbols_ht_factory<TokenType>(rules); //SymbolsHashTableFactory().build<TokenType>(root);
     // Initialize terms2nterms map
     auto terms_map = terms_map_factory(rules); //TermsMapFactory::build(root);
+    // Initialize nterms2defs map
+    auto defs = NTermsConstHashTable(rules);
 
     // Get tokens container class
     using TokenSetClass = typename TLexer::TokenSetClass;
 
-    // Parser init
-    if constexpr (conf.template flag<SRConfEnum::Lookahead>())
-    {
-        auto defs = NTermsConstHashTable(rules);
-        auto look = simple_lookahead_factory(rr_tree, defs);
-        if constexpr (conf.template flag<SRConfEnum::PrettyPrint>())
+    auto instantiate_parser = [&](const auto& lookahead, const auto& rchecker){
+        return SRParser<VStr, TokenType, TokenSetClass, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), std::decay_t<decltype(lookahead)>, std::decay_t<decltype(rchecker)>>(rules, rr_tree, symbols_ht, terms_map, conf, lookahead, rchecker);
+    };
+
+    auto instantiate_lookahead = [&](){
+        if constexpr (conf.template flag<SRConfEnum::Lookahead>())
         {
-            std::cout << "  REVERSE RULES TREE : " << std::endl;
-            rr_tree.template prettyprint<VStr>();
-            look.template prettyprint<VStr>();
-            std::cout << "  LEXER TERMS TYPES : " << std::endl;
-            lex.prettyprint();
+            auto look = simple_lookahead_factory(rr_tree, defs);
+            if constexpr (conf.template flag<SRConfEnum::PrettyPrint>())
+            {
+                std::cout << "  REVERSE RULES TREE : " << std::endl;
+                rr_tree.template prettyprint<VStr>();
+                look.template prettyprint<VStr>();
+                std::cout << "  LEXER TERMS TYPES : " << std::endl;
+                lex.prettyprint();
+            }
+            return look;
+        } else
+            return NoLookahead();
+    };
+
+    auto instantiate_rchecker = [&](){
+        if constexpr (conf.template flag<SRConfEnum::ReducibilityChecker>())
+        {
+            auto checker = make_reducibility_checker1(rr_tree, defs);
+            if constexpr (conf.template flag<SRConfEnum::PrettyPrint>())
+            {
+                std::cout << "  RC(1) match -> {related_rule, first_pos}... : " << std::endl;
+                checker.template prettyprint<VStr>();
+            }
+            return checker;
         }
-        return SRParser<VStr, TokenType, TokenSetClass, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), decltype(look)>(rules, rr_tree, symbols_ht, terms_map, conf, look);
-    } else
-        return SRParser<VStr, TokenType, TokenSetClass, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), NoLookahead>(rules, rr_tree, symbols_ht, terms_map, conf, NoLookahead());
+        else
+            return NoReducibilityChecker();
+    };
+
+    // Parser init
+    return instantiate_parser(instantiate_lookahead(), instantiate_rchecker());
 }
 
 
