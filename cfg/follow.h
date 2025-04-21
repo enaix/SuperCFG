@@ -343,7 +343,7 @@ public:
     template<class Target, class TSymbol>
     constexpr bool can_reduce(const Target& match, const TSymbol& next) const
     {
-        return !tuple_contains_v<TSymbol, decltype(get(match))>;
+        return !tuple_contains_v<std::decay_t<TSymbol>, std::decay_t<decltype(get(match))>>;
     }
 
 protected:

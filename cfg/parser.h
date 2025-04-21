@@ -710,7 +710,7 @@ protected:
 
                     std::size_t index = 0;
 
-                    bool success = descend_batch_runtime(stack, i, def, index);
+                    bool success = descend_batch_runtime(stack, i, def, index, [](const auto&... args){});
                     if constexpr (enabled<SRConfEnum::PrettyPrint>())
                     {
                         std::cout << "  " << "found : " << success << ", i: " << index << "/" << stack.size() - i << std::endl;
@@ -724,12 +724,15 @@ protected:
                     {
                         // We need to check if at least one top-level rule will be able to reduce the stack
                         // This routine requires the stack to have the match to be applied
-                        std::vector<GSymbolV> stack_copy(stack.begin(), stack.begin() + i);
+                        std::vector<GSymbolV> stack_copy(stack.begin(), stack.begin() + i); // keep [0 - i-1]
                         stack_copy.push_back(GSymbolV(TokenTSet(intersect[k])));
-                        bool ok = r_checker.can_reduce(match, stack.size(), defs, [&](std::size_t index_stack, const auto& def_r){
-                            std::size_t index_check = 0;
-                            descend_batch_runtime(stack_copy, index_stack, def_r, index_check);
-                            return index_check;
+                        bool ok = r_checker.can_reduce(match, stack_copy.size(), defs, [&](std::size_t index_stack, const auto& def_r){
+                            std::size_t index_check = 0, index_check_max = 0;
+                            descend_batch_runtime(stack_copy, index_stack, def_r, index_check, [&](const std::size_t ind, bool match_ok){
+                                // Handle lost index
+                                if (ind > index_check_max) index_check_max = ind;
+                            });
+                            return std::max(index_check, index_check_max);
                         });
 
                         if (ok)
@@ -852,7 +855,7 @@ protected:
     }
 
     template<class TSymbol>
-    constexpr bool descend_batch_runtime(const std::vector<GSymbolV>& stack, std::size_t start, const TSymbol& symbol, std::size_t& index) const
+    constexpr bool descend_batch_runtime(const std::vector<GSymbolV>& stack, std::size_t start, const TSymbol& symbol, std::size_t& index, auto handle_index) const
     {
         if (start + index >= stack.size()) return false;
 
@@ -862,46 +865,48 @@ protected:
             {
                 std::size_t index_stack = index;
                 bool ok = symbol.each_or_exit([&](const auto& s) -> bool {
-                    if (!descend_batch_runtime(stack, start, s, index_stack))
+                    if (!descend_batch_runtime(stack, start, s, index_stack, handle_index))
                         return false; // Didn't find anything
                     return true; // Continue
                 });
                 if (ok) index = index_stack;
+                handle_index(index_stack, ok); // We need to handle case when index_stack is lost
                 return ok;
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Alter)
             {
                 // Get each element and check if at least one matches
                 return !symbol.each_or_exit([&](const auto& s) -> bool {
-                    if (descend_batch_runtime(stack, start, s, index)) return false; // Found
+                    if (descend_batch_runtime(stack, start, s, index, handle_index)) return false; // Found
                     return true; // Continue
                 });
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Optional)
             {
                 // Try to match if we can, just return true anyway
-                return descend_batch_runtime(stack, start, std::get<0>(symbol.terms), index);
+                return descend_batch_runtime(stack, start, std::get<0>(symbol.terms), index, handle_index);
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Repeat)
             {
-                while (descend_batch_runtime(stack, start, std::get<0>(symbol.terms), index)) {}
+                while (descend_batch_runtime(stack, start, std::get<0>(symbol.terms), index, handle_index)) {}
                 return true;
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Group)
             {
-                return descend_batch_runtime(stack, start, std::get<0>(symbol.terms), index);
+                return descend_batch_runtime(stack, start, std::get<0>(symbol.terms), index, handle_index);
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Except)
             {
                 std::size_t i = index;
-                if (descend_batch_runtime(stack, start, std::get<0>(symbol.terms), i))
+                if (descend_batch_runtime(stack, start, std::get<0>(symbol.terms), i, handle_index))
                 {
                     // Check if the symbol is an exception
-                    if (!descend_batch_runtime(stack, start, std::get<1>(symbol.terms), i))
+                    if (!descend_batch_runtime(stack, start, std::get<1>(symbol.terms), i, handle_index))
                     {
                         index = i;
                         return true;
                     }
+                    handle_index(i, false); // Else we need to store the lost index
                 }
                 return false;
             }
@@ -985,10 +990,10 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
     auto instantiate_rchecker = [&](){
         if constexpr (conf.template flag<SRConfEnum::ReducibilityChecker>())
         {
-            auto checker = make_reducibility_checker1(rr_tree, defs);
+            auto checker = make_reducibility_checker1<conf.template flag<SRConfEnum::PrettyPrint>()>(rr_tree, defs);
             if constexpr (conf.template flag<SRConfEnum::PrettyPrint>())
             {
-                std::cout << "  RC(1) match -> {related_rule, first_pos}... : " << std::endl;
+                std::cout << "  RC(1) match -> {related_rule, first_pos} : " << std::endl;
                 checker.template prettyprint<VStr>();
             }
             return checker;

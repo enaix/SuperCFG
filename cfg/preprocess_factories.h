@@ -400,12 +400,12 @@ auto terms_type_map_factory(const TypesCache& cache)
 }
 
 
-template<class RRTree, class NTermsMap>
+template<bool do_prettyprint, class RRTree, class NTermsMap>
 constexpr auto make_reducibility_checker1(const RRTree& tree, const NTermsMap& nterms2defs)
 {
     const auto all_related_rules = tuple_unique(tuple_flatten_layer(tree.tree)); // Get a tuple of all unique related rules
     const auto pairs = cfg_helpers::rc1_get_match<0>(tree.defs, tree.tree, nterms2defs);
-    return ReducibilityChecker1<decltype(tree.defs), decltype(pairs), decltype(all_related_rules)>(tree.defs, pairs, all_related_rules);
+    return ReducibilityChecker1<decltype(tree.defs), decltype(pairs), decltype(all_related_rules), do_prettyprint>(tree.defs, pairs, all_related_rules);
 }
 
 

@@ -757,7 +757,7 @@ protected:
 /**
  * @brief A class that checks if a matching element can be reduced in current parsing context. The check is performed for 1 step ahead. At the initial step,
  */
-template<class TMatches, class RulesPosPairs, class TRules>
+template<class TMatches, class RulesPosPairs, class TRules, bool do_prettyprint>
 class ReducibilityChecker1
 {
 public:
@@ -791,22 +791,28 @@ public:
         return tuple_each_or_return(res, [&](std::size_t i, const auto& rule_pair){
             const auto& [rule, first_pos] = rule_pair;
             constexpr std::size_t ctx_pos = get_ctx_index<0, std::decay_t<decltype(rule)>>();
-
+            static_assert(ctx_pos < std::tuple_size_v<TRules>, "RC(1) : could not find reverse rule");
             // Check if the context exists
+            // Note: it cannot solve rules with common prefixes
             if (context[ctx_pos] != std::numeric_limits<std::size_t>::max())
             {
                 // Context already exists, we should start from position
                 // It can be disabled for lazy evaluation
+                if constexpr (do_prettyprint)
+                    std::cout << "  rc : " << rule.type() << " : currently in ctx" << std::endl;
                 return true;
             } else {
                 // No context found, pick the first appearance of char
-
+                if constexpr (do_prettyprint)
+                    std::cout << "  rc : " << rule.type();
                 // Out of bounds check: the rule cannot fit in current stack
                 if (first_pos() >= stack_size)
                     return false; // Continue
 
                 std::size_t stack_i = stack_size - 1 - first_pos();
                 std::size_t parsed = descend(stack_i, std::get<1>(terms2nterms.get(rule)->terms));
+                if constexpr (do_prettyprint)
+                    std::cout << ", i: " << stack_i << ", parsed: " << parsed << "/" << first_pos();
                 if (parsed >= first_pos()) // We can theoretically reduce everything up to this symbol OR there is no match at all
                 {
                     context[ctx_pos] = stack_i; // Successful match
@@ -857,7 +863,7 @@ protected:
     template<std::size_t depth, class TSymbol>
     void do_apply_reduce(const TSymbol& symbol)
     {
-        if constexpr (std::is_same_v<std::tuple_element_t<depth, TRules>, std::decay_t<TSymbol>>)
+        if constexpr (std::is_same_v<std::decay_t<std::tuple_element_t<depth, TRules>>, std::decay_t<TSymbol>>)
             context[depth] = std::numeric_limits<std::size_t>::max(); // Reset context
         else
         {
@@ -871,16 +877,13 @@ protected:
     [[nodiscard]] static constexpr std::size_t get_ctx_index()
     {
         if constexpr (depth >= std::tuple_size_v<TRules>)
-            return 0;
+            return std::numeric_limits<std::size_t>::max(); // No such symbol
         else
         {
-            if constexpr (std::is_same_v<std::tuple_element_t<depth, TRules>, std::decay_t<TSymbol>>)
+            if constexpr (std::is_same_v<std::decay_t<std::tuple_element_t<depth, TRules>>, std::decay_t<TSymbol>>)
                 return depth;
             else
-            {
                 return get_ctx_index<depth+1, TSymbol>();
-                // Else we don't care about this symbol
-            }
         }
     }
 
