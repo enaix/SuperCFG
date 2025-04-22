@@ -304,44 +304,96 @@ namespace cfg_helpers
             return std::make_tuple(res);
     }
 
-    /*template<std::size_t i, class TRange, class TSybmol>
-    static constexpr bool get_terms_intersection_symbols_ab_step()
+    template<std::size_t i, class TRange, class TSybmol>
+    constexpr auto get_terms_intersection_symbols_ab_step(const TRange& range, const TSybmol& s, const auto& value_lhs, const auto& value_rhs)
     {
         // Need to cover cases where i > 0 (multiple chars in TSymbol)
         // Range + symbol : (   * ) -> (    ) * ( )
         // (Another call) : ( *   ) -> ( ) * (    )
         // Result (next)  :            ( )( )( )( )
-        if constexpr (TSybmol::_name_type::template at<i>() >= TRange::_name_type_start::template at<0>() && TSybmol::_name_type::template at<i>() <= TRange::_name_type_end::template at<0>())
-            return true;
+        constexpr auto range_start = TRange::_name_type_start::template at<0>();
+        constexpr auto range_end = TRange::_name_type_end::template at<0>();
+        constexpr auto term_char = TSybmol::_name_type::template at<i>();
+
+        //using mkchar = TSybmol::_name_type::make();
+
+        if constexpr (in_lexical_range(term_char, range_start, range_end))
+        {
+            const auto v_union = tuple_unique(std::tuple_cat(value_lhs, value_rhs));
+            if constexpr (in_lexical_range_strict(term_char, range_start, range_end))
+            {
+                // Get 2 new ranges
+                constexpr auto res = lexical_intersect(term_char, range_start, range_end);
+                constexpr auto l_pair = res.first, r_pair = res.second;
+                return std::make_tuple(
+                    std::make_pair(TermsRange(range.start.template make<l_pair.first>(), range.start.template make<l_pair.second>()), value_lhs), // First range
+                    std::make_pair(TermsRange(range.start.template make<r_pair.first>(), range.start.template make<r_pair.second>()), value_lhs), // Second range
+                    std::make_pair(s, v_union)); // Symbol
+            } else {
+                // Edge case
+                const auto [start, end] = lexical_intersect_edge(term_char, range_start, range_end);
+                return std::make_tuple(std::make_pair(TermsRange(range.start.template make<start>(), range.start.template make<end>()), value_lhs),
+                    std::make_pair(s, v_union));
+            }
+        }
         else
         {
             if constexpr (i + 1 < TSybmol::_name_type::size())
-                return get_terms_intersection_symbols_ab_step<i+1, TRange, TSybmol>();
-            else return false;
+                return get_terms_intersection_symbols_ab_step<i+1>(range, s, value_lhs, value_rhs);
+            else return std::tuple<>();
         }
     }
 
     template<class TRange, class TSybmol>
-    static constexpr bool get_terms_intersection_symbols_ab()
+    constexpr auto get_terms_intersection_symbols_ab(const TRange& range, const TSybmol& s, const auto& value_lhs, const auto& value_rhs)
+    {
+        return get_terms_intersection_symbols_ab_step<0>(range, s, value_lhs, value_rhs);
+    }
+
+    template<class TRangeA, class TRangeB>
+    constexpr auto get_terms_intersection_ranges(const TRangeA& range_a, const TRangeB& range_b, const auto& value_lhs, const auto& value_rhs)
     {
         // Iterate over a term and check each symbol
-        return get_terms_intersection_symbols_ab_step<0, TRange, TSybmol>();
+        constexpr auto a_start = TRangeA::_name_type_start::template at<0>();
+        constexpr auto a_end = TRangeA::_name_type_end::template at<0>();
+        constexpr auto b_start = TRangeB::_name_type_start::template at<0>();
+        constexpr auto b_end = TRangeB::_name_type_end::template at<0>();
+
+        //using char_t = typename TRangeA::_name_type_start::char_t;
+        //using mkchar = typename TRangeA::_name_type_start::make<char_t>();
+
+        // [   ( ]   )  or  [  (   )  ]
+        if constexpr (in_lexical_range(a_start, a_end, b_start, b_end))
+        {
+            auto new_symbol = [&]<const auto start, const auto end>(auto value){
+                if constexpr (start == end)
+                    return std::make_pair(Term(range_a.start.template make<start>()), value);
+                else
+                    return std::make_pair(TermsRange(range_a.start.template make<start>(), range_a.start.template make<end>()), value);
+            };
+            constexpr auto pairs = lexical_ranges_intersect(a_start, a_end, b_start, b_end);
+            constexpr auto a_new = std::get<0>(pairs), intersect = std::get<1>(pairs), b_new = std::get<2>(pairs);
+
+            const auto v_union = tuple_unique(std::tuple_cat(value_lhs, value_rhs));
+
+            return std::make_tuple(new_symbol.template operator()<a_new.first, a_new.second>(value_lhs), new_symbol.template operator()<intersect.first, intersect.second>(v_union), new_symbol.template operator()<b_new.first, b_new.second>(value_rhs));
+        } else return std::tuple<>();
     }
 
     template<class TSymbolA, class TSymbolB>
-    constexpr auto get_terms_intersection_symbols()
+    constexpr auto get_terms_intersection_symbols(const TSymbolA& a, const TSymbolB& b, const auto& value_lhs, const auto& value_rhs)
     {
         if constexpr (is_term<TSymbolA>() && is_terms_range<TSymbolB>())
             // Term and TermsRange
-            return get_terms_intersection_symbols_ab<TSymbolB, TSymbolA>();
+            return get_terms_intersection_symbols_ab(b, a, value_rhs, value_lhs);
         else if constexpr (is_terms_range<TSymbolA>() && is_term<TSymbolB>())
             // Term and TermsRange
-            return get_terms_intersection_symbols_ab<TSymbolA, TSymbolB>();
+            return get_terms_intersection_symbols_ab(a, b, value_lhs, value_rhs);
         else if constexpr (is_terms_range<TSymbolA>() && is_terms_range<TSymbolB>())
             // Both are TermsRange
-                return check_intersect_ranges<TSymbolA, TSymbolB>();
-        else return false;
-    }*/
+            return get_terms_intersection_ranges(a, b, value_lhs, value_rhs);
+        else return std::tuple<>();
+    }
 };
 
 
@@ -405,7 +457,7 @@ auto terms_type_map_factory(const TypesCache& cache)
     // We also need to concat keys and values
     if constexpr (handle_duplicate_types)
     {
-        auto terms_map = tuple_morph_each(cache.all_terms, [&](std::size_t i, const auto& elem){ return std::make_pair(elem, cfg_helpers::find_term_in_cache_all<0>(elem, cache)); });
+        /*auto terms_map = tuple_morph_each(cache.all_terms, [&](std::size_t i, const auto& elem){ return std::make_pair(elem, cfg_helpers::find_term_in_cache_all<0>(elem, cache)); });
         // Now we need to handle duplicate terms
         auto terms_map_union = tuple_apply_pairwise_if<PairwiseLambdaRT::CustomReturnType>(terms_map, [&]<std::size_t i, std::size_t j>(const auto& lhs, const auto& rhs){
             const auto [key_lhs, value_lhs] = lhs;
@@ -430,6 +482,26 @@ auto terms_type_map_factory(const TypesCache& cache)
 
         auto keys = tuple_take_along_axis<0>(terms_map_union);
         auto values = tuple_take_along_axis<1>(terms_map_union);
+
+        return TermsTypeMap<VStr, TokenType, std::decay_t<decltype(keys)>, std::decay_t<decltype(values)>>(keys, values);*/
+        auto collapse = [&](const auto& lhs, const auto& rhs){
+            const auto& [a, value_lhs] = lhs;
+            const auto& [b, value_rhs] = rhs;
+            // auto c = std::get<42>(b);
+            if constexpr (std::is_same_v<std::decay_t<decltype(a)>, std::decay_t<decltype(b)>>)
+            {
+                // Calculate the union between 2 values
+                auto value = tuple_unique(std::tuple_cat(value_lhs, value_rhs));
+                //auto c = std::get<42>(value);
+                return std::make_tuple(std::make_pair(a, value)); // Return the union of 2 types
+            }
+            else return cfg_helpers::get_terms_intersection_symbols(a, b, value_lhs, value_rhs);
+        };
+        const auto elems = tuple_morph_each(cache.all_terms, [&](std::size_t i, const auto& elem){ return std::make_pair(elem, cfg_helpers::find_term_in_cache_all<0>(elem, cache)); });
+        const auto res = tuple_pairwise_collapse(elems, collapse);
+
+        auto keys = tuple_take_along_axis<0>(res);
+        auto values = tuple_take_along_axis<1>(res);
 
         return TermsTypeMap<VStr, TokenType, std::decay_t<decltype(keys)>, std::decay_t<decltype(values)>>(keys, values);
     } else {

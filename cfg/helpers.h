@@ -392,23 +392,30 @@ namespace cfg_helpers
     template<std::size_t i, class Collapsed, class TElem>
     constexpr auto perform_collapse(const Collapsed& lhs, const TElem& elem, auto collapse)
     {
-        const auto& lhs_i = std::get<i>(lhs);
-        const auto res = collapse(elem, lhs_i);
-
-        if constexpr (i + 1 < std::tuple_size_v<Collapsed>)
+        if constexpr (i >= std::tuple_size_v<Collapsed>)
+            return std::make_pair(std::tuple<>(), std::tuple<>());
+        else
         {
+            const auto& lhs_i = std::get<i>(lhs);
+            const auto res = collapse(elem, lhs_i);
+
             const auto [new_elems, collapsed_next] = perform_collapse<i+1>(lhs, elem, collapse);
             // No new elements, we should include lhs[i] in collapsed
             if constexpr (std::tuple_size_v<std::decay_t<decltype(res)>> == 0)
                 return std::make_pair(new_elems, std::tuple_cat(std::make_tuple(lhs_i), collapsed_next));
             else
                 return std::make_pair(std::tuple_cat(res, new_elems), collapsed_next);
+        }
+
+        /*if constexpr (i + 1 < std::tuple_size_v<Collapsed>)
+        {
+
         } else {
             if constexpr (std::tuple_size_v<std::decay_t<decltype(res)>> == 0)
                 return std::make_pair(res, std::make_tuple(lhs_i));
             else
                 return std::make_pair(res, std::tuple<>());
-        }
+        }*/
     }
 
     template<class Collapsed, class ToCollapse>
@@ -421,7 +428,11 @@ namespace cfg_helpers
             // We need to take one element from ToCollapse and apply the pairwise collapse() operation
             const auto& next = std::get<0>(rhs);
             const auto [new_elems, collapsed] = perform_collapse<0>(lhs, next, collapse);
-            return do_tuple_pairwise_collapse(collapsed, std::tuple_cat(new_elems, tup_slice.template operator()<1, std::tuple_size_v<ToCollapse>>(rhs)));
+
+            if constexpr (std::tuple_size_v<std::decay_t<decltype(new_elems)>> == 0) // No collapse was preformed -> add next to collapsed
+                return do_tuple_pairwise_collapse(std::tuple_cat(collapsed, std::make_tuple(next)), tup_slice.template operator()<1, std::tuple_size_v<ToCollapse>>(rhs), collapse, tup_slice);
+            else
+                return do_tuple_pairwise_collapse(collapsed, std::tuple_cat(new_elems, tup_slice.template operator()<1, std::tuple_size_v<ToCollapse>>(rhs)), collapse, tup_slice);
         }
     }
 } // cfg_helpers
@@ -632,7 +643,7 @@ constexpr auto tuple_flatten_layer(const SrcTuple& src)
 template<std::size_t Start, std::size_t End, class Tuple>
 constexpr auto tuple_slice(const Tuple& tuple)
 {
-    constexpr std::size_t max = (End <= std::tuple_size_v<Tuple>() ? End : std::tuple_size_v<Tuple>());
+    constexpr std::size_t max = (End <= std::tuple_size_v<Tuple> ? End : std::tuple_size_v<Tuple>);
     return cfg_helpers::do_tuple_slice<Start>(tuple, std::make_index_sequence<max - Start>{});
 }
 

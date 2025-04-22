@@ -70,6 +70,8 @@ public:
 
     constexpr explicit ConstStrContainer(const char *c) { std::copy_n(c, SIZE, str); }
 
+    constexpr explicit ConstStrContainer(const char c) { str[0] = c; str[1] = '\0'; }
+
     template<std::size_t N, std::size_t M>
     constexpr explicit ConstStrContainer(const char (&lhs)[N], const char (&rhs)[M])
     {
@@ -160,6 +162,9 @@ public:
     template<ConstStrContainer C>
     static constexpr auto make() { return ConstStr<C.str>(); } // Convenient wrapper for CStr constructor
 
+    template<char_t c>
+    static constexpr auto make() { return ConstStr<ConstStrContainer<2>(c)>(); }
+
     template<ConstStrContainer RHS>
     constexpr auto concat(const ConstStr<RHS>& rhs) const
     {
@@ -242,10 +247,80 @@ constexpr void lexical_range(auto func)
     return cfg_helpers::do_lexical_range<0, TChar, start, end>(func);
 }
 
+
+/**
+ * @brief Check if a char is in range [start, end]
+ */
 template<class TChar>
 constexpr bool in_lexical_range(TChar c, TChar start, TChar end)
 {
     return (start <= c) && (c <= end);
+}
+
+/**
+ * @brief Check if a char is in range (start, end)
+ */
+template<class TChar>
+constexpr bool in_lexical_range_strict(TChar c, TChar start, TChar end)
+{
+    return (start < c) && (c < end);
+}
+
+/**
+ * @brief For a range [start..., c, ...end] lexical_intersect returns ranges [start, c), (c, end]. Does not handle cases when start or end is equal to c
+ */
+template<class TChar>
+constexpr auto lexical_intersect(TChar c, TChar start, TChar end)
+{
+    return std::make_pair(std::make_pair(start, static_cast<TChar>(static_cast<std::size_t>(c) - 1)), std::make_pair(static_cast<TChar>(static_cast<std::size_t>(c) + 1), end));
+}
+
+/**
+ * @brief For a range [start, end] and c=start OR c=end lexical_intersect_edge returns (start, end] OR [start, end)
+ */
+template<class TChar>
+constexpr auto lexical_intersect_edge(TChar c, TChar start, TChar end)
+{
+    if (c == start)
+        return std::make_pair(static_cast<TChar>(static_cast<std::size_t>(start) + 1), end);
+    return std::make_pair(start, static_cast<TChar>(static_cast<std::size_t>(end) - 1));
+}
+
+
+/**
+ * @brief Check if ranges [start_lhs, end_lhs], [start_rhs, end_rhs] intersect
+ */
+template<class TChar>
+constexpr bool in_lexical_range(TChar start_lhs, TChar end_lhs, TChar start_rhs, TChar end_rhs)
+{
+    // [   ( ]   )  or  [  (   )  ]
+    return (start_rhs <= end_lhs && end_rhs >= start_lhs) || (start_lhs <= end_rhs || end_lhs >= start_rhs);
+}
+
+
+/**
+ * @brief For ranges [start_lhs, end_lhs] and [start_rhs, end_rhs] lexical_ranges_intersect returns a tuple of 3 ranges: [lhs, intersect, rhs]. Intersect may be a singleton (c, c)
+ */
+template<class TChar>
+constexpr auto lexical_ranges_intersect(TChar a_start, TChar a_end, TChar b_start, TChar b_end)
+{
+    using range_type = std::pair<TChar, TChar>;
+
+    // Calculate intersection boundaries
+    const TChar intersect_start = a_start > b_start ? a_start : b_start; // std::max(a_start, b_start)
+    const TChar intersect_end = a_end < b_end ? a_end : b_end;           // std::min(a_end,   b_end  )
+
+    const range_type a_new = intersect_start > a_start ?
+        range_type(a_start, static_cast<TChar>(static_cast<std::size_t>(intersect_start) - 1)) : // [a_start, i_start)
+        range_type(static_cast<TChar>(static_cast<std::size_t>(intersect_end) + 1), a_end);      // (i_end, a_end]
+
+    const range_type intersect = range_type(intersect_start, intersect_end);
+
+    const range_type b_new = intersect_end < b_end ?
+        range_type(static_cast<TChar>(static_cast<std::size_t>(intersect_end) + 1), b_end) :    // (i_end, b_end]
+        range_type(b_start, static_cast<TChar>(static_cast<std::size_t>(intersect_start) - 1)); // [b_start, i_start)
+
+    return std::make_tuple(a_new, intersect, b_new);
 }
 
 
