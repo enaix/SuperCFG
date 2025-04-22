@@ -290,9 +290,7 @@ protected:
     {
         static_assert(depth < std::tuple_size_v<TDefsTuple>, "NTerm type not found");
         if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::tuple_element_t<0, typename std::tuple_element_t<depth, TDefsTuple>::term_types_tuple>>)
-        {
             return std::get<depth>(terms);
-        }
         else return do_get<depth + 1, TSymbol>(symbol);
     }
 };
@@ -345,11 +343,15 @@ protected:
         const auto value = TypeSet<TokenType>(tuple_morph([]<std::size_t k>(const auto& src){ return VStr(std::get<k>(src).type()); }, std::get<i>(nterms)));
 
         if constexpr (is_term<decltype(symbol)>())
+        {
             storage.insert({VStr(std::get<i>(terms).type()), value});
+        }
         else
         {
             // Terms range
-            symbol.each_range([&](const auto s){ storage.insert({VStr(s), value}); });
+            symbol.each_range([&](const auto s){
+                storage.insert({VStr(s), value});
+            });
         }
         if constexpr (i + 1 < std::tuple_size_v<std::decay_t<TermsTuple>>)
             populate_ht<i+1>();
@@ -577,7 +579,15 @@ public:
 
         //        assert(pos == text.size() && "Tokenization error: found unrecognized tokens");
         ok = (pos == text.size());
+        //print_tokens(tokens);
         return tokens;
+    }
+
+    void print_tokens(const std::vector<Token<VStr, TypeSet<TokenType>>>& tokens) const
+    {
+        for (const auto& tok : tokens)
+            std::cout << "{" << tok.value << ", " << tok.type << "} ";
+        std::cout << std::endl;
     }
 
     void prettyprint() const { do_print<0>(); }

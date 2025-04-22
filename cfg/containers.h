@@ -131,7 +131,7 @@ namespace cfg_helpers
     constexpr void do_lexical_range(auto func)
     {
         func(static_cast<TChar>(static_cast<std::size_t>(start) + i));
-        if constexpr (i + 1 <= static_cast<std::size_t>(end))
+        if constexpr (static_cast<std::size_t>(start) + i + 1 <= static_cast<std::size_t>(end))
             return do_lexical_range<i+1, TChar, start, end>(func);
     }
 }

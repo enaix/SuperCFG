@@ -196,7 +196,7 @@ namespace cfg_helpers
     constexpr auto find_term_in_cache_all(const TSymbol& symbol, const TypesCache& cache)
     {
         // Check if the symbol is present in cache
-        if constexpr (tuple_each_type_or_return<std::tuple_element_t<i, std::decay_t<decltype(cache.terms)>>>([&]<std::size_t j, class TElem>() constexpr { return terms_intersect_v<TSymbol, std::decay_t<TElem>>; }))
+        if constexpr (tuple_each_type_or_return<std::tuple_element_t<i, std::decay_t<decltype(cache.terms)>>>([&]<std::size_t j, class TElem>() constexpr { return std::is_same_v<std::decay_t<TSymbol>, std::decay_t<TElem>>; }))
         {
             if constexpr (i + 1 < std::tuple_size_v<std::decay_t<decltype(cache.terms)>>)
                 return std::tuple_cat(std::make_tuple(std::get<i>(cache.defs)), find_term_in_cache_all<i+1>(symbol, cache));
@@ -328,13 +328,13 @@ namespace cfg_helpers
                 return std::make_tuple(
                     std::make_pair(TermsRange(range.start.template make<l_pair.first>(), range.start.template make<l_pair.second>()), value_lhs), // First range
                     std::make_pair(TermsRange(range.start.template make<r_pair.first>(), range.start.template make<r_pair.second>()), value_lhs), // Second range
-                    std::make_pair(s, v_union)); // Symbol
+                    std::make_pair(Term(range.start.template make<term_char>()), v_union)); // Symbol
             } else {
                 // Edge case
                 constexpr auto pair = lexical_intersect_edge(term_char, range_start, range_end);
                 constexpr auto start = pair.first, end = pair.second;
                 return std::make_tuple(std::make_pair(TermsRange(range.start.template make<start>(), range.start.template make<end>()), value_lhs),
-                    std::make_pair(s, v_union));
+                    std::make_pair(Term(range.start.template make<term_char>()), v_union));
             }
         }
         else
@@ -405,6 +405,7 @@ namespace cfg_helpers
         else if constexpr (is_terms_range<TSymbolA>() && is_terms_range<TSymbolB>())
             // Both are TermsRange
             return get_terms_intersection_ranges(a, b, value_lhs, value_rhs);
+            //return std::tuple<>();
         else return std::tuple<>();
     }
 };
