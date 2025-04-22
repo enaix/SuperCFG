@@ -644,7 +644,10 @@ template<std::size_t Start, std::size_t End, class Tuple>
 constexpr auto tuple_slice(const Tuple& tuple)
 {
     constexpr std::size_t max = (End <= std::tuple_size_v<Tuple> ? End : std::tuple_size_v<Tuple>);
-    return cfg_helpers::do_tuple_slice<Start>(tuple, std::make_index_sequence<max - Start>{});
+    if constexpr (Start == max)
+        return std::tuple<>();
+    else
+        return cfg_helpers::do_tuple_slice<Start>(tuple, std::make_index_sequence<max - Start>{});
 }
 
 
