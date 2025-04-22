@@ -781,7 +781,7 @@ public:
     /**
      * @brief Reset the context of the array. Should be performed at the start of parsing
      */
-    void reset_ctx() { context.fill(std::numeric_limits<std::size_t>::max()); }
+    void reset_ctx() { context.fill(0); }
 
     /**
      * @brief Check if a symbol can be reduced in the current context.
@@ -804,17 +804,8 @@ public:
             static_assert(ctx_pos < std::tuple_size_v<TRules>, "RC(1) : could not find reverse rule");
             // Check if the context exists
             // Note: it cannot solve rules with common prefixes
-            if (context[ctx_pos] != std::numeric_limits<std::size_t>::max())
-            {
-                // Context already exists, we should start from position
-                // It can be disabled for lazy evaluation
-                if constexpr (do_prettyprint)
-                    std::cout << "  rc : " << rule.type() << " : currently in ctx" << std::endl;
-                return true;
-            } else {
-                // No context found, pick the first appearance of char
-                if constexpr (do_prettyprint)
-                    std::cout << "  rc : " << rule.type();
+
+            auto perform_check_at_symbol_start = [&](){
                 // Out of bounds check: the rule cannot fit in current stack
                 if (first_pos() >= stack_size)
                     return false; // Continue
@@ -822,13 +813,29 @@ public:
                 std::size_t stack_i = stack_size - 1 - first_pos();
                 std::size_t parsed = descend(stack_i, std::get<1>(terms2nterms.get(rule)->terms));
                 if constexpr (do_prettyprint)
-                    std::cout << ", i: " << stack_i << ", parsed: " << parsed << "/" << first_pos();
+                    std::cout << ", i: " << stack_i << ", parsed: " << parsed << "/" << first_pos() << std::endl;
                 if (parsed >= first_pos()) // We can theoretically reduce everything up to this symbol OR there is no match at all
                 {
-                    context[ctx_pos] = stack_i; // Successful match
+                    context[ctx_pos]++; // Successful match
                     return true;
                 }
                 return false;
+            };
+
+            if (context[ctx_pos] > 0)
+            {
+                // Context already exists, we should start from position
+                // It can be disabled for lazy evaluation
+                if constexpr (do_prettyprint)
+                    std::cout << "  rc : " << rule.type() << " : currently in ctx" << std::endl;
+                // If there is a match at symbol start, then we have descended inside and need to increment the ctx
+                perform_check_at_symbol_start(); // ctx++
+                return true;
+            } else {
+                // No context found, pick the first appearance of char
+                if constexpr (do_prettyprint)
+                    std::cout << "  rc : " << rule.type();
+                return perform_check_at_symbol_start();
             }
         });
 
@@ -874,7 +881,7 @@ protected:
     void do_apply_reduce(const TSymbol& symbol)
     {
         if constexpr (std::is_same_v<std::decay_t<std::tuple_element_t<depth, TRules>>, std::decay_t<TSymbol>>)
-            context[depth] = std::numeric_limits<std::size_t>::max(); // Reset context
+            context[depth] = (context[depth] > 0 ? context[depth] - 1 : 0); // Reset context
         else
         {
             if constexpr (depth + 1 < std::tuple_size_v<TRules>)
