@@ -76,6 +76,8 @@ constexpr auto ruleset = RulesDef(d_digit, d_number);
 
 ### Parser Initialization and Usage
 
+Parser/lexer configuration flags are described [in `docs/CONFIGURATION.md`](docs/CONFIGURATION.md)
+
 Once you have defined your grammar, you can create and use the parser:
 
 ```cpp
@@ -90,7 +92,8 @@ using TokenType = StdStr<char>; // Class used for storing a token type in runtim
 // Configure the parser with desired options
 constexpr auto conf = mk_sr_parser_conf<
     SRConfEnum::PrettyPrint,  // Enable pretty printing for debugging
-    SRConfEnum::Lookahead>(); // Enable lookahead(1)
+    SRConfEnum::Lookahead,    // Enable lookahead(1)
+    SRConfEnum::ReducibilityChecker>(); // Enable RC(1), which checks for reducibility for one step ahead
 
 // Initialize the lexer
 // There are two lexer types available:
@@ -103,7 +106,8 @@ auto legacy_lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConf
 // Use this for complex grammars where the same token may appear in different rules
 // (e.g., in JSON grammar where ',' appears in both object members and other contexts)
 
-// HandleDuplicates flag enables terms range support and tokens which are present in >2 rules at once. Imposes compile-time overhead on grammars with a high number of terminals
+// HandleDuplicates flag enables terms range support and tokens which are present in >2 rules at once. Imposes significant compile-time overhead on grammars with high number of terminals
+// HandleDupInRuntime flag moves symbols intersections handling to the lexer initialization in runtime
 
 auto advanced_lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer, LexerConfEnum::HandleDuplicates>());
 

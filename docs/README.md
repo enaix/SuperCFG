@@ -1,3 +1,7 @@
+# Documentation
+
+- [Configuration](docs/CONFIGURATION.md)
+
 ## Feature progress
 
 ## Lexer
@@ -7,7 +11,7 @@
 ## Global
 
 - [X] Implement `TermsRange` operator with the new lexer
-- [ ] Verify that ranges intersections work correctly
+- [X] Verify that ranges intersections work correctly
 - [ ] Add unicode (wchar_t) support
 - [ ] **Analyze how to minimize JIT compilation time with Cling**
 - [ ] Add reverse baking operation for constructing a grammar from Bakery, add support for SuperCFG to build itself

@@ -80,7 +80,10 @@ int main()
 
     // Initialize the tokenizer
     //LexerLegacy<VStr, TokenType> lexer(ruleset);
-    auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer, LexerConfEnum::HandleDuplicates, LexerConfEnum::HandleDupInRuntime>());
+    auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<
+        LexerConfEnum::AdvancedLexer,    // Enable advanced lexer
+        LexerConfEnum::HandleDuplicates, // Handle duplicate tokens
+        LexerConfEnum::HandleDupInRuntime>());
 
     // Create the shift-reduce parser
     // TreeNode<VStr> is the AST class
