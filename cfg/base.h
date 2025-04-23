@@ -10,6 +10,7 @@
 #include <vector>
 #include <limits>
 #include "cfg/containers.h"
+#include "cfg/helpers_runtime.h"
 
 
 template<class VStr>

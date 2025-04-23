@@ -8,6 +8,7 @@
 #include "cfg/helpers.h"
 #include "cfg/preprocess.h"
 #include "cfg/base.h"
+#include "cfg/helpers_runtime.h"
 
 namespace cfg_helpers
 {
@@ -454,51 +455,14 @@ auto terms_tree_cache_factory(const RulesSymbol& rules)
     return TermsTreeCache<std::decay_t<decltype(defs)>, std::decay_t<decltype(terms)>, std::decay_t<decltype(all_terms)>>(defs, terms, all_terms);
 }
 
-template<class VStr, class TokenType, bool handle_duplicate_types, class TypesCache>
+template<class VStr, class TokenType, bool handle_duplicate_types, bool handle_dup_in_rt, class TypesCache>
 auto terms_type_map_factory(const TypesCache& cache)
 {
-    // Find duplicated terms
-    /*auto dup = tuple_apply_pairwise<true>(cache.all_terms, []<class ElemA, class ElemB>(const ElemA& lhs, const ElemB& rhs){
-        // Add check for range
-        if constexpr (std::is_same_v<std::decay_t<ElemA>, std::decay_t<ElemB>>)
-            return lhs;
-        else
-            return std::tuple<>();
-    });*/
-    //auto terms_map = std::tuple_cat(cfg_helpers::find_term_in_cache_all<0>(dup), cfg_helpers::find_term_in_cache_single<>())
-
     // It's faster to find all related elements in the cache
     // We also need to concat keys and values
 
-    if constexpr (handle_duplicate_types)
+    if constexpr (handle_duplicate_types && !handle_dup_in_rt)
     {
-        /*auto terms_map = tuple_morph_each(cache.all_terms, [&](std::size_t i, const auto& elem){ return std::make_pair(elem, cfg_helpers::find_term_in_cache_all<0>(elem, cache)); });
-        // Now we need to handle duplicate terms
-        auto terms_map_union = tuple_apply_pairwise_if<PairwiseLambdaRT::CustomReturnType>(terms_map, [&]<std::size_t i, std::size_t j>(const auto& lhs, const auto& rhs){
-            const auto [key_lhs, value_lhs] = lhs;
-            const auto [key_rhs, value_rhs] = rhs;
-            // If the types are equal
-            if constexpr (std::is_same_v<std::decay_t<decltype(key_lhs)>, std::decay_t<decltype(key_rhs)>>)
-            {
-                // Calculate the union between 2 values
-                auto value = tuple_unique(std::tuple_cat(value_lhs, value_rhs));
-                return std::make_pair(std::make_tuple(std::make_pair(key_lhs, value)), std::tuple<>()); // Return union of types
-            }
-            // Types are different, but symbols intersect
-            else if constexpr (terms_intersect_v<std::decay_t<decltype(key_lhs)>, std::decay_t<decltype(key_rhs)>>)
-            {
-                // Calculate the union
-                auto value = tuple_unique(std::tuple_cat(value_lhs, value_rhs));
-                // Include both of these keys and assign the same value to both
-                return std::make_pair(std::make_tuple(std::make_pair(key_lhs, value)), std::make_tuple(std::make_pair(key_rhs, value)));
-            }
-            else return std::make_pair(std::tuple<>(), std::tuple<>()); // Leave the original element
-        });
-
-        auto keys = tuple_take_along_axis<0>(terms_map_union);
-        auto values = tuple_take_along_axis<1>(terms_map_union);
-
-        return TermsTypeMap<VStr, TokenType, std::decay_t<decltype(keys)>, std::decay_t<decltype(values)>>(keys, values);*/
         auto collapse = [&](const auto& lhs, const auto& rhs){
             const auto& [a, value_lhs] = lhs;
             const auto& [b, value_rhs] = rhs;
@@ -518,10 +482,17 @@ auto terms_type_map_factory(const TypesCache& cache)
         auto keys = tuple_take_along_axis<0>(res);
         auto values = tuple_take_along_axis<1>(res);
 
-        return TermsTypeMap<VStr, TokenType, std::decay_t<decltype(keys)>, std::decay_t<decltype(values)>>(keys, values);
+        auto map = TermsTypeMap<VStr, TokenType, std::decay_t<decltype(keys)>, std::decay_t<decltype(values)>>(keys, values);
+        map.populate_ht();
+        return map;
     } else {
         auto terms_map = tuple_morph_each(cache.all_terms, [&](std::size_t i, const auto& elem){ return cfg_helpers::find_term_in_cache_all<0>(elem, cache); });
-        return TermsTypeMap<VStr, TokenType, std::decay_t<decltype(cache.all_terms)>, std::decay_t<decltype(terms_map)>>(cache.all_terms, terms_map);
+        auto map = TermsTypeMap<VStr, TokenType, std::decay_t<decltype(cache.all_terms)>, std::decay_t<decltype(terms_map)>>(cache.all_terms, terms_map);
+        if constexpr (handle_dup_in_rt)
+            map.populate_ht_with_dup();
+        else
+            map.populate_ht();
+        return map;
     }
 }
 
@@ -542,7 +513,8 @@ enum class LexerConfEnum : std::uint64_t
 {
     Legacy = 0x0, /** Use legacy lexer without duplicate elements handling (default) */
     AdvancedLexer = 0x1, /** Use advanced lexer with duplicate terms handling */
-    HandleDuplicates = 0x10, /** Advanced handling of duplicate elements at compile-time. Required for term ranges support and duplicate terms which are present in >2 rules at once  */
+    HandleDuplicates = 0x10, /** Advanced handling of duplicate elements at compile-time. Required for term ranges support and duplicate terms which are present in >2 rules at once */
+    HandleDupInRuntime = 0x100, /** Move advanced handling of duplicate element to runtime lexer initialization */
 };
 
 template<std::uint64_t Conf>
@@ -571,7 +543,7 @@ constexpr auto make_lexer(const RulesSymbol& rules, Conf conf)
     if constexpr (conf.template flag<LexerConfEnum::AdvancedLexer>())
     {
         auto terms_cache = terms_tree_cache_factory(rules);
-        auto terms_type_map = terms_type_map_factory<VStr, TokenType, conf.template flag<LexerConfEnum::HandleDuplicates>()>(terms_cache);
+        auto terms_type_map = terms_type_map_factory<VStr, TokenType, conf.template flag<LexerConfEnum::HandleDuplicates>(), conf.template flag<LexerConfEnum::HandleDupInRuntime>()>(terms_cache);
         return Lexer<VStr, TokenType, std::decay_t<decltype(terms_type_map)>>(terms_type_map);
     } else {
         return LexerLegacy<VStr, TokenType>(rules);

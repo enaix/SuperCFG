@@ -310,10 +310,11 @@ public:
     //std::vector<Token<VStr, TokenType>> storage;
     std::unordered_map<VStr, TypeSet<TokenType>> storage;
 
-    constexpr explicit TermsTypeMap(const TermsTuple& defs_t, const TermsDefsTuple& terms_t) : terms(defs_t), nterms(terms_t)
-    {
-        populate_ht<0>();
-    }
+    constexpr explicit TermsTypeMap(const TermsTuple& defs_t, const TermsDefsTuple& terms_t) : terms(defs_t), nterms(terms_t) {}
+
+    void populate_ht() { do_populate_ht<0>(); }
+
+    void populate_ht_with_dup() { do_populate_ht_with_dup<0>(); }
 
     template<class TSymbol>
     constexpr auto get(const TSymbol& symbol) const
@@ -337,7 +338,7 @@ public:
 
 protected:
     template<std::size_t i>
-    constexpr void populate_ht()
+    void do_populate_ht()
     {
         const auto& symbol = std::get<i>(terms);
         const auto value = TypeSet<TokenType>(tuple_morph([]<std::size_t k>(const auto& src){ return VStr(std::get<k>(src).type()); }, std::get<i>(nterms)));
@@ -345,16 +346,48 @@ protected:
         if constexpr (is_term<decltype(symbol)>())
         {
             storage.insert({VStr(std::get<i>(terms).type()), value});
-        }
-        else
-        {
+        } else {
             // Terms range
             symbol.each_range([&](const auto s){
                 storage.insert({VStr(s), value});
             });
         }
         if constexpr (i + 1 < std::tuple_size_v<std::decay_t<TermsTuple>>)
-            populate_ht<i+1>();
+            do_populate_ht<i+1>();
+    }
+
+    template<std::size_t i>
+    void do_populate_ht_with_dup()
+    {
+        const auto& symbol = std::get<i>(terms);
+
+        // Morph tuple into runtime TypeSet
+        const auto value = TypeSet<TokenType>(tuple_morph([]<std::size_t k>(const auto& src){ return VStr(std::get<k>(src).type()); }, std::get<i>(nterms)));
+
+        if constexpr (is_term<decltype(symbol)>())
+        {
+            const auto& type = VStr(std::get<i>(terms).type());
+            auto it = storage.find(type);
+            if (it != storage.end())
+            {
+                // Intersection
+                it->second.types = vec_union(it->second.types, value.types);
+            } else storage.insert({type, value});
+        } else {
+            // Terms range
+            symbol.each_range([&](const auto s){
+                const auto& type = VStr(s);
+                auto it = storage.find(type);
+                if (it != storage.end())
+                {
+                    // Intersection
+                    it->second.types = vec_union(it->second.types, value.types);
+                } else storage.insert({type, value});
+                storage.insert({type, value});
+            });
+        }
+        if constexpr (i + 1 < std::tuple_size_v<std::decay_t<TermsTuple>>)
+            do_populate_ht_with_dup<i+1>();
     }
 
     template<std::size_t depth, class TSymbol>
