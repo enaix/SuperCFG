@@ -1,6 +1,8 @@
 # Documentation
 
-- [Configuration](docs/CONFIGURATION.md)
+- [Usage](USAGE.md)
+- [Configuration](CONFIGURATION.md)
+- [Examples](EXAMPLES.md)
 
 ## Feature progress
 
