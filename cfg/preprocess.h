@@ -800,21 +800,23 @@ protected:
 /**
  * @brief A class that checks if a matching element can be reduced in current parsing context. The check is performed for 1 step ahead. At the initial step,
  */
-template<class TMatches, class RulesPosPairs, class TRules, bool do_prettyprint>
+template<class TMatches, class RulesPosPairs, class TRules, class FullRRTree, bool do_prettyprint>
 class ReducibilityChecker1
 {
 public:
     TMatches matches;
     RulesPosPairs pos;
     TRules rules;
+    FullRRTree rr_all;
     std::array<std::size_t, std::tuple_size_v<TRules>> context;
+    std::size_t last_ctx_pos;
 
-    constexpr ReducibilityChecker1(const TMatches& m, const RulesPosPairs& p, const TRules& r) : matches(m), pos(p), rules(r) {}
+    constexpr ReducibilityChecker1(const TMatches& m, const RulesPosPairs& p, const TRules& r, const FullRRTree& rr_all) : matches(m), pos(p), rules(r), rr_all(rr_all) {}
 
     /**
      * @brief Reset the context of the array. Should be performed at the start of parsing
      */
-    void reset_ctx() { context.fill(0); }
+    void reset_ctx() { context.fill(0); last_ctx_pos = std::numeric_limits<std::size_t>::max(); }
 
     /**
      * @brief Check if a symbol can be reduced in the current context.
@@ -831,12 +833,39 @@ public:
         if constexpr (std::tuple_size_v<std::decay_t<decltype(res)>> == 0)
             return true; // Nothing to check
 
+        if constexpr (do_prettyprint)
+        {
+            std::cout << "ctx : ";
+            for (const std::size_t idx : context) std::cout << idx << " ";
+            std::cout << std::endl;
+        }
+
         return tuple_each_or_return(res, [&](std::size_t i, const auto& rule_pair){
             const auto& [rule, first_pos] = rule_pair;
             constexpr std::size_t ctx_pos = get_ctx_index<0, std::decay_t<decltype(rule)>>();
             static_assert(ctx_pos < std::tuple_size_v<TRules>, "RC(1) : could not find reverse rule");
             // Check if the context exists
             // Note: it cannot solve rules with common prefixes
+
+            // Check for the context first
+            if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
+            {
+                const auto& idx = get_rr_all(match);
+                for (const std::size_t pos : idx)
+                {
+                    if (pos == get_ctx_index<0, std::decay_t<decltype(match)>>()) // check if we compare the symbol against itself
+                    {
+                        if (context[pos] > 1) [[unlikely]]
+                        {
+                            if constexpr (do_prettyprint) std::cout << "cannot reduce: conflicting nested ctx " << pos << std::endl;
+                            return false;
+                        }
+                    } else if (context[pos] > 0) {
+                        if constexpr (do_prettyprint) std::cout << "cannot reduce: conflicting ctx " << pos << std::endl;
+                        return false;
+                    }
+                }
+            }
 
             auto perform_check_at_symbol_start = [&](){
                 // Out of bounds check: the rule cannot fit in current stack
@@ -849,7 +878,8 @@ public:
                     std::cout << ", i: " << stack_i << ", parsed: " << parsed << "/" << first_pos() << std::endl;
                 if (parsed >= first_pos()) // We can theoretically reduce everything up to this symbol OR there is no match at all
                 {
-                    context[ctx_pos]++; // Successful match
+                    //context[ctx_pos]++; // Successful match
+                    last_ctx_pos = ctx_pos;
                     return true;
                 }
                 return false;
@@ -875,6 +905,15 @@ public:
         return true; // We don't need to check these symbols
     }
 
+    void apply_ctx()
+    {
+        if (last_ctx_pos != std::numeric_limits<std::size_t>::max())
+        {
+            context[last_ctx_pos]++;
+            last_ctx_pos = std::numeric_limits<std::size_t>::max();
+        }
+    }
+
     /**
      * @brief Update the context for the reduced symbol. This function should be called on each successful reduce operation
      * @tparam TSymbol
@@ -889,6 +928,12 @@ public:
     constexpr auto get(const TSymbol& symbol) const
     {
         return do_get<0>(symbol);
+    }
+
+    template<class TSymbol>
+    constexpr auto get_rr_all(const TSymbol& symbol) const
+    {
+        return do_get_rr_all<0>(symbol);
     }
 
     template<class VStr>
@@ -906,7 +951,19 @@ protected:
         {
             return std::get<depth>(pos);
         } else {
-            return do_get<depth + 1, TSymbol>(symbol);
+            return do_get<depth + 1>(symbol);
+        }
+    }
+
+    template<std::size_t depth, class TSymbol>
+    constexpr auto do_get_rr_all(const TSymbol& symbol) const
+    {
+        static_assert(depth < std::tuple_size_v<FullRRTree>, "NTerm type not found");
+        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<std::tuple_element_t<0, typename std::tuple_element_t<depth, TMatches>::term_types_tuple>>>)
+        {
+            return std::get<depth>(rr_all);
+        } else {
+            return do_get_rr_all<depth + 1>(symbol);
         }
     }
 

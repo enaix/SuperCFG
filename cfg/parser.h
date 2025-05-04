@@ -338,6 +338,7 @@ enum class SRConfEnum : std::uint64_t
     PrettyPrint = 0x1,
     Lookahead = 0x10,
     ReducibilityChecker = 0x100,
+    RC1CheckContext = 0x1000,
 };
 
 
@@ -690,22 +691,6 @@ protected:
                     // Get definition of the common type
                     const auto& def = std::get<1>(defs.get(match)->terms);
 
-                    // Check lookahead symbol
-                    if constexpr (enabled<SRConfEnum::Lookahead>() && !std::is_same_v<std::decay_t<LookaheadS>, std::false_type>)
-                    {
-                        // The next symbol is of the same type
-                        for (std::size_t l = 0; l < lookahead.size(); l++)
-                        {
-                            if (!symbols_ht.get_nterm(lookahead[l], [&](const auto& nterm){ return look.can_reduce(match, nterm); }))
-                            {
-                                // No suitable symbol found
-                                if constexpr (enabled<SRConfEnum::PrettyPrint>())
-                                std::cout << "^ look mismatch" << std::endl;
-                                return false; // Not found
-                            }
-                        }
-                    }
-
                     std::size_t index = 0;
 
                     bool success = descend_batch_runtime(stack, i, def, index, [](const auto&... args){});
@@ -733,12 +718,35 @@ protected:
                             return std::max(index_check, index_check_max);
                         });
 
-                        if (ok)
-                            r_checker.apply_reduce(match); // We need to update context in any case
-                        else if (enabled<SRConfEnum::PrettyPrint>())
+                        r_checker.apply_ctx(); // Apply the context
+                        if (!ok)
+                        {
                             std::cout << "  rc(1) doesn't allow to reduce" << std::endl;
-                        return ok;
-                    } else return true;
+                            return false;
+                        }
+                    }// else return true;
+
+                    // Check lookahead symbol
+                    if constexpr (enabled<SRConfEnum::Lookahead>() && !std::is_same_v<std::decay_t<LookaheadS>, std::false_type>)
+                    {
+                        // The next symbol is of the same type
+                        for (std::size_t l = 0; l < lookahead.size(); l++)
+                        {
+                            if (!symbols_ht.get_nterm(lookahead[l], [&](const auto& nterm){ return look.can_reduce(match, nterm); }))
+                            {
+                                // No suitable symbol found
+                                if constexpr (enabled<SRConfEnum::PrettyPrint>())
+                                    std::cout << "^ look mismatch" << std::endl;
+                                    return false; // Not found
+                            }
+                        }
+                    }
+
+                    if constexpr (enabled<SRConfEnum::ReducibilityChecker>())
+                    {
+                        r_checker.apply_reduce(match); // If the matched symbol has context, we need to decrement
+                    }
+                    return true;
                 });
 
                 if (!found) continue;
@@ -988,7 +996,7 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
     auto instantiate_rchecker = [&](){
         if constexpr (conf.template flag<SRConfEnum::ReducibilityChecker>())
         {
-            auto checker = make_reducibility_checker1<conf.template flag<SRConfEnum::PrettyPrint>()>(rr_tree, defs);
+            auto checker = make_reducibility_checker1<conf.template flag<SRConfEnum::PrettyPrint>(), conf.template flag<SRConfEnum::RC1CheckContext>()>(rr_tree, defs);
             if constexpr (conf.template flag<SRConfEnum::PrettyPrint>())
             {
                 std::cout << "  RC(1) match -> {related_rule, first_pos} : " << std::endl;
