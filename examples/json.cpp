@@ -75,7 +75,8 @@ int main()
     constexpr auto conf = mk_sr_parser_conf<
         SRConfEnum::PrettyPrint,  // Enable pretty printing for debugging
         SRConfEnum::Lookahead,     // Enable lookahead(1)
-        SRConfEnum::ReducibilityChecker>(); // Enable RC(1)
+        SRConfEnum::ReducibilityChecker, // Enable RC(1)
+        SRConfEnum::RC1CheckContext>(); // Enable RC(1) advanced context check
 
 
     // Initialize the tokenizer
