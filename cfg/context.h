@@ -28,8 +28,11 @@ class ContextManager
 public:
     std::array<std::size_t, std::tuple_size_v<TRules>> context;
     std::array<std::vector<std::size_t>, std::tuple_size_v<TRules>> ctx_pos; // Positions of context start at each ctx level
-    CtxTODO<TRules> prefix;
-    CtxTODO<TRules> postfix;
+    CtxTODO<TRules> prefix_todo;
+    CtxTODO<TRules> postfix_todo;
+
+    CtxTODO<TRules> prefix; // non-ambiguous prefix match (we do not need the whole array)
+    CtxTODO<TRules> postfix; //
 
     TMatches matches;
     RulesPosPairs pos;
@@ -57,12 +60,15 @@ public:
 
         // CtxTODO is empty:
         const auto& related_types = term2nterms.get(symbol);
-        tuple_morph_each(related_types, [&](std::size_t i, const auto& elem){
+        tuple_each_or_return(related_types, [&](std::size_t i, const auto& elem){
             using max_t = std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>;
             const auto& [rule, fix] = elem;
 
             // Get the prefix and postfix positions
-            const auto [pre, post] = fix;
+            const auto [pre, post] = fix; // fix only contains info for the nterms
+            // TODO get size of prefix and postfix
+            // Max pre/postfix -> ok
+
             // Get index of rule
             constexpr std::size_t rule_id = get_ctx_index<0, std::decay_t<decltype(rule)>>();
             // Get ctx for current rule
@@ -70,40 +76,53 @@ public:
 
             // Check if current rule can be in context
 
-            // Try to reduce symbol
-            auto perform_check_at_pos = [&](const std::size_t symbol_pos){
-                // Out of bounds check: the rule cannot fit in current stack
-                if (symbol_pos >= stack_size)
-                    return false; // Continue
+            // Try to check if the prefix matches
+            // I guess that we do not need to perform full descend() check
+            auto is_in_prefix = [&](const std::size_t at, const std::size_t len){
+                //std::size_t parsed = descend(at, std::get<1>(nterms_map.get(rule)->terms));
+                // Check if the last symbol is in the correct prefix pos
+                if constexpr (is_nterm<TSymbol>())
+                    return (at == pre); // Something like this
+                else
+                {
+                    // Check the lexical range
 
-                std::size_t stack_i = stack_size - 1 - symbol_pos;
-                std::size_t parsed = descend(stack_i, std::get<1>(nterms_map.get(rule)->terms));
+                }
 
-                if (parsed >= symbol_pos) // We can theoretically reduce everything up to this symbol OR there is no match at all
+                /*if (parsed >= len) // We can theoretically reduce everything up to this symbol OR there is no match at all
                 {
                     //context[ctx_pos]++; // Successful match
                     // last_ctx_pos = ctx_pos;
                     return true;
                 }
-                return false;
+                return false;*/
+            };
+
+            auto handle_match_and_todo = [&](const auto& todo){
+
             };
 
 
             // Is in prefix
             if constexpr (!std::is_same_v<std::decay_t<decltype(pre)>, max_t>)
             {
-                // Check if context exists at current ctx level
-                if (ctx_pos[rule_id][ctx] == max_t())
+                // Currently not in ctx guessing mode
+                // Descend
+                if (pre >= stack_size) return false; // cannot fit in current stack
+                const std::size_t at = stack_size - 1 - pre;
+                if (perform_check_at_pos(at, pre))
                 {
-                    // Currently not in ctx guessing mode
-                    // Descend
-                    if (perform_check_at_pos(pre))
+                    // Found match
+
+                    // Check if context exists at current ctx level
+                    if (ctx_pos[rule_id][ctx] == max_t())
                     {
-                        // Found match
+                        // Symbol has not been matched yet
+                    } else {
+                        // Symbol already matched, we need to check for recursive ctx
+                        // Also need to handle CtxTODO
+
                     }
-                } else {
-                    // Symbol already matched, we only need to check for recursive ctx
-                    // Also need to handle CtxTODO
                 }
             }
 
@@ -118,14 +137,21 @@ public:
                         return false; // Not found
 
                     // Use pre as a starting pos
-                    if (perform_check_at_pos(pre))
+                    if (pre >= stack_size) return false; // cannot fit in current stack
+                    const std::size_t stack_i = stack_size - 1 - pre;
+                    if (perform_check_at_pos(stack_i, pre))
                     {
                         // Found match
                     }
                 } else {
                     // Context exists, use it as a starting pos
                     // Be careful with ctx level start
-
+                    const std::size_t at = ctx_pos[rule_id][ctx];
+                    if (at >= stack_size) return false;
+                    if (perform_check_at_pos(at, stack_size - at)) // (stack_size - at) is the number of symbols up to the stack end
+                    {
+                        // Found match
+                    }
                 }
             }
         });
