@@ -59,15 +59,16 @@ public:
         // HandleTODO
 
         // CtxTODO is empty:
-        const auto& related_types = term2nterms.get(symbol);
+        const auto& [related_types, fix_limits] = term2nterms.get(symbol);
         tuple_each_or_return(related_types, [&](std::size_t i, const auto& elem){
             using max_t = std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>;
             const auto& [rule, fix] = elem;
 
             // Get the prefix and postfix positions
             const auto [pre, post] = fix; // fix only contains info for the nterms
-            // TODO get size of prefix and postfix
-            // Max pre/postfix -> ok
+            const auto [max_pre, min_post] = fix_limits; // Get max prefix and min postfix in this rule
+            // Max pre/postfix -> ok, we successfully resolved the rule
+            // If there are no more matches even though we haven't reached the end of the fix, we apply context
 
             // Get index of rule
             constexpr std::size_t rule_id = get_ctx_index<0, std::decay_t<decltype(rule)>>();

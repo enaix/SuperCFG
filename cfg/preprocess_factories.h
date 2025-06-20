@@ -377,7 +377,66 @@ namespace cfg_helpers
 
 
     /**
-     * @brief Same as rc1_get_match, but finds Terms and TermsRange in rules
+     * @brief Find all starting/ending positions in a rule at step i
+     * @param def Rule symbol definition
+     * @param r_rules Related rules for the target symbol
+     * @param nterms2defs NTerms to definitions mapping
+     */
+    template<class TSymbol, class RRulesTuple, class NTermsMap>
+    constexpr auto ctx_get_match_step(const TSymbol& def, const RRulesTuple& r_rules, const NTermsMap& nterms2defs)
+    {
+        const auto fix_minmax = std::pair<std::size_t, std::size_t>();
+
+        const auto res = concat_each<std::tuple_size_v<std::decay_t<decltype(r_rules)>>, true>([&]<std::size_t i>(){
+            const auto& rule_nterm = std::get<i>(r_rules);
+            const auto& rule_def = std::get<1>(nterms2defs.get(rule_nterm)->terms);
+
+            auto null_to_max = []<class TRes>(const TRes& res, auto found){
+                if constexpr (std::is_same_v<std::decay_t<TRes>, std::tuple<>>)
+                    return std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>{};
+                else
+                {
+                    found(res); // Update min/max prefix
+                    return res;
+                }
+            };
+
+            // Warning: due to TermsRange symbol pos is still kind of ambiguous!
+            const auto prefix = null_to_max(rc1_rule_get_fix<true, 0, 0>(def, rule_def),
+                [&](const auto pre){ fix_minmax.first = (pre > fix_minmax.first ? pre : fix_minmax.first); });
+            const auto postfix = null_to_max(rc1_rule_get_fix<false, 0, std::tuple_size_v<std::decay_t<decltype(rule_def.terms)>> - 1>(def, rule_def),
+                [&](const auto post){ fix_minmax.second = (post < fix_minmax.second ? post : fix_minmax.second); });
+
+            return std::make_tuple(std::make_pair(rule_nterm, std::make_pair(prefix, postfix)));
+        });
+
+        return std::make_pair(res, fix_minmax);
+    }
+
+
+    /**
+     * @brief Iterate over each nterm, get the related rules and find the starting position in prefix and postfix. Also includes max prefix and min postfix positions
+     * @param defs RRTree defs tuple
+     * @param rules RRTree rules tuple
+     * @param nterms2defs NTerms to definitions mapping
+     */
+    template<std::size_t depth, class TDefsTuple, class TRuleTree, class NTermsMap>
+    constexpr auto ctx_get_nterm_match(const TDefsTuple& defs, const TRuleTree& rules, const NTermsMap& nterms2defs)
+    {
+        const auto& def = std::get<0>(std::get<depth>(defs).terms);
+        const auto& r_rules = std::get<depth>(rules);
+
+        const auto res_pair = ctx_get_match_step(def, r_rules, nterms2defs);
+
+        if constexpr (depth + 1 < std::tuple_size_v<TDefsTuple>)
+            return std::tuple_cat(res_pair, ctx_get_nterm_match<depth+1>(defs, rules, nterms2defs));
+        else
+            return std::make_tuple(res_pair);
+    }
+
+
+    /**
+     * @brief Same as ctx_get_nterm_match, but finds Terms and TermsRange in rules
      * @param terms TermsTypeMap terms
      * @param nterms TermsTypeMap nterms (rules)
      * @param nterms2defs NTerms to definitions mapping
@@ -388,27 +447,12 @@ namespace cfg_helpers
         const auto& def = std::get<depth>(terms);
         const auto& r_rules = std::get<depth>(nterms);
 
-        const auto res = concat_each<std::tuple_size_v<std::decay_t<decltype(r_rules)>>, true>([&]<std::size_t i>(){
-            const auto& rule_nterm = std::get<i>(r_rules);
-            const auto& rule_def = std::get<1>(nterms2defs.get(rule_nterm)->terms);
-
-            auto null_to_max = []<class TRes>(const TRes& res){
-                if constexpr (std::is_same_v<std::decay_t<TRes>, std::tuple<>>)
-                    return std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>{};
-                else return res;
-            };
-
-            // Warning: due to TermsRange symbol pos is still kind of ambiguous!
-            const auto prefix = null_to_max(rc1_rule_get_fix<true, 0, 0>(def, rule_def));
-            const auto postfix = null_to_max(rc1_rule_get_fix<false, 0, std::tuple_size_v<std::decay_t<decltype(rule_def.terms)>> - 1>(def, rule_def));
-
-            return std::make_tuple(std::make_pair(rule_nterm, std::make_pair(prefix, postfix)));
-        });
+        const auto res_pair = ctx_get_match_step(def, r_rules, nterms2defs);
 
         if constexpr (depth + 1 < std::tuple_size_v<TDefsTuple>)
-            return std::tuple_cat(std::make_tuple(res), ctx_get_term_match<depth+1>(terms, nterms, nterms2defs));
+            return std::tuple_cat(std::make_tuple(res_pair), ctx_get_term_match<depth+1>(terms, nterms, nterms2defs));
         else
-            return std::make_tuple(res);
+            return std::make_tuple(res_pair);
     }
 
 
