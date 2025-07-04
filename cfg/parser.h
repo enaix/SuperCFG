@@ -335,10 +335,11 @@ protected:
 
 enum class SRConfEnum : std::uint64_t
 {
-    PrettyPrint = 0x1,
-    Lookahead = 0x10,
-    ReducibilityChecker = 0x100,
-    RC1CheckContext = 0x1000,
+    PrettyPrint = 0x1, ///< Global flag to enable printing
+    Lookahead = 0x10, ///< Prevent partial reductions using FOLLOW set lookahead
+    ReducibilityChecker = 0x100, ///< Enable ReducibilityChecker(1) module which checks if a rule can be reduced 1 step in the future
+    RC1CheckContext = 0x1000, ///< Enable RC(1) partial context analysis feature. Inferior to a full context manager
+    HeuristicCtx = 0x10000,   ///< Enable (pre/post)fix based context analyzer (aka ContextManager)
 };
 
 
@@ -399,6 +400,14 @@ public:
                 if (i == tokens.size()) [[unlikely]]
                     //return false;
                     break;
+                if constexpr (enabled<SRConfEnum::HeuristicCtx>())
+                {
+                    // CtxManager analyzes the symbols which cannot be reduced right away
+                    // Take the last symbol and try resolving context
+
+
+                }
+
                 stack.push_back(GSymbolV(tokens[i].value, tokens[i].type));
                 i++;
                 if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "[sh] s: [";
@@ -577,6 +586,9 @@ protected:
         // First loop over the stack
         // Greedy mode: check longer substr first
         //for (std::int64_t i = stack.size() - 1; i >= 0; i--)
+
+
+
         for (std::int64_t i = 0; i < stack.size(); i++)
         {
             // Efficient vector of common types
@@ -992,6 +1004,16 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
         } else
             return NoLookahead();
     };
+
+    // We need to determine which heruistics preprocessing data to compute
+    constexpr std::uint64_t h_feat = ((conf.template flag<SRConfEnum::RC1CheckContext>() || conf.template flag<SRConfEnum::HeuristicCtx>()) * (std::uint64_t)HeuristicFeatures::ContextManagement);
+    auto instantiate_ctx_manager = [&](){
+        if constexpr (conf.template flag<SRConfEnum::ReducibilityChecker>())
+        {
+            // ...
+        }
+    };
+
 
     auto instantiate_rchecker = [&](){
         if constexpr (conf.template flag<SRConfEnum::ReducibilityChecker>())

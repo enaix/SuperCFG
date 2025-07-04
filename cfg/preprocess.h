@@ -1015,4 +1015,22 @@ protected:
 class NoReducibilityChecker {};
 
 
+// Heuristics preprocessing helpers
+enum class HeuristicFeatures : std::uint64_t
+{
+    ContextManagement = 0x1, // Build the FullRRTree
+};
+
+
+template<class UniqueRelatedRules, class FullRRTree>
+class HeuristicPreprocessor
+{
+public:
+    UniqueRelatedRules unique_rr;
+    FullRRTree full_rr;
+
+    constexpr HeuristicPreprocessor(const UniqueRelatedRules& u_rr, const FullRRTree& full_rr_tree) : unique_rr(u_rr), full_rr(full_rr_tree) {}
+};
+
+
 #endif //SUPERCFG_PREPROCESS_H

@@ -751,6 +751,21 @@ constexpr auto make_reducibility_checker1(const RRTree& tree, const NTermsMap& n
 }
 
 
+template<bool do_prettyprint, HeuristicFeatures features, class RRTree, class NTermsMap>
+constexpr auto make_heuristic_preprocessor(const RRTree& tree)
+{
+    const auto all_related_rules = tuple_unique(tuple_flatten_layer(tree.tree));
+    if constexpr((std::uint64_t)features & (std::uint64_t)HeuristicFeatures::ContextManagement)
+    {
+        const auto rr_all = cfg_helpers::rc1_get_full_rrtree<do_prettyprint, 0>(tree.defs, tree, all_related_rules);
+        return HeuristicPreprocessor(all_related_rules, rr_all);
+    } else {
+        return HeuristicPreprocessor(all_related_rules, std::tuple<>());
+    }
+}
+
+
+
 /**
  * @brief Lexer configuration
  */
