@@ -71,7 +71,7 @@ namespace cfg_helpers
         } else if constexpr (is_term<TSymbol>()) {
             return std::make_tuple(elem);
         } else if constexpr (is_terms_range<TSymbol>()) {
-            return std::make_tuple<>(); // Do not include range
+            return std::make_tuple(elem); // Include range, but we need to handle this case later
         } else static_assert(terminal_type<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
     }
 
@@ -232,21 +232,21 @@ namespace cfg_helpers
     template<bool dir_up, std::size_t pos, std::size_t i, class TDef, class TSymbol>
     constexpr auto rc1_rule_get_fix(const TDef& target, const TSymbol& symbol)
     {
-        // Can we move to the next symbol?
-        constexpr bool next = (dir_up ? i < std::tuple_size_v<std::decay_t<decltype(symbol.terms)>> : i > 0);
-        constexpr std::size_t i_next = (dir_up ? i + 1 : i - 1);
-
         if constexpr (is_operator<TSymbol>())
         {
+            // Can we move to the next symbol?
+            constexpr bool next = (dir_up ? i < std::tuple_size_v<std::decay_t<decltype(symbol.terms)>> - 1 : i > 0);
+            constexpr std::size_t i_next = (dir_up ? i + 1 : i - 1);
+
             if constexpr (get_operator<TSymbol>() == OpType::Concat)
             {
                 // At each step increase the pos and return if we find one encounter
                 // Descend into symbol
-                const auto res = rc1_rule_get_fix<pos, 0>(target, std::get<i>(symbol.terms));
+                const auto res = rc1_rule_get_fix<dir_up, pos, 0>(target, std::get<i>(symbol.terms));
                 if constexpr (next && std::is_same_v<std::decay_t<decltype(res)>, std::tuple<>>)
                 {
                     // Target not found, check the next term in symbol
-                    return rc1_rule_get_fix<pos+1, i_next>(target, symbol);
+                    return rc1_rule_get_fix<dir_up, pos+1, i_next>(target, symbol);
                 } else return res;
             }
             // Only deterministic prefix or postfix is Concat and repeat with M >= 1
@@ -254,7 +254,7 @@ namespace cfg_helpers
             {
                 if constexpr (get_range_from<TSymbol>() > 0)
                     // Get the FIRST entry
-                    return rc1_rule_get_fix<pos, 0>(target, std::get<0>(symbol.terms));
+                    return rc1_rule_get_fix<dir_up, pos, 0>(target, std::get<0>(symbol.terms));
                 else return std::tuple<>();
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Group)
@@ -263,7 +263,7 @@ namespace cfg_helpers
                 if constexpr (std::tuple_size_v<std::decay_t<decltype(symbol.terms)>> == 0)
                     return std::tuple<>();
                 else
-                    return rc1_rule_get_fix<pos, 0>(target, std::get<0>(symbol.terms));
+                    return rc1_rule_get_fix<dir_up, pos, 0>(target, std::get<0>(symbol.terms));
             }
             // Other symbols are not deterministic
             else return std::tuple<>();
@@ -385,7 +385,7 @@ namespace cfg_helpers
     template<class TSymbol, class RRulesTuple, class NTermsMap>
     constexpr auto ctx_get_match_step(const TSymbol& def, const RRulesTuple& r_rules, const NTermsMap& nterms2defs)
     {
-        const auto fix_minmax = std::pair<std::size_t, std::size_t>(0, std::numeric_limits<std::size_t>::max());
+        auto fix_minmax = std::pair<std::size_t, std::size_t>(0, std::numeric_limits<std::size_t>::max());
 
         const auto res = concat_each<std::tuple_size_v<std::decay_t<decltype(r_rules)>>, true>([&]<std::size_t i>(){
             const auto& rule_nterm = std::get<i>(r_rules);
@@ -429,7 +429,7 @@ namespace cfg_helpers
         const auto res_pair = ctx_get_match_step(def, r_rules, nterms2defs);
 
         if constexpr (depth + 1 < std::tuple_size_v<TDefsTuple>)
-            return std::tuple_cat(res_pair, ctx_get_nterm_match<depth+1>(defs, rules, nterms2defs));
+            return std::tuple_cat(std::make_tuple(res_pair), ctx_get_nterm_match<depth+1>(defs, rules, nterms2defs));
         else
             return std::make_tuple(res_pair);
     }
@@ -751,7 +751,7 @@ constexpr auto make_reducibility_checker1(const RRTree& tree, const NTermsMap& n
 }
 
 
-template<bool do_prettyprint, HeuristicFeatures features, class RRTree, class NTermsMap>
+template<bool do_prettyprint, HeuristicFeatures features, class RRTree>
 constexpr auto make_heuristic_preprocessor(const RRTree& tree)
 {
     const auto all_related_rules = tuple_unique(tuple_flatten_layer(tree.tree));

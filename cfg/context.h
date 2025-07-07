@@ -8,6 +8,8 @@
 #include "cfg/base.h"
 #include "cfg/helpers.h"
 #include "cfg/hashtable.h"
+#include "cfg/preprocess.h"
+#include "cfg/preprocess_factories.h"
 
 
 
@@ -20,7 +22,7 @@ protected:
     std::vector<std::size_t> cached_idx; // last added rule index
 
 public:
-    constexpr CtxTODO() : n(0), cached_idx(std::numeric_limits<std::size_t>::max()) {}
+    constexpr CtxTODO() : n(0), cached_idx() {}
 
     [[nodiscard]] std::size_t size() const { return n; }
 
@@ -106,7 +108,7 @@ public:
     void reset_ctx()
     {
         context.fill(0);
-        for (const auto& vec : ctx_pos)
+        for (auto& vec : ctx_pos)
             vec.assign(1, std::numeric_limits<std::size_t>::max()); // Set ctx pos to null at first ctx level
         last_ctx_pos = std::numeric_limits<std::size_t>::max();
         prefix_todo.reset();
@@ -118,176 +120,170 @@ public:
     /**
      * @brief Consume the next token and perform context analysis. Returns false on ambiguity
      */
-    template<class TSymbol, class TermsTypes, class NTermsMap>
-    bool next(const TSymbol& symbol, std::size_t stack_size, const TermsTypes& term2nterms, const NTermsMap& nterms_map, auto descend)
+    template<class GSymbol, class SymbolsHT>
+    bool next(const GSymbol& g_symbol, std::size_t stack_size, const SymbolsHT& symbols_ht)
     {
+        // Visit the explicit type. Note that it may return either an NTerm or
+        g_symbol.with_types(symbols_ht, [&](const auto& symbol){
+            const auto& [related_types, fix_limits] = get_pos(symbol); /* fetch the value from *PosPairs */;
 
-        const auto& [related_types, fix_limits] = get_pos(symbol); /* fetch the value from *PosPairs */;
+            tuple_each(related_types, [&,fix_limits](std::size_t i, const auto& elem){
+                using max_t = std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>;
+                const auto& [rule, fix] = elem;
+                //const auto& fix = std::get<i>(fix_limits);
 
-        tuple_each_or_return(related_types, [&](std::size_t i, const auto& elem){
-            using max_t = std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>;
-            const auto& [rule, fix] = elem;
+                // Get the prefix and postfix positions
+                const auto [pre, post_dist] = fix;
+                const auto [max_pre, min_post] = fix_limits; // Get max prefix and min postfix in this rule
+                // Max pre/postfix -> ok, we successfully resolved the rule
+                const auto post = min_post - post_dist; // Convert post from the distance to the end to an id
+                // If there are no more matches even though we haven't reached the end of the fix, we apply context
 
-            // Get the prefix and postfix positions
-            const auto [pre, post_dist] = fix; // fix only contains info for the nterms
-            const auto [max_pre, min_post] = fix_limits; // Get max prefix and min postfix in this rule
-            // Max pre/postfix -> ok, we successfully resolved the rule
-            const auto post = min_post - post_dist; // Convert post from the distance to the end to an id
-            // If there are no more matches even though we haven't reached the end of the fix, we apply context
+                // Get index of rule
+                constexpr std::size_t rule_id = get_ctx_index<0, std::decay_t<decltype(rule)>>();
+                // Get ctx for current rule
+                // const std::size_t ctx = context[rule_id];
 
-            // Get index of rule
-            constexpr std::size_t rule_id = get_ctx_index<0, std::decay_t<decltype(rule)>>();
-            // Get ctx for current rule
-            // const std::size_t ctx = context[rule_id];
+                // Check if current rule can be in context
 
-            // Check if current rule can be in context
+                /*
+                 * Ctx resolver pseudocode:
+                 * limits <- fix_minmax  // pre/postfix limits
+                 * new_todo <- {}
+                 * each rr <- related_type:
+                 *   pre, post <- fix
+                 *   // each pre, post:
+                 *   at <- stack_pos - _todo[rr]  // `at` is the relative position in pre/post. if _todo[rr] and _fix[rr] are empty, no check is performed OR we check all symbols from the beginning
+                 *                                // if _fix[rr] exists, then we only check when we reach the end. right now we better check and add asserts
+                 *   if at == pre/post:  // check if the last stack symbol with relative pos `at` is actually on the position pre/post
+                 *     if new_todo != null:
+                 *       _todo[rr] += at_pre/at_post  // increment _todo, at_pre/post indicates that we're checking prefix or postfix
+                 *     else:
+                 *       new_todo[rr] += at_pre/at_post
+                 *
+                 *    if len(new_todo) == 1:  // we need to check this for both prefix and postfix
+                 *      ctx++/--
+                 *      // at_pre, at_post:
+                 *      _fix[rr] ++  // early ctx application check (save info that we have already applied ctx)
+                 *    else:
+                 *
+                 */
 
-            /*
-             * Ctx resolver pseudocode:
-             * limits <- fix_minmax  // pre/postfix limits
-             * new_todo <- {}
-             * each rr <- related_type:
-             *   pre, post <- fix
-             *   // each pre, post:
-             *   at <- stack_pos - _todo[rr]  // `at` is the relative position in pre/post. if _todo[rr] and _fix[rr] are empty, no check is performed OR we check all symbols from the beginning
-             *                                // if _fix[rr] exists, then we only check when we reach the end. right now we better check and add asserts
-             *   if at == pre/post:  // check if the last stack symbol with relative pos `at` is actually on the position pre/post
-             *     if new_todo != null:
-             *       _todo[rr] += at_pre/at_post  // increment _todo, at_pre/post indicates that we're checking prefix or postfix
-             *     else:
-             *       new_todo[rr] += at_pre/at_post
-             *
-             *    if len(new_todo) == 1:  // we need to check this for both prefix and postfix
-             *      ctx++/--
-             *      // at_pre, at_post:
-             *      _fix[rr] ++  // early ctx application check (save info that we have already applied ctx)
-             *    else:
-             *
-             */
 
-            auto check_ctx = [&](){
-                if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
+
+
+                // Is in prefix
+                if constexpr (!std::is_same_v<std::decay_t<decltype(pre)>, max_t>)
                 {
-                    const auto& idx = get_rr_all(rule);
-                    for (const std::size_t pos : idx)  // rules where it cannot be present
+                    // we can also perform additional end-of-stack check (does the prefix+postfix fit?)
+
+                    if (prefix.empty() || postfix.empty())
                     {
-                        if (context[pos] > 0) return false;
-                    }
-                }
-                return true;
-            };
-
-
-            // Is in prefix
-            if constexpr (!std::is_same_v<std::decay_t<decltype(pre)>, max_t>)
-            {
-                // we can also perform additional end-of-stack check (does the prefix+postfix fit?)
-
-                if (prefix.empty() || postfix.empty())
-                {
-                    // we're currently matching non-ambiguous ctx
-                    // applied prefix or postfix are blocking: no new matches can happen
-                    if (prefix.rule_id == rule_id)
-                    {
-                        // use _fix as the starting pos
-                        if (stack_size - 1 - prefix.fix != pre)
+                        // we're currently matching non-ambiguous ctx
+                        // applied prefix or postfix are blocking: no new matches can happen
+                        if (prefix.rule_id == rule_id)
                         {
-                            // we have already applied the ctx, unexpected behavior
-                            // ASSERT
-                        }
-                        if (stack_size - 1 - prefix.fix == max_pre)
-                        {
-                            // we reached the end
-                            prefix.reset();
+                            // prefix is non-empty and is the same as the current rule
+                            // use _fix as the starting pos
+                            if (stack_size - 1 - prefix.fix != pre) [[unlikely]] // same rule, different symbol - looks counterintuitive
+                            {
+                                // we have already applied the ctx, unexpected behavior
+                                assert(stack_size - 1 - prefix.fix != pre && "next() : guru meditation : expected static prefix to match with runtime, got a mismatch");
+                            }
+                            if (stack_size - 1 - prefix.fix == max_pre)
+                            {
+                                // we reached the end
+                                prefix.reset();
+                            }
                         }
                     }
-                }
-                else if (prefix_todo[rule_id] != max_t())
-                {
-                    // use _todo as the starting pos
-                    // TODO add optional (if pre == max_pre -> apply)
-                    if (stack_size - 1 - prefix_todo[rule_id] == pre)
+                    else if (prefix_todo[rule_id] != max_t())
                     {
-                        // FOUND
-                        // nothing to do - prefix is already in _todo
-                    } else {
-                        // candidate dropped out
-                        prefix_todo.remove(rule_id);
-                    }
-                } else {
-                    // first match
-
-                    if (pre == 0)
-                    {
-                        if (check_ctx())
+                        // use _todo as the starting pos
+                        // TODO add optional (if pre == max_pre -> apply)
+                        if (stack_size - 1 - prefix_todo[rule_id] == pre)
                         {
-                            // rule can exist in current ctx
-                            // nothing else to check
                             // FOUND
-                            prefix_todo.add(rule_id, stack_size - 1);
+                            // nothing to do - prefix is already in _todo
+                        } else {
+                            // candidate dropped out
+                            prefix_todo.remove(rule_id);
                         }
                     } else {
-                        // we need different logic for handling cases when prefix != 0
-                        // permissive handler:
-                        if (pre < stack_size)  // sanity check
-                            prefix_todo.add(rule_id, stack_size - 1 - pre);
+                        // first match
+
+                        if (pre == 0)
+                        {
+                            if (check_ctx(rule))
+                            {
+                                // rule can exist in current ctx
+                                // nothing else to check
+                                // FOUND
+                                prefix_todo.add(rule_id, stack_size - 1);
+                            }
+                        } else {
+                            // we need different logic for handling cases when prefix != 0
+                            // permissive handler:
+                            if (pre < stack_size)  // sanity check
+                                prefix_todo.add(rule_id, stack_size - 1 - pre);
+                        }
                     }
                 }
-            }
 
-            // Is in postfix
-            if constexpr (!std::is_same_v<std::decay_t<decltype(post)>, max_t>)
-            {
-                // we can also perform additional end-of-stack check (does the prefix+postfix fit?)
-                // also we should check that the prefix rule matches (link prefixes and postfixes together)
-
-                if (prefix.empty() || postfix.empty())
+                // Is in postfix
+                if constexpr (!std::is_same_v<std::decay_t<decltype(post)>, max_t>)
                 {
-                    // we're currently matching non-ambiguous ctx
-                    // applied prefix or postfix are blocking: no new matches can happen
-                    if (postfix.rule_id == rule_id)
+                    // we can also perform additional end-of-stack check (does the prefix+postfix fit?)
+                    // also we should check that the prefix rule matches (link prefixes and postfixes together)
+
+                    if (prefix.empty() || postfix.empty())
                     {
-                        // use _fix as the starting pos
-                        if (postfix.fix + post != stack_size - 1)
+                        // we're currently matching non-ambiguous ctx
+                        // applied prefix or postfix are blocking: no new matches can happen
+                        if (postfix.rule_id == rule_id)
                         {
-                            // we have already applied the ctx, unexpected behavior
-                            // ASSERT
+                            // use _fix as the starting pos
+                            if (postfix.fix + post != stack_size - 1)
+                            {
+                                // we have already applied the ctx, unexpected behavior
+                                // ASSERT
+                            }
+                            if (post_dist == 0)
+                            {
+                                // we reached the end
+                                // FOUND
+                                postfix.reset();
+                            }
                         }
-                        if (post_dist == 0)
+                    }
+                    else if (postfix_todo[rule_id] != max_t())
+                    {
+                        // use _todo as the starting pos
+                        if (postfix_todo[rule_id] + post == stack_size - 1)
                         {
-                            // we reached the end
                             // FOUND
-                            postfix.reset();
+                            // nothing to do - prefix is already in _todo
+                        } else {
+                            // candidate dropped out
+                            postfix_todo.remove(rule_id);
+                        }
+                    } else {
+                        // first match
+
+                        if (post == 0)
+                        {
+                            // FOUND
+                            postfix_todo.add(rule_id, stack_size - 1);
+                        } else {
+                            // we need different logic for handling cases when prefix != 0
+                            // permissive handler:
+                            if (post < stack_size)  // sanity check (we need to account for prefix overlap)
+                                postfix_todo.add(rule_id, stack_size - 1 - post);
                         }
                     }
                 }
-                else if (postfix_todo[rule_id] != max_t())
-                {
-                    // use _todo as the starting pos
-                    if (postfix_todo[rule_id] + post == stack_size - 1)
-                    {
-                        // FOUND
-                        // nothing to do - prefix is already in _todo
-                    } else {
-                        // candidate dropped out
-                        postfix_todo.remove(rule_id);
-                    }
-                } else {
-                    // first match
-
-                    if (post == 0)
-                    {
-                        // FOUND
-                        postfix_todo.add(rule_id, stack_size - 1);
-                    } else {
-                        // we need different logic for handling cases when prefix != 0
-                        // permissive handler:
-                        if (post < stack_size)  // sanity check (we need to account for prefix overlap)
-                            postfix_todo.add(rule_id, stack_size - 1 - post);
-                    }
-                }
-            }
-        });
+            }); // each possible position
+        }); // each type candidate
 
         // _todo solver
         if (prefix_todo.size() + postfix_todo.size() == 1)
@@ -309,55 +305,134 @@ public:
         if (postfix.fix == stack_size - 1)
         {
             // We exit ctx now!
+            // TODO we should decrease it from reduce() and assert() on error
             context[postfix.rule_id]--;
         }
         return prefix_todo.size() + postfix_todo.size() == 0;
     }
 
+    /**
+     * @brief Check if a match can exist in current ctx
+     * @param match Match candidate
+     */
+    template<class TSymbol>
+    constexpr bool check_ctx(const TSymbol& match)
+    {
+        if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
+        {
+            const auto& idx = get_rr_all(match);
+            for (const std::size_t pos : idx)  // rules where it cannot be present
+            {
+                if (context[pos] > 0)
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @brief Update the context for the reduced symbol. This function should be called on each successful reduce operation
+     * @param match Chosen match candidate
+     */
+    template<class TSymbol>
+    constexpr bool apply_reduce(const TSymbol& match, std::size_t stack_size)
+    {
+        if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
+        {
+            constexpr std::size_t index = get_ctx_index<0, std::decay_t<TSymbol>>();
+            if (postfix.rule_id == index)
+            {
+                // Context id matches
+                if (postfix.fix != stack_size - 1) [[unlikely]]
+                {
+                    // The symbol is reduced
+                    assert(postfix.fix == stack_size - 1 && "apply_reduce() : guru meditation : match candidate reduced in the illegal postfix position");
+                }
+                assert(context[index] > 0 && "apply_reduce() : guru meditation : empty context with non-empty postfix");
+                context[index]--;
+                postfix.reset();
+            }
+        }
+        return true;
+    }
+
+
+protected:
     template<class TSymbol>
     constexpr auto& get_pos(const TSymbol& symbol) const
     {
-        if constexpr (is_nterm<std::decay_t<TSymbol>>)
+        if constexpr (is_nterm<std::decay_t<TSymbol>>())
             return do_get_nterm_pos<0>(symbol);
         else
             return do_get_term_pos<0>(symbol);
     }
 
-protected:
     template<std::size_t depth, class TSymbol>
-    constexpr auto do_get_nterm_pos(const TSymbol& symbol) const
+    [[nodiscard]] static constexpr std::size_t get_ctx_index()
     {
-        static_assert(depth < std::tuple_size_v<TMatches>, "NTerm type not found");
-        // Get the corresponding NTermsPosPairs element
-        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::tuple_element_t<depth, TRules>>)
+        if constexpr (depth >= std::tuple_size_v<TRules>)
+            return std::numeric_limits<std::size_t>::max(); // No such symbol
+        else
         {
-            return std::get<depth>(pos_nterm);
-        } else {
-            return do_get<depth + 1>(symbol);
+            if constexpr (std::is_same_v<std::decay_t<std::tuple_element_t<depth, TRules>>, std::decay_t<TSymbol>>)
+                return depth;
+            else
+                return get_ctx_index<depth+1, TSymbol>();
         }
     }
 
     template<std::size_t depth, class TSymbol>
-    constexpr auto do_get_term_pos(const TSymbol& symbol) const
+    constexpr auto& do_get_nterm_pos(const TSymbol& symbol) const
     {
-        static_assert(depth < std::tuple_size_v<TMatches>, "Term type not found");
+        static_assert(depth < std::tuple_size_v<TMatches>, "NTerm type not found");
+        // Get the corresponding NTermsPosPairs element
+        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<std::tuple_element_t<0, typename std::tuple_element_t<depth, TMatches>::term_types_tuple>>>)
+        {
+            return std::get<depth>(pos_nterm);
+        } else {
+            return do_get_nterm_pos<depth + 1>(symbol);
+        }
+    }
+
+    template<std::size_t depth, class TSymbol>
+    constexpr auto& do_get_term_pos(const TSymbol& symbol) const
+    {
+        static_assert(depth < std::tuple_size_v<TTerms>, "Term type not found");
         // Get the corresponding NTermsPosPairs element
         if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::tuple_element_t<depth, TTerms>>)
         {
             return std::get<depth>(pos_term);
         } else {
-            return do_get<depth + 1>(symbol);
+            return do_get_term_pos<depth + 1>(symbol);
+        }
+    }
+
+    template<class TSymbol>
+    constexpr auto get_rr_all(const TSymbol& symbol) const
+    {
+        return do_get_rr_all<0>(symbol);
+    }
+
+    template<std::size_t depth, class TSymbol>
+    constexpr auto do_get_rr_all(const TSymbol& symbol) const
+    {
+        static_assert(depth < std::tuple_size_v<TMatches>, "NTerm type not found");
+        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<std::tuple_element_t<0, typename std::tuple_element_t<depth, TMatches>::term_types_tuple>>>)
+        {
+            return std::get<depth>(rr_all);
+        } else {
+            return do_get_rr_all<depth + 1>(symbol);
         }
     }
 };
 
 
-template<bool do_prettyprint, bool do_context_check, class RRTree, class NTermsMap, class TTermsTypeMap, class THeuristicsPre>
-constexpr auto make_ctx_manager(const RRTree& tree, const NTermsMap& nterms2defs, const TTermsTypeMap& terms_map, const THeuristicsPre& h_pre)
+template<class RRTree, class NTermsMap, class TTermsTypeMap, class THeuristicsPre>
+constexpr auto make_ctx_manager(const RRTree& tree, const NTermsMap& nterms2defs, const TTermsTypeMap& terms_tmap, const THeuristicsPre& h_pre)
 {
     const auto pairs_nt = cfg_helpers::ctx_get_nterm_match<0>(tree.defs, tree.tree, nterms2defs);
-    const auto pairs_t = cfg_helpers::ctx_get_term_match<0>(terms_map.terms, terms_map.nterms, nterms2defs);
-    return ContextManager<decltype(tree.defs), decltype(pairs_nt), decltype(pairs_t), decltype(h_pre.unique_rr), decltype(terms_map.terms), decltype(h_pre.full_rr), do_prettyprint>(tree.defs, pairs_nt, pairs_t, h_pre.unique_rr, terms_map.terms, h_pre.full_rr);
+    const auto pairs_t = cfg_helpers::ctx_get_term_match<0>(terms_tmap.terms, terms_tmap.nterms, nterms2defs);
+    return ContextManager<decltype(tree.defs), decltype(pairs_nt), decltype(pairs_t), decltype(h_pre.unique_rr), decltype(terms_tmap.terms), decltype(h_pre.full_rr)>(tree.defs, pairs_nt, pairs_t, h_pre.unique_rr, terms_tmap.terms, h_pre.full_rr);
 }
 
 

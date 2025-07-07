@@ -8,6 +8,7 @@
 #include "follow.h"
 #include "cfg/preprocess.h"
 #include "cfg/preprocess_factories.h"
+#include "cfg/context.h"
 
 
 /**
@@ -363,7 +364,7 @@ constexpr auto mk_sr_parser_conf()
 }
 
 
-template<class VStr, class TokenType, class TokenTSet, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf, class Lookahead, class RChecker>
+template<class VStr, class TokenType, class TokenTSet, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf, class Lookahead, class RChecker, class CtxMgr>
 class SRParser
 {
 protected:
@@ -376,11 +377,12 @@ protected:
     using SrC = SRParserConfig<Conf>;
     Lookahead look;
     RChecker r_checker;
+    CtxMgr ctx_mgr;
 
     using TokenV = Token<VStr, TokenTSet>;
     using GSymbolV = GrammarSymbol<VStr, TokenTSet>;
 public:
-    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map, SRParserConfig<Conf> conf, const Lookahead& lookahead, const RChecker& checker) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules), conf(conf), look(lookahead), r_checker(checker) {}
+    constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map, SRParserConfig<Conf> conf, const Lookahead& lookahead, const RChecker& checker, const CtxMgr& h_ctx) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules), conf(conf), look(lookahead), r_checker(checker), ctx_mgr(h_ctx) {}
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
 
     template<class RootSymbol>
@@ -388,6 +390,8 @@ public:
     {
         if constexpr (enabled<SRConfEnum::ReducibilityChecker>())
             r_checker.reset_ctx();
+        if constexpr (enabled<SRConfEnum::HeuristicCtx>())
+            ctx_mgr.reset_ctx();
         // Initialize point at zero
         std::vector<GSymbolV> stack{GSymbolV(tokens[0].value, tokens[0].type)};
         std::size_t i = 1;
@@ -405,7 +409,20 @@ public:
                     // CtxManager analyzes the symbols which cannot be reduced right away
                     // Take the last symbol and try resolving context
 
+                    auto tok = stack.back();
 
+                    for (std::size_t j = 0; !ctx_mgr.next(tok, stack.size(), symbols_ht); j++)
+                    {
+                        // Ambiguity found, move tok
+                        if (j >= tokens.size()) [[unlikely]]
+                        {
+                            if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "unresolved ambiguity encountered" << std::endl;
+                            return false;
+                        }
+                        // TODO replace Token class with GSymbol
+                        tok = GSymbolV(tokens[j].value, tokens[j].type); // take the next term from the tokens
+                    }
+                    // ambiguity resolved
                 }
 
                 stack.push_back(GSymbolV(tokens[i].value, tokens[i].type));
@@ -700,6 +717,13 @@ protected:
             for (std::size_t k = 0; k < intersect.size(); k++)
             {
                 bool found = symbols_ht.get_nterm(intersect[k], [&](const auto& match){
+                    // It is cheaper to perform context check now
+                    if constexpr (enabled<SRConfEnum::HeuristicCtx>())
+                    {
+                        if (!ctx_mgr.check_ctx(match))
+                            return false; // not allowed in current ctx
+                    }
+
                     // Get definition of the common type
                     const auto& def = std::get<1>(defs.get(match)->terms);
 
@@ -749,15 +773,15 @@ protected:
                                 // No suitable symbol found
                                 if constexpr (enabled<SRConfEnum::PrettyPrint>())
                                     std::cout << "^ look mismatch" << std::endl;
-                                    return false; // Not found
+                                return false; // Not found
                             }
                         }
                     }
 
                     if constexpr (enabled<SRConfEnum::ReducibilityChecker>())
-                    {
                         r_checker.apply_reduce(match); // If the matched symbol has context, we need to decrement
-                    }
+                    if constexpr (enabled<SRConfEnum::HeuristicCtx>())
+                        ctx_mgr.apply_reduce(match, stack.size()); // ditto
                     return true;
                 });
 
@@ -984,8 +1008,8 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
     // Get tokens container class
     using TokenSetClass = typename TLexer::TokenSetClass;
 
-    auto instantiate_parser = [&](const auto& lookahead, const auto& rchecker){
-        return SRParser<VStr, TokenType, TokenSetClass, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), std::decay_t<decltype(lookahead)>, std::decay_t<decltype(rchecker)>>(rules, rr_tree, symbols_ht, terms_map, conf, lookahead, rchecker);
+    auto instantiate_parser = [&](const auto& lookahead, const auto& rchecker, const auto& ctx_mgr){
+        return SRParser<VStr, TokenType, TokenSetClass, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), std::decay_t<decltype(lookahead)>, std::decay_t<decltype(rchecker)>, std::decay_t<decltype(ctx_mgr)>>(rules, rr_tree, symbols_ht, terms_map, conf, lookahead, rchecker, ctx_mgr);
     };
 
     auto instantiate_lookahead = [&](){
@@ -1005,13 +1029,24 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
             return NoLookahead();
     };
 
-    // We need to determine which heruistics preprocessing data to compute
-    constexpr std::uint64_t h_feat = ((conf.template flag<SRConfEnum::RC1CheckContext>() || conf.template flag<SRConfEnum::HeuristicCtx>()) * (std::uint64_t)HeuristicFeatures::ContextManagement);
-    auto instantiate_ctx_manager = [&](){
-        if constexpr (conf.template flag<SRConfEnum::ReducibilityChecker>())
+    auto instantiate_heuristic_pre = [&](){
+        // We need to determine which heuristics preprocessing data to compute
+        constexpr std::uint64_t h_feat = ((conf.template flag<SRConfEnum::RC1CheckContext>() || conf.template flag<SRConfEnum::HeuristicCtx>()) * (std::uint64_t)HeuristicFeatures::ContextManagement);
+        return make_heuristic_preprocessor<conf.template flag<SRConfEnum::PrettyPrint>(), HeuristicFeatures(h_feat)>(rr_tree);
+    };
+
+    auto instantiate_ctx_manager = [&](const auto& h_pre){
+        if constexpr (conf.template flag<SRConfEnum::HeuristicCtx>())
         {
-            // ...
-        }
+            if constexpr (!std::decay_t<TLexer>::is_legacy())
+            {
+                auto ctx_mgr = make_ctx_manager(rr_tree, defs, lex.terms_map, h_pre);
+                return ctx_mgr;
+            } else {
+                static_assert(!std::decay_t<TLexer>::is_legacy(), "Cannot use legacy lexer with HeuristicCtx");
+            }
+        } else
+            return NoReducibilityChecker();
     };
 
 
@@ -1030,8 +1065,16 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
             return NoReducibilityChecker();
     };
 
-    // Parser init
-    return instantiate_parser(instantiate_lookahead(), instantiate_rchecker());
+    if constexpr (conf.template flag<SRConfEnum::ReducibilityChecker>() || conf.template flag<SRConfEnum::HeuristicCtx>())
+    {
+        auto h_pre = instantiate_heuristic_pre();
+        // Parser init
+        // TODO pass h_pre to RC(1)
+        return instantiate_parser(instantiate_lookahead(), instantiate_rchecker(), instantiate_ctx_manager(h_pre));
+    } else {
+        // Parser init
+        return instantiate_parser(instantiate_lookahead(), NoReducibilityChecker(), NoReducibilityChecker());
+    }
 }
 
 

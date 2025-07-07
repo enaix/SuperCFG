@@ -185,6 +185,17 @@ public:
     {
         return std::visit([&](auto s_type){ return decltype(s_type)::value; }, symbol_type);
     }
+
+    void with_types(const auto& symbols_ht, auto func) const
+    {
+        if (is_token())
+        {
+            // Return either a Term or a Range
+            symbols_ht.get_term(value, func);
+        } else {
+            symbols_ht.get_nterm(type.front(), func);
+        }
+    }
 };
 
 
@@ -538,6 +549,8 @@ public:
     using TokenSetClass = TypeSingleton<TokenType>;
     hashtable ht;
 
+    [[nodiscard]] static constexpr bool is_legacy() { return true; }
+
     template<class RulesSymbol>
     constexpr explicit LexerLegacy(const RulesSymbol& root) : storage(root), ht(storage.compile_hashmap()) { assert(storage.validate() && "Duplicate terminals found, cannot build tokens storage"); }
 
@@ -580,11 +593,11 @@ public:
 template<class VStr, class TokenType, class TermsTMap>
 class Lexer
 {
-protected:
+public:
     TermsTMap terms_map;
 
-public:
     using TokenSetClass = TypeSet<TokenType>;
+    [[nodiscard]] static constexpr bool is_legacy() { return false; }
 
     constexpr explicit Lexer(const TermsTMap& terms) : terms_map(terms) {}
 
@@ -713,7 +726,18 @@ public:
     constexpr SymbolsHashTable(const Terms& terms, const NTerms& nterms) : terms_map(), nterms_map()
     {
         tuple_each(terms, [&](std::size_t i, const auto& term){
-            terms_map.insert(TokenType(term.type()), term);
+            // Iterate over each element in lexical range
+            if constexpr (is_terms_range<std::decay_t<decltype(term)>>())
+            {
+                term.each_range([&](auto symbol){
+                    const auto t = TokenType(symbol);
+                    // if (!terms_map.contains(t))
+                    terms_map.insert(t, term); // We don't care what to insert
+                });
+            } else {
+                const auto t = TokenType(term.type());
+                terms_map.insert(t, term);
+            }
         });
 
         tuple_each(nterms, [&](std::size_t i, const auto& nterm){
@@ -721,12 +745,12 @@ public:
         });
     }
 
-    auto get_term(const TokenType& type, auto func)
+    auto get_term(const TokenType& type, auto func) const
     {
         return terms_map.get(type, func);
     }
 
-    auto get_nterm(const TokenType& type, auto func)
+    auto get_nterm(const TokenType& type, auto func) const
     {
         return nterms_map.get(type, func);
     }
@@ -916,7 +940,7 @@ public:
 
     /**
      * @brief Update the context for the reduced symbol. This function should be called on each successful reduce operation
-     * @tparam TSymbol
+     * @param symbol Chosen match candidate
      */
     template<class TSymbol>
     void apply_reduce(const TSymbol& symbol)
@@ -958,7 +982,7 @@ protected:
     template<std::size_t depth, class TSymbol>
     constexpr auto do_get_rr_all(const TSymbol& symbol) const
     {
-        static_assert(depth < std::tuple_size_v<FullRRTree>, "NTerm type not found");
+        static_assert(depth < std::tuple_size_v<TMatches>, "NTerm type not found");
         if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<std::tuple_element_t<0, typename std::tuple_element_t<depth, TMatches>::term_types_tuple>>>)
         {
             return std::get<depth>(rr_all);
