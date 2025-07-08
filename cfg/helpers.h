@@ -36,6 +36,14 @@ namespace cfg_helpers
         return Target<std::decay_t<decltype(morph.template operator()<Ints>(src))>...>(morph.template operator()<Ints>(src) ...);
     }
 
+    template<bool init_agg, class Target, class Src, std::size_t... Ints>
+    constexpr auto do_h_type_morph(auto morph, const Src &src, const std::integer_sequence<std::size_t, Ints...>)
+    {
+        if constexpr (init_agg)
+            return Target({morph.template operator()<Ints>(src) ...});
+        else
+            return Target(morph.template operator()<Ints>(src) ...);
+    }
 
     template<class TElem, class... TupleElems>
     constexpr bool compare_elements(const TElem& elem, const TupleElems&... args)
@@ -484,6 +492,16 @@ constexpr auto tuple_morph_t(auto morph)
     return cfg_helpers::do_type_morph_t<std::tuple>(morph, std::make_index_sequence<std::tuple_size_v<Src>>{});
 }
 
+/**
+ * @brief Type morph for homogeneous target type. Accepts a non-template target type
+ * @tparam init_agg Initialize target with aggregate types (in {...})
+ */
+template<class Target, bool init_agg, std::size_t N, class Src>
+constexpr auto h_type_morph(auto morph, const IntegralWrapper<N> length, const Src& src)
+{
+    return cfg_helpers::do_h_type_morph<init_agg, Target>(morph, src, std::make_index_sequence<N>{});
+}
+
 
 /**
  * @brief Morph a tuple of type std::tuple<T...> into a variant of type std::variant<T...>
@@ -663,6 +681,14 @@ template<class Elem, class... T>
 struct tuple_contains<Elem, std::tuple<T...>>
 {
     static constexpr bool value = (std::is_same_v<std::decay_t<Elem>, std::decay_t<T>> || ...);
+    constexpr bool operator()() const noexcept { return value; }
+};
+
+// Overload for null tuple
+template<class Elem>
+struct tuple_contains<Elem, std::tuple<>>
+{
+    static constexpr bool value = false;
     constexpr bool operator()() const noexcept { return value; }
 };
 

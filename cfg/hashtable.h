@@ -47,6 +47,11 @@ public:
         Val v = value;
         storage.insert({key, ValuesVariant(v)});
     }
+
+    bool contains(const Key& key) const
+    {
+        return storage.contains(key);
+    }
 };
 
 

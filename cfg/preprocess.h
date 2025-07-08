@@ -185,6 +185,17 @@ public:
     {
         return std::visit([&](auto s_type){ return decltype(s_type)::value; }, symbol_type);
     }
+
+    void with_types(const auto& symbols_ht, auto func) const
+    {
+        if (is_token())
+        {
+            // Return either a Term or a Range
+            symbols_ht.get_term(value, func);
+        } else {
+            symbols_ht.get_nterm(type.front(), func);
+        }
+    }
 };
 
 
@@ -538,6 +549,8 @@ public:
     using TokenSetClass = TypeSingleton<TokenType>;
     hashtable ht;
 
+    [[nodiscard]] static constexpr bool is_legacy() { return true; }
+
     template<class RulesSymbol>
     constexpr explicit LexerLegacy(const RulesSymbol& root) : storage(root), ht(storage.compile_hashmap()) { assert(storage.validate() && "Duplicate terminals found, cannot build tokens storage"); }
 
@@ -580,11 +593,11 @@ public:
 template<class VStr, class TokenType, class TermsTMap>
 class Lexer
 {
-protected:
+public:
     TermsTMap terms_map;
 
-public:
     using TokenSetClass = TypeSet<TokenType>;
+    [[nodiscard]] static constexpr bool is_legacy() { return false; }
 
     constexpr explicit Lexer(const TermsTMap& terms) : terms_map(terms) {}
 
@@ -713,7 +726,18 @@ public:
     constexpr SymbolsHashTable(const Terms& terms, const NTerms& nterms) : terms_map(), nterms_map()
     {
         tuple_each(terms, [&](std::size_t i, const auto& term){
-            terms_map.insert(TokenType(term.type()), term);
+            // Iterate over each element in lexical range
+            if constexpr (is_terms_range<std::decay_t<decltype(term)>>())
+            {
+                term.each_range([&](auto symbol){
+                    const auto t = TokenType(symbol);
+                    // if (!terms_map.contains(t))
+                    terms_map.insert(t, term); // We don't care what to insert
+                });
+            } else {
+                const auto t = TokenType(term.type());
+                terms_map.insert(t, term);
+            }
         });
 
         tuple_each(nterms, [&](std::size_t i, const auto& nterm){
@@ -721,12 +745,12 @@ public:
         });
     }
 
-    auto get_term(const TokenType& type, auto func)
+    auto get_term(const TokenType& type, auto func) const
     {
         return terms_map.get(type, func);
     }
 
-    auto get_nterm(const TokenType& type, auto func)
+    auto get_nterm(const TokenType& type, auto func) const
     {
         return nterms_map.get(type, func);
     }
@@ -800,21 +824,23 @@ protected:
 /**
  * @brief A class that checks if a matching element can be reduced in current parsing context. The check is performed for 1 step ahead. At the initial step,
  */
-template<class TMatches, class RulesPosPairs, class TRules, bool do_prettyprint>
+template<class TMatches, class RulesPosPairs, class TRules, class FullRRTree, bool do_prettyprint>
 class ReducibilityChecker1
 {
 public:
     TMatches matches;
     RulesPosPairs pos;
     TRules rules;
+    FullRRTree rr_all;
     std::array<std::size_t, std::tuple_size_v<TRules>> context;
+    std::size_t last_ctx_pos;
 
-    constexpr ReducibilityChecker1(const TMatches& m, const RulesPosPairs& p, const TRules& r) : matches(m), pos(p), rules(r) {}
+    constexpr ReducibilityChecker1(const TMatches& m, const RulesPosPairs& p, const TRules& r, const FullRRTree& rr_all) : matches(m), pos(p), rules(r), rr_all(rr_all) {}
 
     /**
      * @brief Reset the context of the array. Should be performed at the start of parsing
      */
-    void reset_ctx() { context.fill(0); }
+    void reset_ctx() { context.fill(0); last_ctx_pos = std::numeric_limits<std::size_t>::max(); }
 
     /**
      * @brief Check if a symbol can be reduced in the current context.
@@ -831,12 +857,39 @@ public:
         if constexpr (std::tuple_size_v<std::decay_t<decltype(res)>> == 0)
             return true; // Nothing to check
 
+        if constexpr (do_prettyprint)
+        {
+            std::cout << "ctx : ";
+            for (const std::size_t idx : context) std::cout << idx << " ";
+            std::cout << std::endl;
+        }
+
         return tuple_each_or_return(res, [&](std::size_t i, const auto& rule_pair){
             const auto& [rule, first_pos] = rule_pair;
             constexpr std::size_t ctx_pos = get_ctx_index<0, std::decay_t<decltype(rule)>>();
             static_assert(ctx_pos < std::tuple_size_v<TRules>, "RC(1) : could not find reverse rule");
             // Check if the context exists
             // Note: it cannot solve rules with common prefixes
+
+            // Check for the context first
+            if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
+            {
+                const auto& idx = get_rr_all(match);
+                for (const std::size_t pos : idx)
+                {
+                    if (pos == get_ctx_index<0, std::decay_t<decltype(match)>>()) // check if we compare the symbol against itself
+                    {
+                        if (context[pos] > 1) [[unlikely]]
+                        {
+                            if constexpr (do_prettyprint) std::cout << "cannot reduce: conflicting nested ctx " << pos << std::endl;
+                            return false;
+                        }
+                    } else if (context[pos] > 0) {
+                        if constexpr (do_prettyprint) std::cout << "cannot reduce: conflicting ctx " << pos << std::endl;
+                        return false;
+                    }
+                }
+            }
 
             auto perform_check_at_symbol_start = [&](){
                 // Out of bounds check: the rule cannot fit in current stack
@@ -849,7 +902,8 @@ public:
                     std::cout << ", i: " << stack_i << ", parsed: " << parsed << "/" << first_pos() << std::endl;
                 if (parsed >= first_pos()) // We can theoretically reduce everything up to this symbol OR there is no match at all
                 {
-                    context[ctx_pos]++; // Successful match
+                    //context[ctx_pos]++; // Successful match
+                    last_ctx_pos = ctx_pos;
                     return true;
                 }
                 return false;
@@ -875,9 +929,18 @@ public:
         return true; // We don't need to check these symbols
     }
 
+    void apply_ctx()
+    {
+        if (last_ctx_pos != std::numeric_limits<std::size_t>::max())
+        {
+            context[last_ctx_pos]++;
+            last_ctx_pos = std::numeric_limits<std::size_t>::max();
+        }
+    }
+
     /**
      * @brief Update the context for the reduced symbol. This function should be called on each successful reduce operation
-     * @tparam TSymbol
+     * @param symbol Chosen match candidate
      */
     template<class TSymbol>
     void apply_reduce(const TSymbol& symbol)
@@ -889,6 +952,12 @@ public:
     constexpr auto get(const TSymbol& symbol) const
     {
         return do_get<0>(symbol);
+    }
+
+    template<class TSymbol>
+    constexpr auto get_rr_all(const TSymbol& symbol) const
+    {
+        return do_get_rr_all<0>(symbol);
     }
 
     template<class VStr>
@@ -906,7 +975,19 @@ protected:
         {
             return std::get<depth>(pos);
         } else {
-            return do_get<depth + 1, TSymbol>(symbol);
+            return do_get<depth + 1>(symbol);
+        }
+    }
+
+    template<std::size_t depth, class TSymbol>
+    constexpr auto do_get_rr_all(const TSymbol& symbol) const
+    {
+        static_assert(depth < std::tuple_size_v<TMatches>, "NTerm type not found");
+        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<std::tuple_element_t<0, typename std::tuple_element_t<depth, TMatches>::term_types_tuple>>>)
+        {
+            return std::get<depth>(rr_all);
+        } else {
+            return do_get_rr_all<depth + 1>(symbol);
         }
     }
 
@@ -956,6 +1037,24 @@ protected:
 
 
 class NoReducibilityChecker {};
+
+
+// Heuristics preprocessing helpers
+enum class HeuristicFeatures : std::uint64_t
+{
+    ContextManagement = 0x1, // Build the FullRRTree
+};
+
+
+template<class UniqueRelatedRules, class FullRRTree>
+class HeuristicPreprocessor
+{
+public:
+    UniqueRelatedRules unique_rr;
+    FullRRTree full_rr;
+
+    constexpr HeuristicPreprocessor(const UniqueRelatedRules& u_rr, const FullRRTree& full_rr_tree) : unique_rr(u_rr), full_rr(full_rr_tree) {}
+};
 
 
 #endif //SUPERCFG_PREPROCESS_H

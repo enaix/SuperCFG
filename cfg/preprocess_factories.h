@@ -71,7 +71,7 @@ namespace cfg_helpers
         } else if constexpr (is_term<TSymbol>()) {
             return std::make_tuple(elem);
         } else if constexpr (is_terms_range<TSymbol>()) {
-            return std::make_tuple<>(); // Do not include range
+            return std::make_tuple(elem); // Include range, but we need to handle this case later
         } else static_assert(terminal_type<TSymbol>() || is_nterm<TSymbol>() || is_operator<TSymbol>(), "Wrong symbol type");
     }
 
@@ -224,6 +224,65 @@ namespace cfg_helpers
     // reducibility checker
 
     /**
+     * @brief Get position of a symbol in the prefix or postfix of a given rule. (Pre/Post)fix is a sequence of symbols which is always present at a particular position. If a symbol always occurs more than once, only the first match is resolved
+     * @tparam dir_up Up (true) - prefix, down (false) - postfix
+     * @param target Symbol to check
+     * @param symbol Symbol to descend into
+     */
+    template<bool dir_up, std::size_t pos, std::size_t i, class TDef, class TSymbol>
+    constexpr auto rc1_rule_get_fix(const TDef& target, const TSymbol& symbol)
+    {
+        if constexpr (is_operator<TSymbol>())
+        {
+            // Can we move to the next symbol?
+            constexpr bool next = (dir_up ? i < std::tuple_size_v<std::decay_t<decltype(symbol.terms)>> - 1 : i > 0);
+            constexpr std::size_t i_next = (dir_up ? i + 1 : i - 1);
+
+            if constexpr (get_operator<TSymbol>() == OpType::Concat)
+            {
+                // At each step increase the pos and return if we find one encounter
+                // Descend into symbol
+                const auto res = rc1_rule_get_fix<dir_up, pos, 0>(target, std::get<i>(symbol.terms));
+                if constexpr (next && std::is_same_v<std::decay_t<decltype(res)>, std::tuple<>>)
+                {
+                    // Target not found, check the next term in symbol
+                    return rc1_rule_get_fix<dir_up, pos+1, i_next>(target, symbol);
+                } else return res;
+            }
+            // Only deterministic prefix or postfix is Concat and repeat with M >= 1
+            else if constexpr (get_operator<TSymbol>() == OpType::RepeatExact || get_operator<TSymbol>() == OpType::RepeatRange || get_operator<TSymbol>() == OpType::RepeatGE)
+            {
+                if constexpr (get_range_from<TSymbol>() > 0)
+                    // Get the FIRST entry
+                    return rc1_rule_get_fix<dir_up, pos, 0>(target, std::get<0>(symbol.terms));
+                else return std::tuple<>();
+            }
+            else if constexpr (get_operator<TSymbol>() == OpType::Group)
+            {
+                // Check only the first symbol
+                if constexpr (std::tuple_size_v<std::decay_t<decltype(symbol.terms)>> == 0)
+                    return std::tuple<>();
+                else
+                    return rc1_rule_get_fix<dir_up, pos, 0>(target, std::get<0>(symbol.terms));
+            }
+            // Other symbols are not deterministic
+            else return std::tuple<>();
+        }
+        else if constexpr (is_nterm<TSymbol>())
+        {
+            if constexpr (std::is_same_v<std::decay_t<TDef>, std::decay_t<TSymbol>>)
+                return std::integral_constant<std::size_t, pos>{}; // We do not need to wrap it into a tuple
+            else
+                return std::tuple<>();
+        } else {
+            // We need to handle cases when target is a range
+            if constexpr (terms_intersect_v<std::decay_t<TDef>, std::decay_t<TSymbol>>)
+                return std::integral_constant<std::size_t, pos>{};
+            else return std::tuple<>(); // No intersection or target is an nterm
+        }
+    }
+
+    /**
      * @brief Get the first element encounter position
      * @param target Symbol to check
      * @param symbol Symbol to descend into
@@ -232,6 +291,7 @@ namespace cfg_helpers
     template<std::size_t pos, std::size_t i, class TDef, class TSymbol, class TRuleDef>
     constexpr auto rc1_get_elem_pos_in_rule(const TDef& target, const TSymbol& symbol, const TRuleDef& rule)
     {
+        // TODO Delete this dead code
         if constexpr (is_operator<TSymbol>())
         {
             if constexpr (get_operator<TSymbol>() == OpType::Concat)
@@ -282,7 +342,7 @@ namespace cfg_helpers
     }
 
     /**
-     * @brief Iterate over each symbol, get the related rules and find the starting position
+     * @brief Iterate over each nterm, get the related rules and find the starting position in prefix and postfix
      * @param defs RRTree defs tuple
      * @param rules RRTree rules tuple
      * @param nterms2defs NTerms to definitions mapping
@@ -296,6 +356,7 @@ namespace cfg_helpers
         const auto res = concat_each<std::tuple_size_v<std::decay_t<decltype(r_rules)>>, true>([&]<std::size_t i>(){
             const auto& rule_nterm = std::get<i>(r_rules);
             const auto& rule_def = std::get<1>(nterms2defs.get(rule_nterm)->terms);
+
             return rc1_get_elem_pos_in_rule<0, 0>(def, rule_def, rule_nterm);
         });
 
@@ -303,6 +364,174 @@ namespace cfg_helpers
             return std::tuple_cat(std::make_tuple(res), rc1_get_match<depth+1>(defs, rules, nterms2defs));
         else
             return std::make_tuple(res);
+    }
+
+
+    /**
+     * @brief Find all starting/ending positions in a rule at step i
+     * @param def Rule symbol definition
+     * @param r_rules Related rules for the target symbol
+     * @param nterms2defs NTerms to definitions mapping
+     */
+    template<class TSymbol, class RRulesTuple, class NTermsMap>
+    constexpr auto ctx_get_match_step(const TSymbol& def, const RRulesTuple& r_rules, const NTermsMap& nterms2defs)
+    {
+        auto fix_minmax = std::pair<std::size_t, std::size_t>(0, std::numeric_limits<std::size_t>::max());
+
+        const auto res = concat_each<std::tuple_size_v<std::decay_t<decltype(r_rules)>>, true>([&]<std::size_t i>(){
+            const auto& rule_nterm = std::get<i>(r_rules);
+            const auto& rule_def = std::get<1>(nterms2defs.get(rule_nterm)->terms);
+
+            auto null_to_max = []<class TRes>(const TRes& res, auto found){
+                if constexpr (std::is_same_v<std::decay_t<TRes>, std::tuple<>>)
+                    return std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>{};
+                else
+                {
+                    found(res); // Update min/max prefix
+                    return res;
+                }
+            };
+
+            // Warning: due to TermsRange symbol pos is still kind of ambiguous!
+            const auto prefix = null_to_max(rc1_rule_get_fix<true, 0, 0>(def, rule_def),
+                [&](const auto pre){ fix_minmax.first = (pre > fix_minmax.first ? pre : fix_minmax.first); });
+            const auto postfix = null_to_max(rc1_rule_get_fix<false, 0, std::tuple_size_v<std::decay_t<decltype(rule_def.terms)>> - 1>(def, rule_def),
+                [&](const auto post){ fix_minmax.second = (post < fix_minmax.second ? post : fix_minmax.second); });
+
+            return std::make_tuple(std::make_pair(rule_nterm, std::make_pair(prefix, postfix)));
+        });
+
+        return std::make_pair(res, fix_minmax);
+    }
+
+
+    /**
+     * @brief Iterate over each nterm, get the related rules and find the starting position in prefix and postfix. Also includes max prefix and min postfix positions
+     * @param defs RRTree defs tuple
+     * @param rules RRTree rules tuple
+     * @param nterms2defs NTerms to definitions mapping
+     */
+    template<std::size_t depth, class TDefsTuple, class TRuleTree, class NTermsMap>
+    constexpr auto ctx_get_nterm_match(const TDefsTuple& defs, const TRuleTree& rules, const NTermsMap& nterms2defs)
+    {
+        const auto& def = std::get<0>(std::get<depth>(defs).terms);
+        const auto& r_rules = std::get<depth>(rules);
+
+        const auto res_pair = ctx_get_match_step(def, r_rules, nterms2defs);
+
+        if constexpr (depth + 1 < std::tuple_size_v<TDefsTuple>)
+            return std::tuple_cat(std::make_tuple(res_pair), ctx_get_nterm_match<depth+1>(defs, rules, nterms2defs));
+        else
+            return std::make_tuple(res_pair);
+    }
+
+
+    /**
+     * @brief Same as ctx_get_nterm_match, but finds Terms and TermsRange in rules
+     * @param terms TermsTypeMap terms
+     * @param nterms TermsTypeMap nterms (rules)
+     * @param nterms2defs NTerms to definitions mapping
+     */
+    template<std::size_t depth, class TTermsTuple, class TDefsTuple, class NTermsMap>
+    constexpr auto ctx_get_term_match(const TTermsTuple& terms, const TDefsTuple& nterms, const NTermsMap& nterms2defs)
+    {
+        const auto& def = std::get<depth>(terms);
+        const auto& r_rules = std::get<depth>(nterms);
+
+        const auto res_pair = ctx_get_match_step(def, r_rules, nterms2defs);
+
+        if constexpr (depth + 1 < std::tuple_size_v<TDefsTuple>)
+            return std::tuple_cat(std::make_tuple(res_pair), ctx_get_term_match<depth+1>(terms, nterms, nterms2defs));
+        else
+            return std::make_tuple(res_pair);
+    }
+
+
+    template<class TSymbol, class TVisitedTuple, class TRuleTree>
+    constexpr auto rc1_full_rrtree_recurse(const TSymbol& symbol, const TVisitedTuple& visited, const TRuleTree& rules)
+    {
+        if constexpr (tuple_contains_v<std::decay_t<TSymbol>, std::decay_t<TVisitedTuple>>)
+            return std::tuple<>();
+        else
+        {
+            const auto& related = rules.get(symbol);
+            const auto visited_next = std::tuple_cat(visited, std::make_tuple(symbol));
+            return tuple_morph_each<true>(related, [&](std::size_t i, const auto& elem){ return std::tuple_cat(std::make_tuple(elem), rc1_full_rrtree_recurse(elem, visited_next, rules)); });
+        }
+    }
+
+    template<std::size_t depth, class TSymbol, class SymbolsTuple>
+    [[nodiscard]] constexpr std::size_t rc1_get_ctx_index()
+    {
+        static_assert(depth < std::tuple_size_v<SymbolsTuple>, "No such symbol found");
+        if constexpr (std::is_same_v<std::decay_t<std::tuple_element_t<depth, SymbolsTuple>>, std::decay_t<TSymbol>>)
+            return depth;
+        else
+            return rc1_get_ctx_index<depth+1, TSymbol, SymbolsTuple>();
+    }
+
+    template<std::size_t N, std::array<std::size_t, N> ctx, std::size_t i, std::size_t MAX>
+    constexpr auto ctx_inv()
+    {
+        if constexpr ([&](){
+            for (std::size_t j = 0; j < N; j++)
+            {
+                if (ctx[j] == i)
+                    return false;
+            }
+            return true;
+        }())
+        {
+            if constexpr (i + 1 < MAX)
+                return std::tuple_cat(std::make_tuple(i), ctx_inv<N, ctx, i+1, MAX>());
+            else
+                return std::make_tuple(i);
+        } else {
+            if constexpr (i + 1 < MAX)
+                return ctx_inv<N, ctx, i+1, MAX>();
+            else
+                return std::tuple<>();
+        }
+    }
+
+    /**
+     * @brief Generate a reverse rules tree which contains all possible nterms. The resulting tuple contains N arrays of rule indices, where element is never present
+     */
+    template<bool do_prettyprint, std::size_t depth, class TDefsTuple, class TRuleTree, class TRules>
+    constexpr auto rc1_get_full_rrtree(const TDefsTuple& defs, const TRuleTree& rules, const TRules& all_rules)
+    {
+        const auto& def = std::get<0>(std::get<depth>(defs).terms);
+        // iterate over related rules and recurse until we find a loop
+        const auto related = tuple_unique(rc1_full_rrtree_recurse(def, std::tuple<>(), rules));
+        if constexpr (do_prettyprint)
+        {
+            std::cout << def.type() << " -> ";
+            print_symbols_tuple(related);
+        }
+
+        constexpr std::size_t M = std::tuple_size_v<std::decay_t<decltype(related)>>;
+        // Convert explicit symbols into idx
+        constexpr auto related_idx = h_type_morph<std::array<std::size_t, M>, true>([&]<std::size_t i>(const auto& src){
+            return rc1_get_ctx_index<0, std::decay_t<std::tuple_element_t<i, std::decay_t<decltype(related)>>>, std::decay_t<TRules>>();
+        }, IntegralWrapper<M>{}, related);
+
+        constexpr std::size_t ctx_size_inv = std::tuple_size_v<std::decay_t<TRules>> - M;
+        constexpr auto ctx_inv_tup = ctx_inv<M, related_idx, 0, std::tuple_size_v<std::decay_t<TRules>>>();
+        constexpr auto related_idx_inv = h_type_morph<std::array<std::size_t, ctx_size_inv>, true>([&]<std::size_t i>(const auto& src){ return std::get<i>(ctx_inv_tup); }, IntegralWrapper<ctx_size_inv>{}, ctx_inv_tup);
+
+        if constexpr (do_prettyprint)
+        {
+            std::cout << ", idx : {";
+            for (std::size_t idx : related_idx) std::cout << idx << " ";
+            std::cout << "}, inv : {";
+            for (std::size_t idx : related_idx_inv) std::cout << idx << " ";
+            std::cout << "}" << std::endl;
+        }
+
+        if constexpr (depth + 1 < std::tuple_size_v<TDefsTuple>)
+            return std::tuple_cat(std::make_tuple(related_idx_inv), rc1_get_full_rrtree<do_prettyprint, depth+1>(defs, rules, all_rules));
+        else
+            return std::make_tuple(related_idx_inv);
     }
 
     template<std::size_t i, class TRange, class TSybmol>
@@ -497,13 +726,35 @@ auto terms_type_map_factory(const TypesCache& cache)
 }
 
 
-template<bool do_prettyprint, class RRTree, class NTermsMap>
+template<bool do_prettyprint, bool do_context_check, class RRTree, class NTermsMap>
 constexpr auto make_reducibility_checker1(const RRTree& tree, const NTermsMap& nterms2defs)
 {
     const auto all_related_rules = tuple_unique(tuple_flatten_layer(tree.tree)); // Get a tuple of all unique related rules
     const auto pairs = cfg_helpers::rc1_get_match<0>(tree.defs, tree.tree, nterms2defs);
-    return ReducibilityChecker1<decltype(tree.defs), decltype(pairs), decltype(all_related_rules), do_prettyprint>(tree.defs, pairs, all_related_rules);
+    /*if constexpr (do_context_check)
+    {
+        if constexpr (do_prettyprint)
+            std::cout << "  RC(1) FULL REVERSE TREE" << std::endl;
+        const auto rr_all = cfg_helpers::rc1_get_full_rrtree<do_prettyprint, 0>(tree.defs, tree, all_related_rules);
+        return ReducibilityChecker1<decltype(tree.defs), decltype(pairs), decltype(all_related_rules), decltype(rr_all), do_prettyprint>(tree.defs, pairs, all_related_rules, rr_all);
+    }
+    else*/ return ReducibilityChecker1<decltype(tree.defs), decltype(pairs), decltype(all_related_rules), std::tuple<>, do_prettyprint>(tree.defs, pairs, all_related_rules, std::tuple<>());
 }
+
+
+template<bool do_prettyprint, HeuristicFeatures features, class RRTree>
+constexpr auto make_heuristic_preprocessor(const RRTree& tree)
+{
+    const auto all_related_rules = tuple_unique(tuple_flatten_layer(tree.tree));
+    if constexpr((std::uint64_t)features & (std::uint64_t)HeuristicFeatures::ContextManagement)
+    {
+        const auto rr_all = cfg_helpers::rc1_get_full_rrtree<do_prettyprint, 0>(tree.defs, tree, all_related_rules);
+        return HeuristicPreprocessor(all_related_rules, rr_all);
+    } else {
+        return HeuristicPreprocessor(all_related_rules, std::tuple<>());
+    }
+}
+
 
 
 /**
