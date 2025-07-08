@@ -302,12 +302,11 @@ public:
                 postfix_todo.remove(match_id);
             }
         }
-        if (postfix.fix == stack_size - 1)
+        /*if (postfix.fix == stack_size - 1)
         {
             // We exit ctx now!
-            // TODO we should decrease it from reduce() and assert() on error
-            context[postfix.rule_id]--;
-        }
+            // context[postfix.rule_id]--;
+        }*/
         return prefix_todo.size() + postfix_todo.size() == 0;
     }
 
@@ -333,6 +332,7 @@ public:
     /**
      * @brief Update the context for the reduced symbol. This function should be called on each successful reduce operation
      * @param match Chosen match candidate
+     * @param stack_size Size of the stack before the reduction
      */
     template<class TSymbol>
     constexpr bool apply_reduce(const TSymbol& match, std::size_t stack_size)

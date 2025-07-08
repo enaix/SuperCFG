@@ -357,16 +357,7 @@ namespace cfg_helpers
             const auto& rule_nterm = std::get<i>(r_rules);
             const auto& rule_def = std::get<1>(nterms2defs.get(rule_nterm)->terms);
 
-            auto null_to_max = []<class TRes>(const TRes& res){
-                if constexpr (std::is_same_v<std::decay_t<TRes>, std::tuple<>>)
-                    return std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>{};
-                else return res;
-            };
-
-            const auto prefix = null_to_max(rc1_rule_get_fix<true, 0, 0>(def, rule_def));
-            const auto postfix = null_to_max(rc1_rule_get_fix<false, 0, std::tuple_size_v<std::decay_t<decltype(rule_def.terms)>> - 1>(def, rule_def));
-
-            return std::make_tuple(std::make_pair(rule_nterm, std::make_pair(prefix, postfix)));
+            return rc1_get_elem_pos_in_rule<0, 0>(def, rule_def, rule_nterm);
         });
 
         if constexpr (depth + 1 < std::tuple_size_v<TDefsTuple>)
@@ -740,14 +731,14 @@ constexpr auto make_reducibility_checker1(const RRTree& tree, const NTermsMap& n
 {
     const auto all_related_rules = tuple_unique(tuple_flatten_layer(tree.tree)); // Get a tuple of all unique related rules
     const auto pairs = cfg_helpers::rc1_get_match<0>(tree.defs, tree.tree, nterms2defs);
-    if constexpr (do_context_check)
+    /*if constexpr (do_context_check)
     {
         if constexpr (do_prettyprint)
             std::cout << "  RC(1) FULL REVERSE TREE" << std::endl;
         const auto rr_all = cfg_helpers::rc1_get_full_rrtree<do_prettyprint, 0>(tree.defs, tree, all_related_rules);
         return ReducibilityChecker1<decltype(tree.defs), decltype(pairs), decltype(all_related_rules), decltype(rr_all), do_prettyprint>(tree.defs, pairs, all_related_rules, rr_all);
     }
-    else return ReducibilityChecker1<decltype(tree.defs), decltype(pairs), decltype(all_related_rules), std::tuple<>, do_prettyprint>(tree.defs, pairs, all_related_rules, std::tuple<>());
+    else*/ return ReducibilityChecker1<decltype(tree.defs), decltype(pairs), decltype(all_related_rules), std::tuple<>, do_prettyprint>(tree.defs, pairs, all_related_rules, std::tuple<>());
 }
 
 
