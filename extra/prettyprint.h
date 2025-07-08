@@ -6,6 +6,7 @@
 #define PRETTYPRINT_H
 
 #include <iostream>
+#include <utility>
 #include <vector>
 #include <array>
 #include <string>
@@ -57,9 +58,9 @@ public:
         None = 0
     };
 
-    IPColor(FG fg = FG::Default, BG bg = BG::Default) : _fg(fg), _bg(bg) {}
+    explicit IPColor(FG fg = FG::Default, BG bg = BG::Default) : _fg(fg), _bg(bg) {}
 
-    std::string code() const {
+    [[nodiscard]] std::string code() const {
         std::ostringstream oss;
         oss << "\033[" << static_cast<int>(_fg) << ";" << static_cast<int>(_bg) << "m";
         return oss.str();
@@ -75,8 +76,8 @@ public:
         return !(*this == other);
     }
 
-    FG fg() const { return _fg; }
-    BG bg() const { return _bg; }
+    [[nodiscard]] FG fg() const { return _fg; }
+    [[nodiscard]] BG bg() const { return _bg; }
     FG& fg() { return _fg; }
     BG& bg() { return _bg; }
 
@@ -86,6 +87,22 @@ private:
 };
 
 
+enum class IPWidgetLayout {
+    Horizontal, // Use margin and padding to position children
+    Vertical, // ditto
+    Floating, // Use widgets _xy to position
+    Text // Just text (std::string), no children
+};
+
+enum class IPBoxStyle {
+    None,
+    Single,
+    Double
+};
+
+using IPQuad = std::tuple<int, int, int, int>;
+
+
 class IPWidget
 {
 public:
@@ -93,33 +110,36 @@ public:
     std::pair<int, int> _wh; // width, height
     IPColor _color;
     IPColor _color_override;
-    std::tuple<int, int, int, int> _margin; // left, top, right, bottom
-    std::tuple<int, int, int, int> _padding; // left, top, right, bottom
+    IPQuad _margin; // left, top, right, bottom
+    IPQuad _padding; // left, top, right, bottom
     std::vector<IPWidget> _children;
     std::string _content; // Text content
     bool _fill_rect_with_color;
 
-    enum class IPWidgetLayout {
-        Horizontal, // Use margin and padding to position children
-        Vertical, // ditto
-        Floating, // Use widgets _xy to position
-        Text // Just text (std::string), no children
-    };
-
     IPWidgetLayout _layout;
 
-    enum class BoxStyle {
-        None,
-        Single,
-        Double
-    };
-    BoxStyle _box_style;
+    IPBoxStyle _box_style;
 
     IPWidget()
         : _xy{0, 0}, _wh{0, 0}, _color(IPColor::None()), _color_override(IPColor::None()),
-          _margin{0, 0, 0, 0}, _padding{0, 0, 0, 0}, _layout(IPWidgetLayout::Text)
-        , _fill_rect_with_color(false), _box_style(BoxStyle::None)
+          _margin{0, 0, 0, 0}, _padding{0, 0, 0, 0}, _fill_rect_with_color(false)
+        , _layout(IPWidgetLayout::Text), _box_style(IPBoxStyle::None)
     {}
+
+    // Text box
+    explicit IPWidget(std::string text, IPColor color, IPQuad  margin = IPQuad(0, 0, 0, 0), const IPBoxStyle box = IPBoxStyle::None, const bool fill_bg = false) : _content(std::move(text)), _color(color), _margin(std::move(margin)), _box_style(box), _fill_rect_with_color(fill_bg), _layout(IPWidgetLayout::Text) {}
+
+    // Vertical/horizontal layout
+    // ...
+
+    // Fixed layout
+    // ...
+
+    // Full constructor
+    // ...
+
+    // Layout/rendering logic
+    // ======================
 
     static IPColor inherit_color(const IPColor& parent, const IPColor& self, const IPColor& override) {
         IPColor result = self;
@@ -130,14 +150,21 @@ public:
         return result;
     }
 
-    static void draw_box(std::vector<std::string>& matrix, std::vector<std::vector<IPColor>>& color_matrix, int x, int y, int w, int h, BoxStyle style, const IPColor& color) {
-        if (style == BoxStyle::None) return;
+    static void draw_box(std::vector<std::string>& matrix, std::vector<std::vector<IPColor>>& color_matrix, int x, int y, int w, int h, IPBoxStyle style, const IPColor& color) {
         char tl, tr, bl, br, hline, vline;
-        if (style == BoxStyle::Single) {
+
+        switch (style)
+        {
+        case IPBoxStyle::Single:
             tl = '+'; tr = '+'; bl = '+'; br = '+'; hline = '-'; vline = '|';
-        } else { // Double
+            break;
+        case IPBoxStyle::Double:
             tl = '#'; tr = '#'; bl = '#'; br = '#'; hline = '='; vline = 'H';
+            break;
+        default:
+            return; // None
         }
+
         if (w < 2 || h < 2) return;
         int x2 = x + w - 1, y2 = y + h - 1;
 
@@ -216,7 +243,7 @@ public:
             }
         }
         // If box is present, increment size for box border
-        if (_box_style != BoxStyle::None) {
+        if (_box_style != IPBoxStyle::None) {
             _wh.first += 2;
             _wh.second += 2;
         }
@@ -226,7 +253,7 @@ public:
         IPColor effective_color = inherit_color(parent_color, _color, _color_override);
         auto [pl, pt, pr, pb] = _padding;
         // Draw box if needed
-        if (_box_style != BoxStyle::None) {
+        if (_box_style != IPBoxStyle::None) {
             draw_box(matrix, color_matrix, x, y, _wh.first, _wh.second, _box_style, effective_color);
             x += 1; y += 1;
         }

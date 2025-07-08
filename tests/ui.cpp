@@ -27,7 +27,6 @@ int get_terminal_height() {
 }
 
 int main() {
-    using namespace std;
     // Dummy stack/context for InteractivePrinter
     //vector<int> stack;
     //array<size_t, 1> context = {0};
@@ -39,68 +38,68 @@ int main() {
 
     // Root widget (Floating)
     IPWidget root;
-    root._layout = IPWidget::IPWidgetLayout::Floating;
-    root._box_style = IPWidget::BoxStyle::Double;
+    root._layout = IPWidgetLayout::Floating;
+    root._box_style = IPBoxStyle::Double;
     root._color = IPColor(IPColor::FG::BrightWhite, IPColor::BG::Blue);
     root._fill_rect_with_color = false;
     root._xy = {0, 0};
 
     // Horizontal child
     IPWidget horiz;
-    horiz._layout = IPWidget::IPWidgetLayout::Horizontal;
-    horiz._box_style = IPWidget::BoxStyle::Single;
+    horiz._layout = IPWidgetLayout::Horizontal;
+    horiz._box_style = IPBoxStyle::Single;
     horiz._color = IPColor(IPColor::FG::BrightYellow, IPColor::BG::Red);
     horiz._fill_rect_with_color = true;
     horiz._xy = {2, 2};
     // Add text children to horizontal
     for (int i = 0; i < 3; ++i) {
         IPWidget t;
-        t._layout = IPWidget::IPWidgetLayout::Text;
-        t._content = "H-" + to_string(i);
+        t._layout = IPWidgetLayout::Text;
+        t._content = "H-" + std::to_string(i);
         t._color = IPColor(IPColor::FG::BrightGreen, IPColor::BG::Default);
-        t._box_style = IPWidget::BoxStyle::None;
+        t._box_style = IPBoxStyle::None;
         horiz._children.push_back(t);
     }
 
     // Vertical child
     IPWidget vert;
-    vert._layout = IPWidget::IPWidgetLayout::Vertical;
-    vert._box_style = IPWidget::BoxStyle::Single;
+    vert._layout = IPWidgetLayout::Vertical;
+    vert._box_style = IPBoxStyle::Single;
     vert._color = IPColor(IPColor::FG::BrightCyan, IPColor::BG::Magenta);
     vert._fill_rect_with_color = true;
     vert._xy = {20, 2};
     for (int i = 0; i < 3; ++i) {
         IPWidget t;
-        t._layout = IPWidget::IPWidgetLayout::Text;
-        t._content = "V-" + to_string(i);
+        t._layout = IPWidgetLayout::Text;
+        t._content = "V-" + std::to_string(i);
         t._color = IPColor(IPColor::FG::BrightRed, IPColor::BG::Default);
-        t._box_style = IPWidget::BoxStyle::None;
+        t._box_style = IPBoxStyle::None;
         vert._children.push_back(t);
     }
 
     // Floating child
     IPWidget floating;
-    floating._layout = IPWidget::IPWidgetLayout::Floating;
-    floating._box_style = IPWidget::BoxStyle::Single;
+    floating._layout = IPWidgetLayout::Floating;
+    floating._box_style = IPBoxStyle::Single;
     floating._color = IPColor(IPColor::FG::BrightMagenta, IPColor::BG::Green);
     floating._fill_rect_with_color = true;
     floating._xy = {2, 10};
     for (int i = 0; i < 2; ++i) {
         IPWidget t;
-        t._layout = IPWidget::IPWidgetLayout::Text;
-        t._content = "F-" + to_string(i);
+        t._layout = IPWidgetLayout::Text;
+        t._content = "F-" + std::to_string(i);
         t._color = IPColor(IPColor::FG::BrightBlue, IPColor::BG::Default);
-        t._box_style = IPWidget::BoxStyle::None;
+        t._box_style = IPBoxStyle::None;
         t._xy = {i * 8, i * 2};
         floating._children.push_back(t);
     }
 
     // Text child
     IPWidget text;
-    text._layout = IPWidget::IPWidgetLayout::Text;
+    text._layout = IPWidgetLayout::Text;
     text._content = "Just a text widget!";
     text._color = IPColor(IPColor::FG::BrightWhite, IPColor::BG::Red);
-    text._box_style = IPWidget::BoxStyle::Single;
+    text._box_style = IPBoxStyle::Single;
     text._fill_rect_with_color = false;
     text._xy = {40, 10};
 
@@ -114,5 +113,7 @@ int main() {
     root.layout();
     root.render(printer._output_matrix, printer._color_matrix, 0, 0);
     printer.render_matrix();
+
+    std::cin.ignore();
     return 0;
 }
