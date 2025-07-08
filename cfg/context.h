@@ -98,7 +98,6 @@ public:
     TRules rules; // all rules
     TTerms t_terms; // all terms
     FullRRTree rr_all;
-    std::size_t last_ctx_pos;
 
     constexpr ContextManager(const TMatches& m, const NTermsPosPairs& p_nterm, const TermsPosPairs& p_term, const TRules& r, const TTerms& all_terms, const FullRRTree& rr_all) : matches(m), pos_nterm(p_nterm), pos_term(p_term), rules(r), t_terms(all_terms), rr_all(rr_all) {}
 
@@ -110,7 +109,6 @@ public:
         context.fill(0);
         for (auto& vec : ctx_pos)
             vec.assign(1, std::numeric_limits<std::size_t>::max()); // Set ctx pos to null at first ctx level
-        last_ctx_pos = std::numeric_limits<std::size_t>::max();
         prefix_todo.reset();
         postfix_todo.reset();
         prefix.reset();
