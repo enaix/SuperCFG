@@ -86,7 +86,7 @@ public:
     static std::string reset() { return "\033[0m"; }
 
     static IPColor None() { return IPColor(FG::None, BG::None); }
-    bool isna() { return *this == IPColor::None(); }
+    bool isna() const { return *this == IPColor::None(); }
 
     bool operator==(const IPColor& other) const {
         return _fg == other._fg && _bg == other._bg;
@@ -119,6 +119,45 @@ public:
 private:
     FG _fg;
     BG _bg;
+};
+
+
+enum class IPColors : int
+{
+    Primary,
+    Secondary,
+    Accent,
+    Selected,
+    Inactive, // Not selected
+    Disabled, // Inactive window
+    BorderActive,
+    BorderInactive,
+    BorderDisabled, // Inactive window
+    None // last elem
+};
+
+
+// IPColorPalette: Template for color palettes (e.g., ANSI, TrueColor)
+template <class TColor>
+class IPAppStyle {
+protected:
+    std::array<TColor, static_cast<size_t>(IPColors::None)> _colors;
+    int _color_overload;
+
+public:
+    template<class... TColors>
+    IPAppStyle(TColors... c) : _colors{c...}, _color_overload(-1) {}
+
+    TColor get_color(IPColors color) const
+    {
+        if (_color_overload != -1)
+            return _colors[_color_overload];
+
+        for (int i = static_cast<int>(color); i >= 0; i--)
+            if (!_colors[i].isna())
+                return _colors[i];
+        return TColor::None();
+    }
 };
 
 
@@ -222,13 +261,38 @@ public:
 };
 
 
+// Event types for user interaction
+enum class IPEventType {
+    None,
+    Select,
+    Click, // KeyDown
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    OnCreate,
+    OnDestroy
+};
+
+struct IPEvent {
+    IPEventType type;
+    int key; // For Click, can be ASCII or special key code
+    IPEvent(IPEventType t = IPEventType::None, int k = 0) : type(t), key(k) {}
+};
+
+
+class IPWidget;
+class IPWindow;
+// Event handler signature for all widgets
+using IPEventHandler = void(*)(IPWidget*, IPWindow*, const IPEvent&);
+
+
 class IPWidget
 {
 public:
     IPPoint _xy; // Relative to the parent
     IPPoint _wh; // width, height
-    IPColor _color;
-    IPColor _color_override;
+    IPColors _color;
     IPQuad _margin; // left, top, right, bottom
     IPQuad _padding; // left, top, right, bottom
     std::vector<IPWidget> _children;
@@ -239,36 +303,82 @@ public:
 
     IPBoxStyle _box_style;
 
+    bool selectable = false;
+    bool selected = false;
+    IPEventHandler on_event = nullptr;
+
+    // Helper to get effective color from palette if set
+    template<class TStyle>
+    IPColor get_effective_color(const TStyle& style, bool active_window) const {
+        if (!active_window)
+            return style.get_color(IPColors::Disabled);
+        if (selectable)
+        {
+            if (selected)
+                return style.get_color(IPColors::Selected);
+            return style.get_color(IPColors::Inactive);
+        }
+        return style.get_color(_color);
+    }
+
+    // Helper to get effective border color from palette if set
+    template<class TStyle>
+    IPColor get_border_color(const TStyle& style, bool active_window) const {
+        if (!active_window)
+            return style.get_color(IPColors::BorderDisabled);
+
+        if (selectable && selected)
+            return style.get_color(IPColors::BorderActive);
+    
+        return style.get_color(IPColors::BorderInactive);
+    }
+
+    // Find next selectable child (for arrow navigation)
+    int find_next_selectable(int start, int dir) const {
+        int n = (int)_children.size();
+        for (int i = 1; i <= n; ++i) {
+            int idx = (start + dir * i + n) % n;
+            if (_children[idx].selectable) return idx;
+        }
+        return -1;
+    }
+
+    // Deselect all children
+    void deselect_all() {
+        for (auto& child : _children) child.selected = false;
+    }
+
     IPWidget()
-        : _xy{0, 0}, _wh{0, 0}, _color(IPColor::None()), _color_override(IPColor::None()),
+        : _xy{0, 0}, _wh{0, 0}, _color(IPColors::Primary),
           _margin{0, 0, 0, 0}, _padding{0, 0, 0, 0}, _shadow_style(IPShadowStyle::None)
         , _layout(IPWidgetLayout::Text), _box_style(IPBoxStyle::None)
     {}
 
     // Text box
-    explicit IPWidget(std::string text, IPColor color, IPQuad  margin = IPQuad(0, 0, 0, 0), const IPBoxStyle box = IPBoxStyle::None, const IPShadowStyle shadow = IPShadowStyle::None)
-        : _content(std::move(text)), _color(color), _color_override(IPColor::None()), _margin(std::move(margin)), _box_style(box), _shadow_style(shadow), _layout(IPWidgetLayout::Text)
+    explicit IPWidget(std::string text, IPColors color = IPColors::Primary, IPQuad  margin = IPQuad(0, 0, 0, 0), const IPBoxStyle box = IPBoxStyle::None, const IPShadowStyle shadow = IPShadowStyle::None)
+        : _content(std::move(text)), _color(color), _margin(std::move(margin)), _box_style(box), _shadow_style(shadow), _layout(IPWidgetLayout::Text)
     {}
 
     // Horizontal/Vertical layout
-    IPWidget(IPWidgetLayout layout, std::vector<IPWidget> children, IPColor color = IPColor::None(), IPQuad margin = IPQuad(0,0,0,0), IPQuad padding = IPQuad(0,0,0,0), IPBoxStyle box = IPBoxStyle::None, IPShadowStyle shadow = IPShadowStyle::None, IPPoint xy = {0,0})
-        : _xy(xy), _wh{0,0}, _color(color), _color_override(IPColor::None()), _margin(margin), _padding(padding), _children(std::move(children)), _content(), _shadow_style(shadow), _layout(layout), _box_style(box)
+    IPWidget(IPWidgetLayout layout, std::vector<IPWidget> children, IPColors color = IPColors::Primary, IPQuad margin = IPQuad(0,0,0,0), IPQuad padding = IPQuad(0,0,0,0), IPBoxStyle box = IPBoxStyle::None, IPShadowStyle shadow = IPShadowStyle::None, IPPoint xy = {0,0})
+        : _xy(xy), _wh{0,0}, _color(color), _margin(margin), _padding(padding), _children(std::move(children)), _content(), _shadow_style(shadow), _layout(layout), _box_style(box)
     {}
 
     // Floating layout
-    IPWidget(const IPPoint& xy, std::vector<IPWidget> children, IPColor color = IPColor::None(), IPQuad margin = IPQuad(0,0,0,0), IPQuad padding = IPQuad(0,0,0,0), IPBoxStyle box = IPBoxStyle::None, IPShadowStyle shadow = IPShadowStyle::None)
-        : _xy(xy), _wh{0, 0}, _color(color), _color_override(IPColor::None()), _margin(margin), _padding(padding), _children(std::move(children)), _content(), _shadow_style(shadow), _layout(IPWidgetLayout::Floating), _box_style(box)
+    IPWidget(const IPPoint& xy, std::vector<IPWidget> children, IPColors color = IPColors::Primary, IPQuad margin = IPQuad(0,0,0,0), IPQuad padding = IPQuad(0,0,0,0), IPBoxStyle box = IPBoxStyle::None, IPShadowStyle shadow = IPShadowStyle::None)
+        : _xy(xy), _wh{0, 0}, _color(color), _margin(margin), _padding(padding), _children(std::move(children)), _content(), _shadow_style(shadow), _layout(IPWidgetLayout::Floating), _box_style(box)
     {}
 
     // Full constructor
-    IPWidget(const IPPoint& xy, const IPPoint& wh, IPColor color, IPColor color_override, IPQuad margin, IPQuad padding, std::vector<IPWidget> children, std::string content, IPShadowStyle shadow, IPWidgetLayout layout, IPBoxStyle box)
-        : _xy(xy), _wh(wh), _color(color), _color_override(color_override), _margin(margin), _padding(padding), _children(std::move(children)), _content(std::move(content)), _shadow_style(shadow), _layout(layout), _box_style(box)
+    IPWidget(const IPPoint& xy, const IPPoint& wh, IPColors color, IPQuad margin, IPQuad padding, std::vector<IPWidget> children, std::string content, IPShadowStyle shadow, IPWidgetLayout layout, IPBoxStyle box)
+        : _xy(xy), _wh(wh), _color(color), _margin(margin), _padding(padding), _children(std::move(children)), _content(std::move(content)), _shadow_style(shadow), _layout(layout), _box_style(box)
     {}
 
     // Layout/rendering logic
     // ======================
 
-    static void draw_box(std::vector<std::string>& matrix, std::vector<std::vector<IPColor>>& color_matrix, int x, int y, int w, int h, IPBoxStyle style, const IPColor& color) {
+    template<class TColor>
+    static void draw_box(std::vector<std::string>& matrix, std::vector<std::vector<TColor>>& color_matrix, int x, int y, int w, int h, IPBoxStyle style, const TColor& color) {
         char tl, tr, bl, br, hline, vline;
 
         switch (style)
@@ -377,13 +487,15 @@ public:
         }
     }
 
-    void render(std::vector<std::string>& matrix, std::vector<std::vector<IPColor>>& color_matrix, int x, int y, const IPColor& parent_color = IPColor::None()) {
-        IPColor effective_color = _color.blend(parent_color).overlay(_color_override);
+    template<class TColor, template<class> class TStyle>
+    void render(std::vector<std::string>& matrix, std::vector<std::vector<TColor>>& color_matrix, const TStyle<TColor>& style, bool active_window, int x, int y, const TColor& parent_color = TColor::None()) {
+        IPColor effective_color = get_effective_color(style, active_window).blend(parent_color);
         auto [ml, mt, mr, mb] = _margin.tup();
         auto [pl, pt, pr, pb] = _padding.tup();
         // Draw box if needed
         if (_box_style != IPBoxStyle::None) {
-            draw_box(matrix, color_matrix, x, y, _wh.w(), _wh.h(), _box_style, effective_color);
+            IPColor border_color = get_border_color(style, active_window).blend(parent_color);
+            draw_box(matrix, color_matrix, x, y, _wh.w(), _wh.h(), _box_style, border_color);
             x += 1; y += 1;
         }
 
@@ -393,7 +505,7 @@ public:
                 for (int i = 0; i < _children.size(); i++) {
                     if (i > 0)
                         cur_x += pl;
-                    _children[i].render(matrix, color_matrix, cur_x, y + mt, effective_color);
+                    _children[i].render(matrix, color_matrix, style, active_window, cur_x, y + mt, effective_color);
                     if (i < _children.size() - 1)
                         cur_x += pr;
                     cur_x += _children[i]._wh.w();
@@ -405,7 +517,7 @@ public:
                 for (int i = 0; i < _children.size(); i++) {
                     if (i > 0)
                         cur_y += pt;
-                    _children[i].render(matrix, color_matrix, x + ml, cur_y, effective_color);
+                    _children[i].render(matrix, color_matrix, style, active_window, x + ml, cur_y, effective_color);
                     if (i < _children.size() - 1)
                         cur_y += pb;
                     cur_y += _children[i]._wh.h();
@@ -414,7 +526,7 @@ public:
             }
             case IPWidgetLayout::Floating: {
                 for (auto& child : _children) {
-                    child.render(matrix, color_matrix, x + child._xy.x() + ml, y + child._xy.y() + mt, effective_color);
+                    child.render(matrix, color_matrix, style, active_window, x + child._xy.x() + ml, y + child._xy.y() + mt, effective_color);
                 }
                 break;
             }
@@ -465,7 +577,83 @@ public:
 };
 
 
-template<class GSymbol, std::size_t ContextSize>
+// Window stack and selector logic
+class IPWindow {
+public:
+    std::vector<IPWidget> stack; // Topmost is last
+    int selector_idx = -1; // Index of selected widget in stack
+
+    IPWindow() = default;
+
+    void push(IPWidget w) {
+        stack.push_back(std::move(w));
+        selector_idx = (int)stack.size() - 1;
+        if (selector_idx >= 0) {
+            stack[selector_idx].selected = true;
+            if (stack[selector_idx].on_event)
+                stack[selector_idx].on_event(&stack[selector_idx], this, IPEvent(IPEventType::OnCreate));
+        }
+    }
+    void pop() {
+        if (!stack.empty()) {
+            if (stack.back().on_event)
+                stack.back().on_event(&stack.back(), this, IPEvent(IPEventType::OnDestroy));
+            stack.pop_back();
+            selector_idx = (int)stack.size() - 1;
+            if (selector_idx >= 0)
+                stack[selector_idx].selected = true;
+        }
+    }
+    IPWidget* top() { return stack.empty() ? nullptr : &stack.back(); }
+
+    // Move selector to next selectable window
+    void move_selector(int dir) {
+        if (stack.empty()) return;
+        int n = (int)stack.size();
+        int start = selector_idx;
+        for (int i = 1; i <= n; ++i) {
+            int idx = (start + dir * i + n) % n;
+            if (stack[idx].selectable) {
+                if (selector_idx >= 0) stack[selector_idx].selected = false;
+                selector_idx = idx;
+                stack[selector_idx].selected = true;
+                return;
+            }
+        }
+    }
+
+    // Move selection within the top window's children
+    void move_child_selector(int dir) {
+        if (selector_idx < 0 || selector_idx >= (int)stack.size()) return;
+        IPWidget& win = stack[selector_idx];
+        int n = (int)win._children.size();
+        int cur = 0;
+        for (int i = 0; i < n; ++i) if (win._children[i].selected) cur = i;
+        int next = win.find_next_selectable(cur, dir);
+        win.deselect_all();
+        if (next >= 0) win._children[next].selected = true;
+    }
+
+    // Route event to selected window and its selected child
+    void handle_event(const IPEvent& ev) {
+        if (selector_idx >= 0 && selector_idx < (int)stack.size()) {
+            IPWidget* win = &stack[selector_idx];
+            if (ev.type == IPEventType::ArrowUp || ev.type == IPEventType::ArrowDown) {
+                move_child_selector(ev.type == IPEventType::ArrowDown ? 1 : -1);
+            } else if (ev.type == IPEventType::Select || ev.type == IPEventType::Click) {
+                for (auto& child : win->_children) {
+                    if (child.selected && child.on_event)
+                        child.on_event(&child, this, ev);
+                }
+            } else if (win->on_event) {
+                win->on_event(win, this, ev);
+            }
+        }
+    }
+};
+
+
+template<class TColor>
 class InteractivePrinter
 {
 public:
@@ -477,7 +665,7 @@ public:
 
     // Output matrix for rendering: each string is a row
     std::vector<std::string> _output_matrix;
-    std::vector<std::vector<IPColor>> _color_matrix;
+    std::vector<std::vector<TColor>> _color_matrix;
     std::size_t _rows = 0;
     std::size_t _cols = 0;
 
@@ -493,16 +681,17 @@ public:
         _rows = rows;
         _cols = cols;
         _output_matrix.assign(rows, std::string(cols, ' '));
-        _color_matrix.assign(rows, std::vector<IPColor>(cols, IPColor::None()));
+        _color_matrix.assign(rows, std::vector<TColor>(cols, IPColor::None()));
     }
 
-    void set_cell(std::size_t row, std::size_t col, char value, const IPColor& color = IPColor()) {
+    void set_cell(std::size_t row, std::size_t col, char value, const TColor& color = TColor::None()) {
         if (row < _rows && col < _cols) {
             _output_matrix[row][col] = value;
             _color_matrix[row][col] = color;
         }
     }
-    void set_text(std::size_t row, std::size_t col, const std::string& text, const IPColor& color = IPColor()) {
+
+    void set_text(std::size_t row, std::size_t col, const std::string& text, const TColor& color = TColor::None()) {
         if (row < _rows && col + text.size() <= _cols) {
             for (size_t i = 0; i < text.size(); ++i) {
                 _output_matrix[row][col + i] = text[i];
