@@ -100,21 +100,105 @@ enum class IPBoxStyle {
     Double
 };
 
-using IPQuad = std::tuple<int, int, int, int>;
+enum class IPShadowStyle {
+    None,
+    Fill, // No shadow, just background color
+    Shadow // Background color and a shadow
+};
+
+
+class IPQuad : public std::tuple<int, int, int, int> // left, top, right, bottom
+{
+public:
+    using std::tuple<int, int, int, int>::tuple; // using constructors
+
+    // 1d swizzling
+    int& l() { return std::get<0>(*this); }
+    int& t() { return std::get<1>(*this); }
+    int& r() { return std::get<2>(*this); }
+    int& b() { return std::get<3>(*this); }
+
+    int l() const { return std::get<0>(*this); }
+    int t() const { return std::get<1>(*this); }
+    int r() const { return std::get<2>(*this); }
+    int b() const { return std::get<3>(*this); }
+
+    // Access quad as a native tuple object. No overhead
+    std::tuple<int, int, int, int>& tup() { return static_cast<std::tuple<int, int, int, int>&>(*this); }
+
+    // Operators overload
+    IPQuad& operator+=(const IPQuad& rhs)
+    { l() += rhs.l();  t() += rhs.t();  r() += rhs.r();  b() += rhs.b();  return *this; }
+    IPQuad& operator-=(const IPQuad& rhs)
+    { l() -= rhs.l();  t() -= rhs.t();  r() -= rhs.r();  b() -= rhs.b();  return *this; }
+    IPQuad& operator*=(const IPQuad& rhs)
+    { l() *= rhs.l();  t() *= rhs.t();  r() *= rhs.r();  b() *= rhs.b();  return *this; }
+    IPQuad& operator/=(const IPQuad& rhs)
+    { l() /= rhs.l();  t() /= rhs.t();  r() /= rhs.r();  b() /= rhs.b();  return *this; }
+
+    IPQuad& operator+=(int a)
+    { l() += a;  t() += a;  r() += a;  b() += a;  return *this; }
+    IPQuad& operator-=(int a)
+    { l() -= a;  t() -= a;  r() -= a;  b() -= a;  return *this; }
+    IPQuad& operator*=(int a)
+    { l() *= a;  t() *= a;  r() *= a;  b() *= a;  return *this; }
+    IPQuad& operator/=(int a)
+    { l() /= a;  t() /= a;  r() /= a;  b() /= a;  return *this; }
+};
+
+
+class IPPoint : public std::pair<int, int>
+{
+public:
+    using std::pair<int, int>::pair; // using constructors
+
+    // 1d swizzling
+    int& x() { return this->first; }
+    int& y() { return this->second; }
+    int& w() { return this->first; }  // width
+    int& h() { return this->second; } // height
+
+    int x() const { return this->first; }
+    int y() const { return this->second; }
+    int w() const { return this->first; }
+    int h() const { return this->second; }
+
+    // Access point as a native pair object. No overhead
+    std::pair<int, int>& pair() { return static_cast<std::pair<int, int>&>(*this); }
+
+    // Operators overload
+    IPPoint& operator+=(const IPPoint& rhs)
+    { x() += rhs.x();  y() += rhs.y();  return *this; }
+    IPPoint& operator-=(const IPPoint& rhs)
+    { x() -= rhs.x();  y() -= rhs.y();  return *this; }
+    IPPoint& operator*=(const IPPoint& rhs)
+    { x() *= rhs.x();  y() *= rhs.y();  return *this; }
+    IPPoint& operator/=(const IPPoint& rhs)
+    { x() /= rhs.x();  y() /= rhs.y();  return *this; }
+
+    IPPoint& operator+=(int a)
+    { x() += a;  y() += a;  return *this; }
+    IPPoint& operator-=(int a)
+    { x() -= a;  y() -= a;  return *this; }
+    IPPoint& operator*=(int a)
+    { x() *= a;  y() *= a;  return *this; }
+    IPPoint& operator/=(int a)
+    { x() /= a;  y() /= a;  return *this; }
+};
 
 
 class IPWidget
 {
 public:
-    std::pair<int, int> _xy; // Relative to the parent
-    std::pair<int, int> _wh; // width, height
+    IPPoint _xy; // Relative to the parent
+    IPPoint _wh; // width, height
     IPColor _color;
     IPColor _color_override;
     IPQuad _margin; // left, top, right, bottom
     IPQuad _padding; // left, top, right, bottom
     std::vector<IPWidget> _children;
     std::string _content; // Text content
-    bool _fill_rect_with_color;
+    IPShadowStyle _shadow_style;
 
     IPWidgetLayout _layout;
 
@@ -122,21 +206,29 @@ public:
 
     IPWidget()
         : _xy{0, 0}, _wh{0, 0}, _color(IPColor::None()), _color_override(IPColor::None()),
-          _margin{0, 0, 0, 0}, _padding{0, 0, 0, 0}, _fill_rect_with_color(false)
+          _margin{0, 0, 0, 0}, _padding{0, 0, 0, 0}, _shadow_style(IPShadowStyle::None)
         , _layout(IPWidgetLayout::Text), _box_style(IPBoxStyle::None)
     {}
 
     // Text box
-    explicit IPWidget(std::string text, IPColor color, IPQuad  margin = IPQuad(0, 0, 0, 0), const IPBoxStyle box = IPBoxStyle::None, const bool fill_bg = false) : _content(std::move(text)), _color(color), _margin(std::move(margin)), _box_style(box), _fill_rect_with_color(fill_bg), _layout(IPWidgetLayout::Text) {}
+    explicit IPWidget(std::string text, IPColor color, IPQuad  margin = IPQuad(0, 0, 0, 0), const IPBoxStyle box = IPBoxStyle::None, const IPShadowStyle shadow = IPShadowStyle::None)
+        : _content(std::move(text)), _color(color), _margin(std::move(margin)), _box_style(box), _shadow_style(shadow), _layout(IPWidgetLayout::Text)
+    {}
 
-    // Vertical/horizontal layout
-    // ...
+    // Horizontal/Vertical layout
+    IPWidget(IPWidgetLayout layout, std::vector<IPWidget> children, IPColor color = IPColor::None(), IPQuad margin = IPQuad(0,0,0,0), IPQuad padding = IPQuad(0,0,0,0), IPBoxStyle box = IPBoxStyle::None, IPShadowStyle shadow = IPShadowStyle::None, IPPoint xy = {0,0})
+        : _xy(xy), _wh{0,0}, _color(color), _color_override(IPColor::None()), _margin(margin), _padding(padding), _children(std::move(children)), _content(), _shadow_style(shadow), _layout(layout), _box_style(box)
+    {}
 
-    // Fixed layout
-    // ...
+    // Floating layout
+    IPWidget(const IPPoint& xy, std::vector<IPWidget> children, IPColor color = IPColor::None(), IPQuad margin = IPQuad(0,0,0,0), IPQuad padding = IPQuad(0,0,0,0), IPBoxStyle box = IPBoxStyle::None, IPShadowStyle shadow = IPShadowStyle::None)
+        : _xy(xy), _wh{0, 0}, _color(color), _color_override(IPColor::None()), _margin(margin), _padding(padding), _children(std::move(children)), _content(), _shadow_style(shadow), _layout(IPWidgetLayout::Floating), _box_style(box)
+    {}
 
     // Full constructor
-    // ...
+    IPWidget(const IPPoint& xy, const IPPoint& wh, IPColor color, IPColor color_override, IPQuad margin, IPQuad padding, std::vector<IPWidget> children, std::string content, IPShadowStyle shadow, IPWidgetLayout layout, IPBoxStyle box)
+        : _xy(xy), _wh(wh), _color(color), _color_override(color_override), _margin(margin), _padding(padding), _children(std::move(children)), _content(std::move(content)), _shadow_style(shadow), _layout(layout), _box_style(box)
+    {}
 
     // Layout/rendering logic
     // ======================
@@ -194,87 +286,107 @@ public:
 
     void layout(const IPColor& parent_color = IPColor::None()) {
         IPColor effective_color = inherit_color(parent_color, _color, _color_override);
-        auto [ml, mt, mr, mb] = _margin;
-        auto [pl, pt, pr, pb] = _padding;
+
+        auto [ml, mt, mr, mb] = _margin.tup();
+        auto [pl, pt, pr, pb] = _padding.tup();
+
         switch (_layout) {
             case IPWidgetLayout::Horizontal: {
                 int x = 0, max_h = 0;
                 for (auto& child : _children) {
                     child.layout(effective_color);
-                    auto [cml, cmt, cmr, cmb] = child._margin;
+                    auto [cml, cmt, cmr, cmb] = child._margin.tup();
                     x += cml;
-                    x += child._wh.first + cmr;
-                    max_h = std::max(max_h, child._wh.second + cmt + cmb);
+                    x += child._wh.w() + cmr;
+                    max_h = std::max(max_h, child._wh.h() + cmt + cmb);
                 }
-                _wh.first = x + pl + pr;
-                _wh.second = max_h + pt + pb;
+                _wh.w() = x + pl + pr;
+                _wh.h() = max_h + pt + pb;
                 break;
             }
             case IPWidgetLayout::Vertical: {
                 int y = 0, max_w = 0;
                 for (auto& child : _children) {
                     child.layout(effective_color);
-                    auto [cml, cmt, cmr, cmb] = child._margin;
+                    auto [cml, cmt, cmr, cmb] = child._margin.tup();
                     y += cmt;
-                    y += child._wh.second + cmb;
-                    max_w = std::max(max_w, child._wh.first + cml + cmr);
+                    y += child._wh.h() + cmb;
+                    max_w = std::max(max_w, child._wh.w() + cml + cmr);
                 }
-                _wh.first = max_w + pl + pr;
-                _wh.second = y + pt + pb;
+                _wh.w() = max_w + pl + pr;
+                _wh.h() = y + pt + pb;
                 break;
             }
             case IPWidgetLayout::Floating: {
                 int max_x = 0, max_y = 0;
                 for (auto& child : _children) {
                     child.layout(effective_color);
-                    int child_x = child._xy.first + child._wh.first;
-                    int child_y = child._xy.second + child._wh.second;
+                    int child_x = child._xy.x() + child._wh.w();
+                    int child_y = child._xy.y() + child._wh.h();
                     max_x = std::max(max_x, child_x);
                     max_y = std::max(max_y, child_y);
                 }
-                _wh.first = max_x;
-                _wh.second = max_y;
+                _wh.w() = max_x;
+                _wh.h() = max_y;
                 break;
             }
             case IPWidgetLayout::Text: {
-                _wh.first = static_cast<int>(_content.size()) + pl + pr;
-                _wh.second = 1 + pt + pb;
+                _wh.w() = static_cast<int>(_content.size()) + pl + pr;
+                _wh.h() = 1 + pt + pb;
                 break;
             }
         }
+
         // If box is present, increment size for box border
         if (_box_style != IPBoxStyle::None) {
-            _wh.first += 2;
-            _wh.second += 2;
+            //_margin += 1;
+            _wh += 2;
         }
     }
 
     void render(std::vector<std::string>& matrix, std::vector<std::vector<IPColor>>& color_matrix, int x, int y, const IPColor& parent_color = IPColor::None()) {
         IPColor effective_color = inherit_color(parent_color, _color, _color_override);
-        auto [pl, pt, pr, pb] = _padding;
+        auto [pl, pt, pr, pb] = _padding.tup();
         // Draw box if needed
         if (_box_style != IPBoxStyle::None) {
-            draw_box(matrix, color_matrix, x, y, _wh.first, _wh.second, _box_style, effective_color);
+            draw_box(matrix, color_matrix, x, y, _wh.w(), _wh.h(), _box_style, effective_color);
             x += 1; y += 1;
         }
         // Fill the rectangle with color if the flag is set
-        if (_fill_rect_with_color) {
-            for (int row = 0; row < _wh.second; ++row) {
-                int abs_y = y + row;
-                if (abs_y < 0 || abs_y >= static_cast<int>(color_matrix.size())) continue;
-                for (int col = 0; col < _wh.first; ++col) {
-                    int abs_x = x + col;
-                    if (abs_x < 0 || abs_x >= static_cast<int>(color_matrix[0].size())) continue;
-                    color_matrix[abs_y][abs_x] = effective_color;
+        switch (_shadow_style)
+        {
+            case IPShadowStyle::Fill:
+                for (int row = 0; row < _wh.h(); ++row) {
+                    int abs_y = y + row;
+                    if (abs_y < 0 || abs_y >= static_cast<int>(color_matrix.size())) continue;
+                    for (int col = 0; col < _wh.w(); ++col) {
+                        int abs_x = x + col;
+                        if (abs_x < 0 || abs_x >= static_cast<int>(color_matrix[0].size())) continue;
+                        color_matrix[abs_y][abs_x] = effective_color;
+                    }
                 }
-            }
+                break;
+            case IPShadowStyle::Shadow:
+                for (int row = 0; row < _wh.h(); ++row) {
+                    int abs_y = y + row - 1;
+                    if (abs_y < 0 || abs_y >= static_cast<int>(color_matrix.size())) continue;
+                    for (int col = 0; col < _wh.w(); ++col) {
+                        int abs_x = x + col - 1;
+                        if (abs_x < 0 || abs_x >= static_cast<int>(color_matrix[0].size())) continue;
+                        color_matrix[abs_y][abs_x] = effective_color;
+                    }
+                }
+                break;
+            default:
+                break;
         }
+
         switch (_layout) {
             case IPWidgetLayout::Horizontal: {
                 int cur_x = x + pl;
                 for (auto& child : _children) {
                     child.render(matrix, color_matrix, cur_x, y + pt, effective_color);
-                    cur_x += child._wh.first;
+                    cur_x += child._wh.w();
                 }
                 break;
             }
@@ -282,13 +394,13 @@ public:
                 int cur_y = y + pt;
                 for (auto& child : _children) {
                     child.render(matrix, color_matrix, x + pl, cur_y, effective_color);
-                    cur_y += child._wh.second;
+                    cur_y += child._wh.h();
                 }
                 break;
             }
             case IPWidgetLayout::Floating: {
                 for (auto& child : _children) {
-                    child.render(matrix, color_matrix, x + child._xy.first, y + child._xy.second, effective_color);
+                    child.render(matrix, color_matrix, x + child._xy.x(), y + child._xy.y(), effective_color);
                 }
                 break;
             }
