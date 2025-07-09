@@ -317,28 +317,37 @@ public:
         switch (_layout) {
             case IPWidgetLayout::Horizontal: {
                 int x = 0, max_h = 0;
-                for (auto& child : _children) {
-                    child.layout();
-                    auto [cml, cmt, cmr, cmb] = child._margin.tup();
-                    x += cml;
-                    x += child._wh.w() + cmr;
-                    max_h = std::max(max_h, child._wh.h() + cmt + cmb);
+                
+                for (int i = 0; i < _children.size(); i++) {
+                    _children[i].layout();
+                    
+                    if (i > 0)
+                        x += pl;
+                    if (i < _children.size() - 1)
+                        x += pr;
+
+                    x += _children[i]._wh.w();
+                    max_h = std::max(max_h, _children[i]._wh.h());
                 }
-                _wh.w() = x + pl + pr;
-                _wh.h() = max_h + pt + pb;
+                _wh.w() = x + ml + mr;
+                _wh.h() = max_h + mt + mb;
                 break;
             }
             case IPWidgetLayout::Vertical: {
                 int y = 0, max_w = 0;
-                for (auto& child : _children) {
-                    child.layout();
-                    auto [cml, cmt, cmr, cmb] = child._margin.tup();
-                    y += cmt;
-                    y += child._wh.h() + cmb;
-                    max_w = std::max(max_w, child._wh.w() + cml + cmr);
+                for (int i = 0; i < _children.size(); i++) {
+                    _children[i].layout();
+
+                    if (i > 0)
+                        y += pl;
+                    if (i < _children.size() - 1)
+                        y += pr;
+                    
+                    y += _children[i]._wh.h();
+                    max_w = std::max(max_w, _children[i]._wh.w());
                 }
-                _wh.w() = max_w + pl + pr;
-                _wh.h() = y + pt + pb;
+                _wh.w() = max_w + ml + mr;
+                _wh.h() = y + mt + mb;
                 break;
             }
             case IPWidgetLayout::Floating: {
@@ -350,13 +359,13 @@ public:
                     max_x = std::max(max_x, child_x);
                     max_y = std::max(max_y, child_y);
                 }
-                _wh.w() = max_x;
-                _wh.h() = max_y;
+                _wh.w() = max_x + ml + mr;
+                _wh.h() = max_y + mt + mb;
                 break;
             }
             case IPWidgetLayout::Text: {
-                _wh.w() = static_cast<int>(_content.size()) + pl + pr;
-                _wh.h() = 1 + pt + pb;
+                _wh.w() = static_cast<int>(_content.size()) + ml + mr;
+                _wh.h() = 1 + mt + mb;
                 break;
             }
         }
@@ -370,6 +379,7 @@ public:
 
     void render(std::vector<std::string>& matrix, std::vector<std::vector<IPColor>>& color_matrix, int x, int y, const IPColor& parent_color = IPColor::None()) {
         IPColor effective_color = _color.blend(parent_color).overlay(_color_override);
+        auto [ml, mt, mr, mb] = _margin.tup();
         auto [pl, pt, pr, pb] = _padding.tup();
         // Draw box if needed
         if (_box_style != IPBoxStyle::None) {
@@ -379,32 +389,41 @@ public:
 
         switch (_layout) {
             case IPWidgetLayout::Horizontal: {
-                int cur_x = x + pl;
-                for (auto& child : _children) {
-                    child.render(matrix, color_matrix, cur_x, y + pt, effective_color);
-                    cur_x += child._wh.w();
+                int cur_x = x + ml;
+                for (int i = 0; i < _children.size(); i++) {
+                    if (i > 0)
+                        cur_x += pl;
+                    _children[i].render(matrix, color_matrix, cur_x, y + mt, effective_color);
+                    if (i < _children.size() - 1)
+                        cur_x += pr;
+                    cur_x += _children[i]._wh.w();
                 }
                 break;
             }
             case IPWidgetLayout::Vertical: {
-                int cur_y = y + pt;
-                for (auto& child : _children) {
-                    child.render(matrix, color_matrix, x + pl, cur_y, effective_color);
-                    cur_y += child._wh.h();
+                int cur_y = y + mt;
+                for (int i = 0; i < _children.size(); i++) {
+                    if (i > 0)
+                        cur_y += pt;
+                    _children[i].render(matrix, color_matrix, x + ml, cur_y, effective_color);
+                    if (i < _children.size() - 1)
+                        cur_y += pb;
+                    cur_y += _children[i]._wh.h();
                 }
                 break;
             }
             case IPWidgetLayout::Floating: {
                 for (auto& child : _children) {
-                    child.render(matrix, color_matrix, x + child._xy.x(), y + child._xy.y(), effective_color);
+                    child.render(matrix, color_matrix, x + child._xy.x() + ml, y + child._xy.y() + mt, effective_color);
                 }
                 break;
             }
             case IPWidgetLayout::Text: {
-                if (y < static_cast<int>(matrix.size()) && x + static_cast<int>(_content.size()) <= static_cast<int>(matrix[0].size())) {
+                int cur_x = x + ml, cur_y = y + mt;
+                if (cur_y < static_cast<int>(matrix.size()) && cur_x + static_cast<int>(_content.size()) <= static_cast<int>(matrix[0].size())) {
                     for (size_t i = 0; i < _content.size(); ++i) {
-                        matrix[y][x + i] = _content[i];
-                        color_matrix[y][x + i] = color_matrix[y][x + i].overlay(effective_color);
+                        matrix[cur_y][cur_x + i] = _content[i];
+                        color_matrix[cur_y][cur_x + i] = color_matrix[cur_y][cur_x + i].overlay(effective_color);
                     }
                 }
                 break;
@@ -413,6 +432,7 @@ public:
 
         // Fill the rectangle with color if the flag is set
         int box_offset = (_box_style == IPBoxStyle::None ? 0 : 2);
+        int shadow_size = (_box_style == IPBoxStyle::None ? 1 : 2);
 
         switch (_shadow_style)
         {
@@ -428,10 +448,10 @@ public:
                 }
                 break;
             case IPShadowStyle::Shadow:
-                for (int row = 0; row < _wh.h(); ++row) {
+                for (int row = 0; row < _wh.h() - box_offset + shadow_size; ++row) {
                     int abs_y = y + row;
                     if (abs_y < 0 || abs_y >= static_cast<int>(color_matrix.size())) continue;
-                    for (int col = 0; col < _wh.w(); ++col) {
+                    for (int col = 0; col < _wh.w() - box_offset + shadow_size; ++col) {
                         int abs_x = x + col;
                         if (abs_x < 0 || abs_x >= static_cast<int>(color_matrix[0].size())) continue;
                         color_matrix[abs_y][abs_x] = color_matrix[abs_y][abs_x].blend(effective_color);
