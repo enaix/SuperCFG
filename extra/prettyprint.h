@@ -58,7 +58,25 @@ public:
         None = 0
     };
 
-    explicit IPColor(FG fg = FG::Default, BG bg = BG::Default) : _fg(fg), _bg(bg) {}
+    explicit IPColor(FG fg = FG::None, BG bg = BG::None) : _fg(fg), _bg(bg) {}
+
+    IPColor(const IPColor& other) : _fg(other._fg), _bg(other._bg) {}
+
+    IPColor(IPColor&& other) noexcept : _fg(std::move(other._fg)), _bg(std::move(other._bg)) {}
+
+    IPColor& operator=(const IPColor& other)
+    {
+        _fg = other._fg;
+        _bg = other._bg;
+        return *this;
+    }
+
+    IPColor& operator=(IPColor&& other)
+    {
+        _fg = std::move(other._fg);
+        _bg = std::move(other._bg);
+        return *this;
+    }
 
     [[nodiscard]] std::string code() const {
         std::ostringstream oss;
@@ -68,6 +86,7 @@ public:
     static std::string reset() { return "\033[0m"; }
 
     static IPColor None() { return IPColor(FG::None, BG::None); }
+    bool isna() { return *this == IPColor::None(); }
 
     bool operator==(const IPColor& other) const {
         return _fg == other._fg && _bg == other._bg;
@@ -78,8 +97,24 @@ public:
 
     [[nodiscard]] FG fg() const { return _fg; }
     [[nodiscard]] BG bg() const { return _bg; }
-    FG& fg() { return _fg; }
-    BG& bg() { return _bg; }
+    [[nodiscard]] FG& fg() { return _fg; }
+    [[nodiscard]] BG& bg() { return _bg; }
+
+    // Mix 2 colors together
+    IPColor blend(const IPColor& with) const {
+        IPColor res = *this;
+        if (res.fg() == IPColor::FG::None) res.fg() = with.fg();
+        if (res.bg() == IPColor::BG::None) res.bg() = with.bg();
+        return res;
+    }
+
+    // Overlay this color with another
+    IPColor overlay(const IPColor& with) const {
+        IPColor res = *this;
+        if (with.fg() != IPColor::FG::None) res.fg() = with.fg();
+        if (with.bg() != IPColor::BG::None) res.bg() = with.bg();
+        return res;
+    }
 
 private:
     FG _fg;
@@ -212,7 +247,7 @@ public:
 
     // Text box
     explicit IPWidget(std::string text, IPColor color, IPQuad  margin = IPQuad(0, 0, 0, 0), const IPBoxStyle box = IPBoxStyle::None, const IPShadowStyle shadow = IPShadowStyle::None)
-        : _content(std::move(text)), _color(color), _margin(std::move(margin)), _box_style(box), _shadow_style(shadow), _layout(IPWidgetLayout::Text)
+        : _content(std::move(text)), _color(color), _color_override(IPColor::None()), _margin(std::move(margin)), _box_style(box), _shadow_style(shadow), _layout(IPWidgetLayout::Text)
     {}
 
     // Horizontal/Vertical layout
@@ -232,15 +267,6 @@ public:
 
     // Layout/rendering logic
     // ======================
-
-    static IPColor inherit_color(const IPColor& parent, const IPColor& self, const IPColor& override) {
-        IPColor result = self;
-        if (override.fg() != IPColor::FG::None) result.fg() = override.fg();
-        if (override.bg() != IPColor::BG::None) result.bg() = override.bg();
-        if (result.fg() == IPColor::FG::None) result.fg() = parent.fg();
-        if (result.bg() == IPColor::BG::None) result.bg() = parent.bg();
-        return result;
-    }
 
     static void draw_box(std::vector<std::string>& matrix, std::vector<std::vector<IPColor>>& color_matrix, int x, int y, int w, int h, IPBoxStyle style, const IPColor& color) {
         char tl, tr, bl, br, hline, vline;
@@ -263,7 +289,7 @@ public:
         auto set = [&](int row, int col, char ch) {
             if (row >= 0 && row < (int)matrix.size() && col >= 0 && col < (int)matrix[0].size()) {
                 matrix[row][col] = ch;
-                color_matrix[row][col] = color;
+                color_matrix[row][col] = color_matrix[row][col].overlay(color);
             }
         };
 
@@ -284,9 +310,7 @@ public:
         }
     }
 
-    void layout(const IPColor& parent_color = IPColor::None()) {
-        IPColor effective_color = inherit_color(parent_color, _color, _color_override);
-
+    void layout() {
         auto [ml, mt, mr, mb] = _margin.tup();
         auto [pl, pt, pr, pb] = _padding.tup();
 
@@ -294,7 +318,7 @@ public:
             case IPWidgetLayout::Horizontal: {
                 int x = 0, max_h = 0;
                 for (auto& child : _children) {
-                    child.layout(effective_color);
+                    child.layout();
                     auto [cml, cmt, cmr, cmb] = child._margin.tup();
                     x += cml;
                     x += child._wh.w() + cmr;
@@ -307,7 +331,7 @@ public:
             case IPWidgetLayout::Vertical: {
                 int y = 0, max_w = 0;
                 for (auto& child : _children) {
-                    child.layout(effective_color);
+                    child.layout();
                     auto [cml, cmt, cmr, cmb] = child._margin.tup();
                     y += cmt;
                     y += child._wh.h() + cmb;
@@ -320,7 +344,7 @@ public:
             case IPWidgetLayout::Floating: {
                 int max_x = 0, max_y = 0;
                 for (auto& child : _children) {
-                    child.layout(effective_color);
+                    child.layout();
                     int child_x = child._xy.x() + child._wh.w();
                     int child_y = child._xy.y() + child._wh.h();
                     max_x = std::max(max_x, child_x);
@@ -345,40 +369,12 @@ public:
     }
 
     void render(std::vector<std::string>& matrix, std::vector<std::vector<IPColor>>& color_matrix, int x, int y, const IPColor& parent_color = IPColor::None()) {
-        IPColor effective_color = inherit_color(parent_color, _color, _color_override);
+        IPColor effective_color = _color.blend(parent_color).overlay(_color_override);
         auto [pl, pt, pr, pb] = _padding.tup();
         // Draw box if needed
         if (_box_style != IPBoxStyle::None) {
             draw_box(matrix, color_matrix, x, y, _wh.w(), _wh.h(), _box_style, effective_color);
             x += 1; y += 1;
-        }
-        // Fill the rectangle with color if the flag is set
-        switch (_shadow_style)
-        {
-            case IPShadowStyle::Fill:
-                for (int row = 0; row < _wh.h(); ++row) {
-                    int abs_y = y + row;
-                    if (abs_y < 0 || abs_y >= static_cast<int>(color_matrix.size())) continue;
-                    for (int col = 0; col < _wh.w(); ++col) {
-                        int abs_x = x + col;
-                        if (abs_x < 0 || abs_x >= static_cast<int>(color_matrix[0].size())) continue;
-                        color_matrix[abs_y][abs_x] = effective_color;
-                    }
-                }
-                break;
-            case IPShadowStyle::Shadow:
-                for (int row = 0; row < _wh.h(); ++row) {
-                    int abs_y = y + row - 1;
-                    if (abs_y < 0 || abs_y >= static_cast<int>(color_matrix.size())) continue;
-                    for (int col = 0; col < _wh.w(); ++col) {
-                        int abs_x = x + col - 1;
-                        if (abs_x < 0 || abs_x >= static_cast<int>(color_matrix[0].size())) continue;
-                        color_matrix[abs_y][abs_x] = effective_color;
-                    }
-                }
-                break;
-            default:
-                break;
         }
 
         switch (_layout) {
@@ -408,11 +404,42 @@ public:
                 if (y < static_cast<int>(matrix.size()) && x + static_cast<int>(_content.size()) <= static_cast<int>(matrix[0].size())) {
                     for (size_t i = 0; i < _content.size(); ++i) {
                         matrix[y][x + i] = _content[i];
-                        color_matrix[y][x + i] = effective_color;
+                        color_matrix[y][x + i] = color_matrix[y][x + i].overlay(effective_color);
                     }
                 }
                 break;
             }
+        }
+
+        // Fill the rectangle with color if the flag is set
+        int box_offset = (_box_style == IPBoxStyle::None ? 0 : 2);
+
+        switch (_shadow_style)
+        {
+            case IPShadowStyle::Fill:
+                for (int row = 0; row < _wh.h() - box_offset; ++row) {
+                    int abs_y = y + row;
+                    if (abs_y < 0 || abs_y >= static_cast<int>(color_matrix.size())) continue;
+                    for (int col = 0; col < _wh.w() - box_offset; ++col) {
+                        int abs_x = x + col;
+                        if (abs_x < 0 || abs_x >= static_cast<int>(color_matrix[0].size())) continue;
+                        color_matrix[abs_y][abs_x] = color_matrix[abs_y][abs_x].blend(effective_color);
+                    }
+                }
+                break;
+            case IPShadowStyle::Shadow:
+                for (int row = 0; row < _wh.h(); ++row) {
+                    int abs_y = y + row;
+                    if (abs_y < 0 || abs_y >= static_cast<int>(color_matrix.size())) continue;
+                    for (int col = 0; col < _wh.w(); ++col) {
+                        int abs_x = x + col;
+                        if (abs_x < 0 || abs_x >= static_cast<int>(color_matrix[0].size())) continue;
+                        color_matrix[abs_y][abs_x] = color_matrix[abs_y][abs_x].blend(effective_color);
+                    }
+                }
+                break;
+            default:
+                break;
         }
     }
 };
@@ -446,7 +473,7 @@ public:
         _rows = rows;
         _cols = cols;
         _output_matrix.assign(rows, std::string(cols, ' '));
-        _color_matrix.assign(rows, std::vector<IPColor>(cols, IPColor()));
+        _color_matrix.assign(rows, std::vector<IPColor>(cols, IPColor::None()));
     }
 
     void set_cell(std::size_t row, std::size_t col, char value, const IPColor& color = IPColor()) {

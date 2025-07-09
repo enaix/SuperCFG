@@ -42,21 +42,21 @@ int main() {
     // Horizontal child
     std::vector<IPWidget> horiz_children;
     for (int i = 0; i < 3; ++i) {
-        horiz_children.emplace_back("H-" + std::to_string(i), IPColor(IPColor::FG::BrightGreen, IPColor::BG::Default));
+        horiz_children.emplace_back("H-" + std::to_string(i), IPColor(IPColor::FG::BrightGreen, IPColor::BG::None));
     }
     IPWidget horiz(IPWidgetLayout::Horizontal, horiz_children, IPColor(IPColor::FG::BrightYellow, IPColor::BG::Red), IPQuad(0,0,0,0), IPQuad(0,0,0,0), IPBoxStyle::Single, IPShadowStyle::Fill, {2,2});
 
     // Vertical child
     std::vector<IPWidget> vert_children;
     for (int i = 0; i < 3; ++i) {
-        vert_children.emplace_back("V-" + std::to_string(i), IPColor(IPColor::FG::BrightRed, IPColor::BG::Default));
+        vert_children.emplace_back("V-" + std::to_string(i), IPColor(IPColor::FG::BrightRed, IPColor::BG::None));
     }
-    IPWidget vert(IPWidgetLayout::Vertical, vert_children, IPColor(IPColor::FG::BrightCyan, IPColor::BG::Magenta), IPQuad(0,0,0,0), IPQuad(0,0,0,0), IPBoxStyle::Single, IPShadowStyle::Fill, {20,2});
+    IPWidget vert(IPWidgetLayout::Vertical, vert_children, IPColor(IPColor::FG::BrightCyan, IPColor::BG::Magenta), IPQuad(0,0,0,0), IPQuad(0,0,0,0), IPBoxStyle::None, IPShadowStyle::Fill, {20,2});
 
     // Floating child
     std::vector<IPWidget> floating_children;
     for (int i = 0; i < 2; ++i) {
-        IPWidget t("F-" + std::to_string(i), IPColor(IPColor::FG::BrightBlue, IPColor::BG::Default));
+        IPWidget t("F-" + std::to_string(i), IPColor(IPColor::FG::BrightBlue, IPColor::BG::None));
         t._xy = {i * 8, i * 2};
         floating_children.push_back(t);
     }
