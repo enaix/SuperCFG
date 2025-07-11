@@ -241,6 +241,15 @@ public:
     std::pair<int, int>& pair() { return static_cast<std::pair<int, int>&>(*this); }
 
     // Operators overload
+    friend IPPoint operator+(const IPPoint& lhs, const IPPoint& rhs)
+    { IPPoint res; res.x() += rhs.x();  res.y() += rhs.y();  return res; }
+    friend IPPoint operator-(const IPPoint& lhs, const IPPoint& rhs)
+    { IPPoint res; res.x() -= rhs.x();  res.y() -= rhs.y();  return res; }
+    friend IPPoint operator*(const IPPoint& lhs, const IPPoint& rhs)
+    { IPPoint res; res.x() *= rhs.x();  res.y() *= rhs.y();  return res; }
+    friend IPPoint operator/(const IPPoint& lhs, const IPPoint& rhs)
+    { IPPoint res; res.x() /= rhs.x();  res.y() /= rhs.y();  return res; }
+
     IPPoint& operator+=(const IPPoint& rhs)
     { x() += rhs.x();  y() += rhs.y();  return *this; }
     IPPoint& operator-=(const IPPoint& rhs)
@@ -283,8 +292,8 @@ struct IPEvent {
 
 class IPWidget;
 class IPWindow;
-// Event handler signature for all widgets
-using IPEventHandler = void(*)(IPWidget*, IPWindow*, const IPEvent&);
+// Event handler signature now returns bool for event handling
+using IPEventHandler = bool(*)(IPWidget*, IPWindow*, const IPEvent&, const std::vector<int>& path);
 
 
 class IPWidget
@@ -304,49 +313,8 @@ public:
     IPBoxStyle _box_style;
 
     bool selectable = false;
-    bool selected = false;
     IPEventHandler on_event = nullptr;
 
-    // Helper to get effective color from palette if set
-    template<class TStyle>
-    IPColor get_effective_color(const TStyle& style, bool active_window) const {
-        if (!active_window)
-            return style.get_color(IPColors::Disabled);
-        if (selectable)
-        {
-            if (selected)
-                return style.get_color(IPColors::Selected);
-            return style.get_color(IPColors::Inactive);
-        }
-        return style.get_color(_color);
-    }
-
-    // Helper to get effective border color from palette if set
-    template<class TStyle>
-    IPColor get_border_color(const TStyle& style, bool active_window) const {
-        if (!active_window)
-            return style.get_color(IPColors::BorderDisabled);
-
-        if (selectable && selected)
-            return style.get_color(IPColors::BorderActive);
-    
-        return style.get_color(IPColors::BorderInactive);
-    }
-
-    // Find next selectable child (for arrow navigation)
-    int find_next_selectable(int start, int dir) const {
-        int n = (int)_children.size();
-        for (int i = 1; i <= n; ++i) {
-            int idx = (start + dir * i + n) % n;
-            if (_children[idx].selectable) return idx;
-        }
-        return -1;
-    }
-
-    // Deselect all children
-    void deselect_all() {
-        for (auto& child : _children) child.selected = false;
-    }
 
     IPWidget()
         : _xy{0, 0}, _wh{0, 0}, _color(IPColors::Primary),
@@ -374,8 +342,36 @@ public:
         : _xy(xy), _wh(wh), _color(color), _margin(margin), _padding(padding), _children(std::move(children)), _content(std::move(content)), _shadow_style(shadow), _layout(layout), _box_style(box)
     {}
 
+    void set_text(const std::string& s) { _content = s; }
+
     // Layout/rendering logic
     // ======================
+
+    // Helper to get effective color from palette if set
+    template<class TStyle>
+    IPColor get_effective_color(const TStyle& style, bool active_window, bool selected) const {
+        if (!active_window)
+            return style.get_color(IPColors::Disabled);
+        if (selectable)
+        {
+            if (selected)
+                return style.get_color(IPColors::Selected);
+            return style.get_color(IPColors::Inactive);
+        }
+        return style.get_color(_color);
+    }
+
+    // Helper to get effective border color from palette if set
+    template<class TStyle>
+    IPColor get_border_color(const TStyle& style, bool active_window, bool selected) const {
+        if (!active_window)
+            return style.get_color(IPColors::BorderDisabled);
+
+        if (selectable && selected)
+            return style.get_color(IPColors::BorderActive);
+
+        return style.get_color(IPColors::BorderInactive);
+    }
 
     template<class TColor>
     static void draw_box(std::vector<std::string>& matrix, std::vector<std::vector<TColor>>& color_matrix, int x, int y, int w, int h, IPBoxStyle style, const TColor& color) {
@@ -488,24 +484,46 @@ public:
     }
 
     template<class TColor, template<class> class TStyle>
-    void render(std::vector<std::string>& matrix, std::vector<std::vector<TColor>>& color_matrix, const TStyle<TColor>& style, bool active_window, int x, int y, const TColor& parent_color = TColor::None()) {
-        IPColor effective_color = get_effective_color(style, active_window).blend(parent_color);
+    void render(std::vector<std::string>& matrix, std::vector<std::vector<TColor>>& color_matrix, const TStyle<TColor>& style, bool active_window, int x, int y, const TColor& parent_color = TColor::None(), bool top_level = false, std::vector<int> cur_path = {}, const std::vector<int>* selected_path = nullptr) {
+        bool selected;
+        if (selected_path && cur_path == *selected_path)
+            selected = true; // Force lazy eval
+        else
+            selected = false;
+        
+        IPColor effective_color = get_effective_color(style, active_window, selected).blend(parent_color);
         auto [ml, mt, mr, mb] = _margin.tup();
         auto [pl, pt, pr, pb] = _padding.tup();
+        // Opaque fill for top-level window
+        if (top_level) {
+            for (int row = 0; row < _wh.h(); ++row) {
+                int abs_y = y + row;
+                if (abs_y < 0 || abs_y >= (int)color_matrix.size()) continue;
+                for (int col = 0; col < _wh.w(); ++col) {
+                    int abs_x = x + col;
+                    if (abs_x < 0 || abs_x >= (int)color_matrix[0].size()) continue;
+                    matrix[abs_y][abs_x] = ' ';
+                    color_matrix[abs_y][abs_x] = effective_color;
+                }
+            }
+        }
         // Draw box if needed
         if (_box_style != IPBoxStyle::None) {
-            IPColor border_color = get_border_color(style, active_window).blend(parent_color);
+            IPColor border_color = get_border_color(style, active_window, selected).blend(parent_color);
             draw_box(matrix, color_matrix, x, y, _wh.w(), _wh.h(), _box_style, border_color);
             x += 1; y += 1;
         }
+
+        cur_path.push_back(0); // Add last elem
 
         switch (_layout) {
             case IPWidgetLayout::Horizontal: {
                 int cur_x = x + ml;
                 for (int i = 0; i < _children.size(); i++) {
+                    cur_path.front() = i;
                     if (i > 0)
                         cur_x += pl;
-                    _children[i].render(matrix, color_matrix, style, active_window, cur_x, y + mt, effective_color);
+                    _children[i].render(matrix, color_matrix, style, active_window, cur_x, y + mt, effective_color, false, cur_path, selected_path);
                     if (i < _children.size() - 1)
                         cur_x += pr;
                     cur_x += _children[i]._wh.w();
@@ -515,9 +533,10 @@ public:
             case IPWidgetLayout::Vertical: {
                 int cur_y = y + mt;
                 for (int i = 0; i < _children.size(); i++) {
+                    cur_path.front() = i;
                     if (i > 0)
                         cur_y += pt;
-                    _children[i].render(matrix, color_matrix, style, active_window, x + ml, cur_y, effective_color);
+                    _children[i].render(matrix, color_matrix, style, active_window, x + ml, cur_y, effective_color, false, cur_path, selected_path);
                     if (i < _children.size() - 1)
                         cur_y += pb;
                     cur_y += _children[i]._wh.h();
@@ -526,7 +545,8 @@ public:
             }
             case IPWidgetLayout::Floating: {
                 for (auto& child : _children) {
-                    child.render(matrix, color_matrix, style, active_window, x + child._xy.x() + ml, y + child._xy.y() + mt, effective_color);
+                    cur_path.front()++;
+                    child.render(matrix, color_matrix, style, active_window, x + child._xy.x() + ml, y + child._xy.y() + mt, effective_color, false, cur_path, selected_path);
                 }
                 break;
             }
@@ -546,6 +566,9 @@ public:
         int box_offset = (_box_style == IPBoxStyle::None ? 0 : 2);
         int shadow_size = (_box_style == IPBoxStyle::None ? 1 : 2);
 
+        int shadow_rows = _wh.h() - box_offset + shadow_size - 1;
+        int shadow_cols = _wh.w() - box_offset + shadow_size - 1;
+
         switch (_shadow_style)
         {
             case IPShadowStyle::Fill:
@@ -560,10 +583,10 @@ public:
                 }
                 break;
             case IPShadowStyle::Shadow:
-                for (int row = 0; row < _wh.h() - box_offset + shadow_size; ++row) {
+                for (int row = 0; row <= shadow_rows; ++row) {
                     int abs_y = y + row;
                     if (abs_y < 0 || abs_y >= static_cast<int>(color_matrix.size())) continue;
-                    for (int col = 0; col < _wh.w() - box_offset + shadow_size; ++col) {
+                    for (int col = 0; col <= shadow_cols; ++col) {
                         int abs_x = x + col;
                         if (abs_x < 0 || abs_x >= static_cast<int>(color_matrix[0].size())) continue;
                         color_matrix[abs_y][abs_x] = color_matrix[abs_y][abs_x].blend(effective_color);
@@ -577,77 +600,179 @@ public:
 };
 
 
+
+// Helper: recursively find nearest selectable widget in a direction, returning path
+void find_nearest_selectable_recursive(const std::vector<IPWidget>& widgets, const std::vector<int>& cur_path, const IPPoint& cur_xy, IPEventType dir, std::vector<int>& best_path, int& best_dist, const std::vector<int>& current_sel_path = {}, IPPoint accumulated_xy = {}) {
+    for (int i = 0; i < (int)widgets.size(); ++i) {
+        std::vector<int> path = cur_path;
+        path.push_back(i);
+        // Skip if this is the currently selected widget
+        if (!current_sel_path.empty() && path == current_sel_path) continue;
+
+        IPPoint abs_xy = accumulated_xy + widgets[i]._xy;
+        if (widgets[i].selectable) {
+
+            int dx = abs_xy.x() - cur_xy.x();
+            int dy = abs_xy.y() - cur_xy.y();
+            bool in_quadrant = false;
+            switch (dir) {
+                case IPEventType::ArrowUp:   in_quadrant = (std::abs(dy) > std::abs(dx)); break;
+                case IPEventType::ArrowDown: in_quadrant = (std::abs(dy) > std::abs(dx)); break;
+                case IPEventType::ArrowLeft: in_quadrant = (std::abs(dx) > std::abs(dy)); break;
+                case IPEventType::ArrowRight:in_quadrant = (std::abs(dx) > std::abs(dy)); break;
+                default: break;
+            }
+            if (in_quadrant) {
+                int dist = dx*dx + dy*dy;
+                if (dist < best_dist) { best_path = path; best_dist = dist; }
+            }
+        }
+        if (!widgets[i]._children.empty()) {
+            find_nearest_selectable_recursive(widgets[i]._children, path, cur_xy, dir, best_path, best_dist, current_sel_path, abs_xy);
+        }
+    }
+}
+
+
+
 // Window stack and selector logic
 class IPWindow {
 public:
     std::vector<IPWidget> stack; // Topmost is last
     int selector_idx = -1; // Index of selected widget in stack
+    std::vector<std::vector<int>> selection_paths; // Selected widget in each window
+    std::vector<IPWidget> overlays; // Overlay windows, not selectable
+
+    int _dbg_best_dist = -1; // DEBUG: best distance in selector
 
     IPWindow() = default;
 
     void push(IPWidget w) {
         stack.push_back(std::move(w));
         selector_idx = (int)stack.size() - 1;
-        if (selector_idx >= 0) {
-            stack[selector_idx].selected = true;
-            if (stack[selector_idx].on_event)
-                stack[selector_idx].on_event(&stack[selector_idx], this, IPEvent(IPEventType::OnCreate));
-        }
+        // Default: select first selectable child in new window
+        std::vector<int> path;
+        find_first_selectable_path(stack.back()._children, path);
+        selection_paths.push_back(path);
+        if (stack[selector_idx].on_event)
+            stack[selector_idx].on_event(&stack[selector_idx], this, IPEvent(IPEventType::OnCreate), {0}); // Widget should be 0
     }
-    void pop() {
-        if (!stack.empty()) {
-            if (stack.back().on_event)
-                stack.back().on_event(&stack.back(), this, IPEvent(IPEventType::OnDestroy));
-            stack.pop_back();
-            selector_idx = (int)stack.size() - 1;
-            if (selector_idx >= 0)
-                stack[selector_idx].selected = true;
+
+    // Add overlay window (not selectable)
+    void push_overlay(IPWidget w) {
+        overlays.push_back(std::move(w));
+    }
+
+    void pop(int index) {
+        if (!stack.empty() && index >= 0) {
+            if (stack[index].on_event)
+                stack[index].on_event(&stack[index], this, IPEvent(IPEventType::OnDestroy), {0}); // We are deleting the whole window
+            stack.erase(stack.begin() + index);
+            selection_paths.erase(selection_paths.begin() + index);
+            if (stack.size() - 1 >= index)
+                selector_idx = index;
+            else if (stack.size() > 0)
+                selector_idx = stack.size() - 1;
+            else
+                selector_idx = -1;
         }
     }
     IPWidget* top() { return stack.empty() ? nullptr : &stack.back(); }
 
-    // Move selector to next selectable window
-    void move_selector(int dir) {
+    // Tab cycles through windows
+    void move_selector_tab(int dir) {
         if (stack.empty()) return;
         int n = (int)stack.size();
         int start = selector_idx;
         for (int i = 1; i <= n; ++i) {
             int idx = (start + dir * i + n) % n;
             if (stack[idx].selectable) {
-                if (selector_idx >= 0) stack[selector_idx].selected = false;
                 selector_idx = idx;
-                stack[selector_idx].selected = true;
                 return;
             }
         }
     }
 
-    // Move selection within the top window's children
-    void move_child_selector(int dir) {
-        if (selector_idx < 0 || selector_idx >= (int)stack.size()) return;
-        IPWidget& win = stack[selector_idx];
-        int n = (int)win._children.size();
-        int cur = 0;
-        for (int i = 0; i < n; ++i) if (win._children[i].selected) cur = i;
-        int next = win.find_next_selectable(cur, dir);
-        win.deselect_all();
-        if (next >= 0) win._children[next].selected = true;
+    // Find first selectable widget path (depth-first)
+    static bool find_first_selectable_path(const std::vector<IPWidget>& widgets, std::vector<int>& path) {
+        for (int i = 0; i < (int)widgets.size(); ++i) {
+            if (widgets[i].selectable) { path.push_back(i); return true; }
+            if (!widgets[i]._children.empty()) {
+                path.push_back(i);
+                if (find_first_selectable_path(widgets[i]._children, path)) return true;
+                path.pop_back();
+            }
+        }
+        return false;
     }
 
-    // Route event to selected window and its selected child
+    // Move selection within the top window's widgets in a direction (recursive)
+    void move_child_selector_dir(IPEventType dir) {
+        if (selector_idx < 0 || selector_idx >= (int)stack.size()) return;
+        IPWidget& win = stack[selector_idx];
+        std::vector<int>& sel_path = selection_paths[selector_idx];
+        IPPoint cur_xy = {0,0};
+        std::vector<IPWidget>* cur_level = &win._children;
+        
+        for (int d = 0; d < (int)sel_path.size(); ++d) {
+            int idx = sel_path[d];
+            if (idx < 0 || idx >= (int)cur_level->size()) break;
+            cur_xy += (*cur_level)[idx]._xy; // We need to accumulate total pos, since _xy is relative
+            cur_level = &(*cur_level)[idx]._children;
+        }
+        std::vector<int> best_path;
+        find_nearest_selectable_recursive(win._children, {}, cur_xy, dir, best_path, _dbg_best_dist, sel_path);
+        if (!best_path.empty()) sel_path = best_path;
+    }
+
+    // Route event to selected window and its selected child (recursive, path-based)
     void handle_event(const IPEvent& ev) {
         if (selector_idx >= 0 && selector_idx < (int)stack.size()) {
             IPWidget* win = &stack[selector_idx];
-            if (ev.type == IPEventType::ArrowUp || ev.type == IPEventType::ArrowDown) {
-                move_child_selector(ev.type == IPEventType::ArrowDown ? 1 : -1);
-            } else if (ev.type == IPEventType::Select || ev.type == IPEventType::Click) {
-                for (auto& child : win->_children) {
-                    if (child.selected && child.on_event)
-                        child.on_event(&child, this, ev);
+            std::vector<int>& sel_path = selection_paths[selector_idx];
+            // Try to handle event recursively from leaf to root
+            bool handled = false;
+            for (int d = (int)sel_path.size(); d >= 0; --d) {
+                std::vector<int> subpath(sel_path.begin(), sel_path.begin() + d);
+                IPWidget* cur = win;
+                std::vector<IPWidget>* cur_level = &win->_children;
+                for (int i = 0; i < (int)subpath.size(); ++i) {
+                    int idx = subpath[i];
+                    if (idx < 0 || idx >= (int)cur_level->size()) { cur = nullptr; break; }
+                    cur = &(*cur_level)[idx];
+                    cur_level = &cur->_children;
                 }
-            } else if (win->on_event) {
-                win->on_event(win, this, ev);
+                if (cur && cur->on_event && cur->on_event(cur, this, ev, subpath)) {
+                    handled = true;
+                    break;
+                }
             }
+            // If not handled, process at window level
+            if (!handled && win->on_event) win->on_event(win, this, ev, {});
+        }
+    }
+
+    // Render all windows, overlays last. Overlays are not selectable.
+    template<class TColor, template<class> class TStyle>
+    void render_all(std::vector<std::string>& matrix, std::vector<std::vector<TColor>>& color_matrix, const TStyle<TColor>& style) {
+        int n = (int)stack.size();
+        if (n == 0) return;
+        int start = (selector_idx + 1) % n;
+        for (int i = 0; i < n; ++i) {
+            int idx = (start + i) % n;
+            bool active = (idx == selector_idx);
+            stack[idx].layout();
+            stack[idx].render(matrix, color_matrix, style, active, 2 + 2*idx, 2 + 2*idx, TColor::None(), true, {}, (active ? &selection_paths[idx] : nullptr));
+        }
+        
+    }
+
+    template<class TColor, template<class> class TStyle>
+    void render_overlays(std::vector<std::string>& matrix, std::vector<std::vector<TColor>>& color_matrix, const TStyle<TColor>& style) {
+        // Render overlays last (not selectable, not active)
+        for (auto& overlay : overlays) {
+            overlay.layout();
+            overlay.render(matrix, color_matrix, style, false, overlay._xy.x(), overlay._xy.y(), TColor::None(), true);
         }
     }
 };

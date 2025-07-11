@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <array>
+#include <sstream>
 
 #if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))
 #define IS_POSIX
@@ -118,36 +119,99 @@ void test_popup_windows() {
     for (int i = 0; i < 3; ++i) {
         IPWidget close_btn("[X]", IPColors::Accent, IPQuad(0,0,0,0), IPBoxStyle::Single, IPShadowStyle::None);
         close_btn.selectable = true;
-        close_btn.on_event = [](IPWidget* self, IPWindow* window, const IPEvent& ev) {
+        close_btn.on_event = [](IPWidget* self, IPWindow* window, const IPEvent& ev, const std::vector<int>& path) -> bool {
             if (ev.type == IPEventType::Select || ev.type == IPEventType::Click) {
-                if (window) window->pop();
+                if (window) window->pop(window->selector_idx);
+                return true;
             }
+            return false;
+        };
+        IPWidget open_btn("[open]");
+        open_btn.selectable = true;
+        open_btn.on_event = [](IPWidget* self, IPWindow* window, const IPEvent& ev, const std::vector<int>& path) -> bool {
+            if ((ev.type == IPEventType::Select || ev.type == IPEventType::Click) && window) {
+                // Open a new popup window
+                IPWidget close_btn2("[X]", IPColors::Accent, IPQuad(0,0,0,0), IPBoxStyle::Single, IPShadowStyle::None);
+                close_btn2.selectable = true;
+                close_btn2.on_event = [](IPWidget* self, IPWindow* window, const IPEvent& ev, const std::vector<int>& path) -> bool {
+                    if (ev.type == IPEventType::Select || ev.type == IPEventType::Click) {
+                        if (window) window->pop(window->selector_idx);
+                        return true;
+                    }
+                    return false;
+                };
+                IPWidget popup2(IPWidgetLayout::Vertical, {
+                    close_btn2,
+                    IPWidget("New popup!", IPColors::Primary, IPQuad(1,1,1,1), IPBoxStyle::None, IPShadowStyle::None)
+                }, IPColors::Primary, IPQuad(2,2,2,2), IPQuad(1,1,1,1), IPBoxStyle::Double, IPShadowStyle::Shadow, {10, 5});
+                popup2.selectable = true;
+                popup2.on_event = [](IPWidget* self, IPWindow* window, const IPEvent& ev, const std::vector<int>& path) -> bool {
+                    if (ev.type == IPEventType::OnCreate) {
+                        //if (!self->_children.empty()) self->_children[0].selected = true;
+                        return true;
+                    }
+                    return false;
+                };
+                window->push(popup2);
+                return true;
+            }
+            return false;
         };
         IPWidget popup(IPWidgetLayout::Vertical, {
             close_btn,
+            open_btn,
             IPWidget("Popup window " + std::to_string(i+1), IPColors::Primary, IPQuad(1,1,1,1), IPBoxStyle::None, IPShadowStyle::None)
-        }, IPColors::Primary, IPQuad(2*i,2*i,2*i,2*i), IPQuad(1,1,1,1), IPBoxStyle::Double, IPShadowStyle::Shadow, {5*i, 3*i});
+        }, IPColors::Primary, IPQuad(2,2,2,2), IPQuad(1,1,1,1), IPBoxStyle::Double, IPShadowStyle::Shadow, {5*i, 3*i});
         popup.selectable = true;
-        popup.on_event = [](IPWidget* self, IPWindow* window, const IPEvent& ev) {
+        popup.on_event = [](IPWidget* self, IPWindow* window, const IPEvent& ev, const std::vector<int>& path) -> bool {
             if (ev.type == IPEventType::OnCreate) {
-                if (!self->_children.empty()) self->_children[0].selected = true;
+                //if (!self->_children.empty()) self->_children[0].selected = true;
+                return true;
             }
+            return false;
         };
         winstack.push(popup);
     }
 
+    auto get_debug_text = [](IPWindow& win){
+        std::ostringstream dbg;
+        dbg << "selector_idx: " << win.selector_idx << "; ";
+        dbg << "selection_paths: ";
+        for (size_t i = 0; i < win.selection_paths.size(); ++i) {
+            dbg << "[";
+            for (size_t j = 0; j < win.selection_paths[i].size(); ++j) {
+                dbg << win.selection_paths[i][j];
+                if (j + 1 < win.selection_paths[i].size()) dbg << ",";
+            }
+            dbg << "] ";
+        }
+
+        dbg << "; dist: " << win._dbg_best_dist;
+
+        return dbg.str();
+    };
+
+    IPWidget debug_win(get_debug_text(winstack), IPColors::Inactive, IPQuad(0,0,0,0), IPBoxStyle::Single, IPShadowStyle::Fill);
+    debug_win._xy = {0, term_h - 4};
+    debug_win._wh = {printer._cols, 4};
+    debug_win.selectable = false;
+    winstack.push_overlay(debug_win);
+
     // Main event loop
     while (!winstack.stack.empty()) {
+        // --- Debug overlay window ---
+        winstack.overlays[0].set_text(get_debug_text(winstack));
+        // --- End debug overlay ---
+
         printer.init_matrix(term_h, term_w);
-        for (int i = 0; i < (int)winstack.stack.size(); ++i) {
-            bool active = (i == winstack.selector_idx);
-            winstack.stack[i].layout();
-            winstack.stack[i].render(printer._output_matrix, printer._color_matrix, style, active, 2 + 2*i, 2 + 2*i);
-        }
+        winstack.render_all(printer._output_matrix, printer._color_matrix, style);
+        winstack.render_overlays(printer._output_matrix, printer._color_matrix, style);
         printer.render_matrix();
+
         int c = getch();
         if (c == 'q') break;
-        if (c == 'x') { winstack.pop(); continue; }
+        if (c == '\t') { winstack.move_selector_tab(1); continue; }
+        if (c == 'x') { winstack.pop(winstack.selector_idx); continue; }
         if (c == 10 || c == ' ') { // Enter or space
             winstack.handle_event(IPEvent(IPEventType::Select));
             continue;
@@ -158,8 +222,8 @@ void test_popup_windows() {
                 int c3 = getch();
                 if (c3 == 'A') winstack.handle_event(IPEvent(IPEventType::ArrowUp));
                 else if (c3 == 'B') winstack.handle_event(IPEvent(IPEventType::ArrowDown));
-                else if (c3 == 'C') winstack.move_selector(1);
-                else if (c3 == 'D') winstack.move_selector(-1);
+                else if (c3 == 'C') winstack.handle_event(IPEvent(IPEventType::ArrowRight));
+                else if (c3 == 'D') winstack.handle_event(IPEvent(IPEventType::ArrowLeft));
             }
         }
     }
