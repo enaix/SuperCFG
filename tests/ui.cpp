@@ -98,6 +98,7 @@ int get_terminal_height() {
 
 void test_popup_windows() {
     InteractivePrinter<IPColor> printer(std::cout);
+    printer.init_renderer();
     int term_w = get_terminal_width();
     int term_h = get_terminal_height();
     printer.init_matrix(term_h, term_w);
@@ -231,5 +232,6 @@ void test_popup_windows() {
 int main()
 {
     test_popup_windows();
+    InteractivePrinter<IPColor>::restore_terminal();
     return 0;
 }

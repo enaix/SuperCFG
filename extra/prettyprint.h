@@ -823,10 +823,12 @@ public:
 
     // Output matrix for rendering: each string is a row
     std::vector<std::string> _output_matrix;
-    std::vector<std::vector<TColor>> _color_matrix;
+    std::vector<std::vector<IPColor>> _color_matrix;
+    std::vector<std::string> _prev_output_matrix;
+    std::vector<std::vector<IPColor>> _prev_color_matrix;
     std::size_t _rows = 0;
     std::size_t _cols = 0;
-
+    bool _first_frame = true;
 
     explicit InteractivePrinter(std::ostream& os) : _os(os) {}
 
@@ -839,17 +841,20 @@ public:
         _rows = rows;
         _cols = cols;
         _output_matrix.assign(rows, std::string(cols, ' '));
-        _color_matrix.assign(rows, std::vector<TColor>(cols, IPColor::None()));
+        _color_matrix.assign(rows, std::vector<IPColor>(cols, IPColor::None()));
+        _prev_output_matrix.assign(rows, std::string(cols, ' '));
+        _prev_color_matrix.assign(rows, std::vector<IPColor>(cols, IPColor::None()));
+        _first_frame = true;
     }
 
-    void set_cell(std::size_t row, std::size_t col, char value, const TColor& color = TColor::None()) {
+    void set_cell(std::size_t row, std::size_t col, char value, const IPColor& color = IPColor()) {
         if (row < _rows && col < _cols) {
             _output_matrix[row][col] = value;
             _color_matrix[row][col] = color;
         }
     }
 
-    void set_text(std::size_t row, std::size_t col, const std::string& text, const TColor& color = TColor::None()) {
+    void set_text(std::size_t row, std::size_t col, const std::string& text, const IPColor& color = IPColor()) {
         if (row < _rows && col + text.size() <= _cols) {
             for (size_t i = 0; i < text.size(); ++i) {
                 _output_matrix[row][col + i] = text[i];
@@ -858,13 +863,37 @@ public:
         }
     }
 
+    void init_renderer()
+    {
+        // Enter alternate screen buffer and hide cursor for smooth rendering
+        _os << "\033[?1049h"; // Enter alternate buffer
+    }
+
     void render_matrix() {
+        if (_first_frame) {
+            _os << "\033[2J\033[H"; // Clear and home
+            _first_frame = false;
+        }
+        _os << "\033[?25l"; // Hide cursor
         for (std::size_t r = 0; r < _rows; ++r) {
             for (std::size_t c = 0; c < _cols; ++c) {
-                _os << _color_matrix[r][c].code() << _output_matrix[r][c] << IPColor::reset();
+                if (_output_matrix[r][c] != _prev_output_matrix[r][c] ||
+                    _color_matrix[r][c] != _prev_color_matrix[r][c]) {
+                    // Move cursor (1-based for ANSI)
+                    _os << "\033[" << (r+1) << ";" << (c+1) << "H";
+                    _os << _color_matrix[r][c].code() << _output_matrix[r][c] << IPColor::reset();
+                }
             }
-            _os << '\n';
         }
+        _os.flush();
+        // Save current frame as previous
+        _prev_output_matrix = _output_matrix;
+        _prev_color_matrix = _color_matrix;
+    }
+
+    // Call this on program exit to restore the screen and cursor
+    static void restore_terminal(std::ostream& os = std::cout) {
+        os << "\033[?25h\033[?1049l" << std::flush; // Show cursor, exit alt buffer
     }
 
     void get_terminal_size()
