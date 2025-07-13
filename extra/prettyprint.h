@@ -12,6 +12,7 @@
 #include <string>
 #include <sstream>
 #include <tuple>
+#include <cassert>
 
 
 // IPColor class for handling ANSI color codes
@@ -602,10 +603,10 @@ public:
 
 
 // Helper: recursively find nearest selectable widget in a direction, returning path
-void find_nearest_selectable_recursive(const std::vector<IPWidget>& widgets, const std::vector<int>& cur_path, const IPPoint& cur_xy, IPEventType dir, std::vector<int>& best_path, int& best_dist, const std::vector<int>& current_sel_path = {}, IPPoint accumulated_xy = {}) {
+void find_nearest_selectable_recursive(const std::vector<IPWidget>& widgets, std::vector<int> path, const IPPoint& cur_xy, IPEventType dir, std::vector<int>& best_path, int& best_dist, const std::vector<int>& current_sel_path = {}, IPPoint accumulated_xy = {}) {
+    path.push_back(0);
     for (int i = 0; i < (int)widgets.size(); ++i) {
-        std::vector<int> path = cur_path;
-        path.push_back(i);
+        path.front() = i;
         // Skip if this is the currently selected widget
         if (!current_sel_path.empty() && path == current_sel_path) continue;
 
@@ -616,10 +617,11 @@ void find_nearest_selectable_recursive(const std::vector<IPWidget>& widgets, con
             int dy = abs_xy.y() - cur_xy.y();
             bool in_quadrant = false;
             switch (dir) {
-                case IPEventType::ArrowUp:   in_quadrant = (std::abs(dy) > std::abs(dx)); break;
-                case IPEventType::ArrowDown: in_quadrant = (std::abs(dy) > std::abs(dx)); break;
-                case IPEventType::ArrowLeft: in_quadrant = (std::abs(dx) > std::abs(dy)); break;
-                case IPEventType::ArrowRight:in_quadrant = (std::abs(dx) > std::abs(dy)); break;
+                // TODO fix quadrant selection
+                case IPEventType::ArrowUp:   in_quadrant = (std::abs(dy) >= std::abs(dx)); break;
+                case IPEventType::ArrowDown: in_quadrant = (std::abs(dy) >= std::abs(dx)); break;
+                case IPEventType::ArrowLeft: in_quadrant = (std::abs(dx) >= std::abs(dy)); break;
+                case IPEventType::ArrowRight:in_quadrant = (std::abs(dx) >= std::abs(dy)); break;
                 default: break;
             }
             if (in_quadrant) {
@@ -635,6 +637,13 @@ void find_nearest_selectable_recursive(const std::vector<IPWidget>& widgets, con
 
 
 
+enum class IPWindowFlags : std::size_t
+{
+    Modal = 0x1,
+};
+
+
+
 // Window stack and selector logic
 class IPWindow {
 public:
@@ -642,13 +651,15 @@ public:
     int selector_idx = -1; // Index of selected widget in stack
     std::vector<std::vector<int>> selection_paths; // Selected widget in each window
     std::vector<IPWidget> overlays; // Overlay windows, not selectable
+    std::vector<std::size_t> flags;
 
-    int _dbg_best_dist = -1; // DEBUG: best distance in selector
+    int _dbg_best_dist = INT_MAX; // DEBUG: best distance in selector
 
     IPWindow() = default;
 
-    void push(IPWidget w) {
+    void push(IPWidget w, std::size_t win_flags = 0) {
         stack.push_back(std::move(w));
+        flags.push_back(win_flags);
         selector_idx = (int)stack.size() - 1;
         // Default: select first selectable child in new window
         std::vector<int> path;
@@ -667,8 +678,11 @@ public:
         if (!stack.empty() && index >= 0) {
             if (stack[index].on_event)
                 stack[index].on_event(&stack[index], this, IPEvent(IPEventType::OnDestroy), {0}); // We are deleting the whole window
+            
             stack.erase(stack.begin() + index);
             selection_paths.erase(selection_paths.begin() + index);
+            flags.erase(flags.begin() + index);
+
             if (stack.size() - 1 >= index)
                 selector_idx = index;
             else if (stack.size() > 0)
@@ -679,17 +693,24 @@ public:
     }
     IPWidget* top() { return stack.empty() ? nullptr : &stack.back(); }
 
+    bool check_modal_flag()
+    {
+        if (selector_idx < 0 || selector_idx >= stack.size())
+            return false;
+        
+        return flags[selector_idx] & (std::size_t)IPWindowFlags::Modal;
+    }
+
     // Tab cycles through windows
     void move_selector_tab(int dir) {
         if (stack.empty()) return;
+        if (check_modal_flag()) return;
         int n = (int)stack.size();
         int start = selector_idx;
         for (int i = 1; i <= n; ++i) {
             int idx = (start + dir * i + n) % n;
-            if (stack[idx].selectable) {
-                selector_idx = idx;
-                return;
-            }
+            selector_idx = idx;
+            return;
         }
     }
 
@@ -709,10 +730,10 @@ public:
     // Move selection within the top window's widgets in a direction (recursive)
     void move_child_selector_dir(IPEventType dir) {
         if (selector_idx < 0 || selector_idx >= (int)stack.size()) return;
-        IPWidget& win = stack[selector_idx];
+        IPWidget& root = stack[selector_idx];
         std::vector<int>& sel_path = selection_paths[selector_idx];
         IPPoint cur_xy = {0,0};
-        std::vector<IPWidget>* cur_level = &win._children;
+        std::vector<IPWidget>* cur_level = &root._children;
         
         for (int d = 0; d < (int)sel_path.size(); ++d) {
             int idx = sel_path[d];
@@ -721,21 +742,24 @@ public:
             cur_level = &(*cur_level)[idx]._children;
         }
         std::vector<int> best_path;
-        find_nearest_selectable_recursive(win._children, {}, cur_xy, dir, best_path, _dbg_best_dist, sel_path);
+        _dbg_best_dist = INT_MAX;
+        find_nearest_selectable_recursive(root._children, {}, cur_xy, dir, best_path, _dbg_best_dist, sel_path);
         if (!best_path.empty()) sel_path = best_path;
     }
 
     // Route event to selected window and its selected child (recursive, path-based)
     void handle_event(const IPEvent& ev) {
-        if (selector_idx >= 0 && selector_idx < (int)stack.size()) {
-            IPWidget* win = &stack[selector_idx];
+        if (selector_idx >= 0 && selector_idx < stack.size()) {
+            IPWidget* root = &stack[selector_idx];
             std::vector<int>& sel_path = selection_paths[selector_idx];
+
             // Try to handle event recursively from leaf to root
-            bool handled = false;
             for (int d = (int)sel_path.size(); d >= 0; --d) {
                 std::vector<int> subpath(sel_path.begin(), sel_path.begin() + d);
-                IPWidget* cur = win;
-                std::vector<IPWidget>* cur_level = &win->_children;
+                IPWidget* cur = root;
+                std::vector<IPWidget>* cur_level = &root->_children;
+
+                // Inefficient logic
                 for (int i = 0; i < (int)subpath.size(); ++i) {
                     int idx = subpath[i];
                     if (idx < 0 || idx >= (int)cur_level->size()) { cur = nullptr; break; }
@@ -743,13 +767,22 @@ public:
                     cur_level = &cur->_children;
                 }
                 if (cur && cur->on_event && cur->on_event(cur, this, ev, subpath)) {
-                    handled = true;
-                    break;
+                    return;
                 }
             }
-            // If not handled, process at window level
-            if (!handled && win->on_event) win->on_event(win, this, ev, {});
+            // If not handled, process at root widget level
+            if (root->on_event && root->on_event(root, this, ev, {}))
+                return;
+
+            // THEN we handle it on window level
+            window_event_process(ev);
         }
+    }
+
+    void window_event_process(const IPEvent& ev)
+    {
+        if (int(ev.type) >= (int)IPEventType::ArrowUp && int(ev.type) <= (int)IPEventType::ArrowRight)
+            move_child_selector_dir(ev.type);
     }
 
     // Render all windows, overlays last. Overlays are not selectable.

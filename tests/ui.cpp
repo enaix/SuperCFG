@@ -144,7 +144,6 @@ void test_popup_windows() {
                     close_btn2,
                     IPWidget("New popup!", IPColors::Primary, IPQuad(1,1,1,1), IPBoxStyle::None, IPShadowStyle::None)
                 }, IPColors::Primary, IPQuad(2,2,2,2), IPQuad(1,1,1,1), IPBoxStyle::Double, IPShadowStyle::Shadow, {10, 5});
-                popup2.selectable = true;
                 popup2.on_event = [](IPWidget* self, IPWindow* window, const IPEvent& ev, const std::vector<int>& path) -> bool {
                     if (ev.type == IPEventType::OnCreate) {
                         //if (!self->_children.empty()) self->_children[0].selected = true;
@@ -152,7 +151,7 @@ void test_popup_windows() {
                     }
                     return false;
                 };
-                window->push(popup2);
+                window->push(popup2, (std::size_t)IPWindowFlags::Modal);
                 return true;
             }
             return false;
@@ -162,7 +161,6 @@ void test_popup_windows() {
             open_btn,
             IPWidget("Popup window " + std::to_string(i+1), IPColors::Primary, IPQuad(1,1,1,1), IPBoxStyle::None, IPShadowStyle::None)
         }, IPColors::Primary, IPQuad(2,2,2,2), IPQuad(1,1,1,1), IPBoxStyle::Double, IPShadowStyle::Shadow, {5*i, 3*i});
-        popup.selectable = true;
         popup.on_event = [](IPWidget* self, IPWindow* window, const IPEvent& ev, const std::vector<int>& path) -> bool {
             if (ev.type == IPEventType::OnCreate) {
                 //if (!self->_children.empty()) self->_children[0].selected = true;
