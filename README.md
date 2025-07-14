@@ -16,7 +16,9 @@ A C++ header-only templated shift-reduce parser generator library. Original name
 
 ### Requirements
 
-This project requires C++20 support, no additional libraries needed.
+This project requires C++20 support, no system libraries needed.
+
+Please clone the repository using `git clone --recursive` to fetch [`simply-curse` TUI library](https://github.com/enaix/simply-curse)
 
 Tested on the following configurations:
 
