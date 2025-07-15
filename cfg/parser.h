@@ -367,7 +367,7 @@ constexpr auto mk_sr_parser_conf()
 template<class VStr, class TokenType, class TokenTSet, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf, class Lookahead, class RChecker, class CtxMgr>
 class SRParser
 {
-protected:
+public:
     SymbolsHT symbols_ht;
     TermsMap terms_storage;
     RRTree reverse_rules;
@@ -381,7 +381,7 @@ protected:
 
     using TokenV = Token<VStr, TokenTSet>;
     using GSymbolV = GrammarSymbol<VStr, TokenTSet>;
-public:
+
     constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map, SRParserConfig<Conf> conf, const Lookahead& lookahead, const RChecker& checker, const CtxMgr& h_ctx) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules), conf(conf), look(lookahead), r_checker(checker), ctx_mgr(h_ctx) {}
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
 

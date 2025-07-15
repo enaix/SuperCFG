@@ -11,6 +11,7 @@
 #include "cfg/parser.h"
 #include "cfg/str.h"
 #include "cfg/preprocess_factories.h"
+#include "extra/prettyprint.h"
 
 // Test grammar
 bool test_heuristic_ctx_init()
@@ -46,9 +47,15 @@ bool test_heuristic_ctx_init()
     //LexerLegacy<VStr, TokenType> lexer(ruleset); // Lexer init
 
     // Parser init
-    constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint, SRConfEnum::Lookahead, SRConfEnum::HeuristicCtx>();
+    constexpr auto conf = mk_sr_parser_conf<SRConfEnum::Lookahead, SRConfEnum::HeuristicCtx>();
     auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf);
 
+    // Render prettyprint
+    PrettyPrinter printer;
+    printer.init_windows(parser.reverse_rules, ruleset);
+    while (printer.process()) {}
+
+    //
     StdStr<char> in("(abc,asdf,[a,(gfds,sdf)])");
     bool ok;
     auto tokens = lexer.run(in, ok);
@@ -79,7 +86,8 @@ bool test_heuristic_ctx_init()
 
 int main()
 {
-
+    if (!test_heuristic_ctx_init()) return 1;
+    return 0;
 }
 
 
