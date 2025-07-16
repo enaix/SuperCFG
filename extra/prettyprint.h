@@ -22,9 +22,11 @@ public:
     PrettyPrinter() : terminal(std::cout), style( // Default style
         ANSIColor(ANSIColor::FG::Default, ANSIColor::BG::Default), // Primary (delimeters)
         ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::BrightWhite), // Secondary (NTerms)
-        ANSIColor(ANSIColor::FG::BrightBlue, ANSIColor::BG::BrightWhite), // Accent (Terms, )
+        ANSIColor(ANSIColor::FG::BrightBlue, ANSIColor::BG::BrightWhite), // Accent 1 (Operators)
+        ANSIColor(ANSIColor::FG::BrightGreen, ANSIColor::BG::BrightWhite), // Accent 2 (Terms)
+        ANSIColor(ANSIColor::FG::BrightBlue, ANSIColor::BG::BrightWhite), // Accent 3
         ANSIColor(ANSIColor::FG::BrightWhite, ANSIColor::BG::BrightRed), // Selected
-        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::Blue), // Inactive
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightWhite), // Inactive (Grouping)
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlue), // Disabled
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightRed), // BorderActive
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::Blue), // BorderInactive
@@ -32,6 +34,11 @@ public:
     )
     {
         terminal.init_renderer();
+    }
+
+    ~PrettyPrinter()
+    {
+        CurseTerminal<ANSIColor, char>::restore_terminal();
     }
 
     template<class RRTree, class RulesDef>
@@ -67,7 +74,7 @@ protected:
     template<class TSymbol>
     static Widget<TChar> make_term(const TSymbol& s)
     {
-        Widget<TChar> term(std::basic_string<TChar>(s.name.c_str()), Colors::Accent);
+        Widget<TChar> term('\"' + std::basic_string<TChar>(s.name.c_str()) + '\"', Colors::Accent2);
         return term;
     }
 
@@ -75,11 +82,11 @@ protected:
     static Widget<TChar> make_terms_range(const TSymbol& s)
     {
         return Widget<TChar>(WidgetLayout::Horizontal, {
-            Widget<TChar>(std::basic_string<TChar>("["), Colors::Secondary),
-            Widget<TChar>(std::basic_string<TChar>(s.start.c_str()), Colors::Accent),
-            Widget<TChar>(std::basic_string<TChar>("-"), Colors::Secondary),
-            Widget<TChar>(std::basic_string<TChar>(s.end.c_str()), Colors::Accent),
-            Widget<TChar>(std::basic_string<TChar>("]"), Colors::Secondary)
+            Widget<TChar>(std::basic_string<TChar>("["), Colors::Accent),
+            Widget<TChar>('\'' + std::basic_string<TChar>(s.start.c_str()) + '\'', Colors::Accent2),
+            Widget<TChar>(std::basic_string<TChar>("-"), Colors::Accent),
+            Widget<TChar>('\'' + std::basic_string<TChar>(s.end.c_str()) + '\'', Colors::Accent2),
+            Widget<TChar>(std::basic_string<TChar>("]"), Colors::Accent)
         }, Colors::None);
     }
 
@@ -115,6 +122,23 @@ protected:
         }
     }
 
+    template<OpType type>
+    static Widget<TChar> make_bnf_symbol_right()
+    {
+        switch (type)
+        {
+        case OpType::Optional:
+            return Widget<TChar>(std::basic_string<TChar>("]"), Colors::Accent);
+        case OpType::Repeat:
+            return Widget<TChar>(std::basic_string<TChar>("}*"), Colors::Accent);
+        case OpType::Group:
+            return Widget<TChar>(std::basic_string<TChar>(")"), Colors::Accent);
+        default:
+            static_assert(type != OpType::Concat && type != OpType::Alter, "OpType must take a single argument");
+            return {}; // Err
+        }
+    }
+
     template<class TSymbol>
     static Widget<TChar> make_bnf_symbol_ext_repeat(const TSymbol& s)
     {
@@ -125,7 +149,7 @@ protected:
                 Widget<TChar>(std::basic_string<TChar>(make_recurse_op(std::get<0>(s.terms))), Colors::Accent),
                 Widget<TChar>(std::basic_string<TChar>(":"), Colors::Accent),
                 Widget<TChar>(std::basic_string<TChar>(std::to_string(get_repeat_times(s))), Colors::Accent),
-                Widget<TChar>(std::basic_string<TChar>("}"), Colors::Accent)
+                Widget<TChar>(std::basic_string<TChar>("}*"), Colors::Accent)
             }, Colors::None);
         } else {
             Widget<TChar> range(WidgetLayout::Horizontal, {
@@ -146,25 +170,8 @@ protected:
                 range.add_child(Widget<TChar>(std::basic_string<TChar>("inf"), Colors::Accent));
                 range.add_child(Widget<TChar>(std::basic_string<TChar>(")"), Colors::Accent));
             }
-            range.add_child(Widget<TChar>(std::basic_string<TChar>("}"), Colors::Accent));
+            range.add_child(Widget<TChar>(std::basic_string<TChar>("}*"), Colors::Accent));
             return range;
-        }
-    }
-
-    template<OpType type>
-    static Widget<TChar> make_bnf_symbol_right()
-    {
-        switch (type)
-        {
-        case OpType::Optional:
-            return Widget<TChar>(std::basic_string<TChar>("]"), Colors::Accent);
-        case OpType::Repeat:
-            return Widget<TChar>(std::basic_string<TChar>("}"), Colors::Accent);
-        case OpType::Group:
-            return Widget<TChar>(std::basic_string<TChar>(")"), Colors::Accent);
-        default:
-            static_assert(type != OpType::Concat && type != OpType::Alter, "OpType must take a single argument");
-            return {}; // Err
         }
     }
 
@@ -176,41 +183,43 @@ protected:
             if constexpr (get_operator<TSymbol>() == OpType::Concat || get_operator<TSymbol>() == OpType::Alter)
             {
                 Widget<TChar> op(WidgetLayout::Horizontal, {
-                    Widget<TChar>(std::basic_string<TChar>("("), Colors::Primary)
+                    Widget<TChar>(std::basic_string<TChar>("("), Colors::Inactive)
                 }, Colors::None);
                 tuple_each(s.terms, [&](std::size_t i, const auto& symbol){
                     op.add_child(make_recurse_op(symbol));
                     if (i < std::tuple_size_v<std::decay_t<decltype(s.terms)>> - 1)
                         op.add_child(make_bnf_symbol_multi<get_operator<TSymbol>()>());
                 });
-                op.add_child(Widget<TChar>(std::basic_string<TChar>(")"), Colors::Primary));
+                op.add_child(Widget<TChar>(std::basic_string<TChar>(")"), Colors::Inactive));
                 return op;
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Optional || get_operator<TSymbol>() == OpType::Repeat || get_operator<TSymbol>() == OpType::Group)
             {
                 return Widget<TChar>(WidgetLayout::Horizontal, {
-                    Widget<TChar>(std::basic_string<TChar>("("), Colors::Primary),
+                    Widget<TChar>(std::basic_string<TChar>("("), Colors::Inactive),
                     make_bnf_symbol_left<get_operator<TSymbol>()>(),
                     make_recurse_op(std::get<0>(s.terms)),
                     make_bnf_symbol_right<get_operator<TSymbol>()>(),
-                    Widget<TChar>(std::basic_string<TChar>(")"), Colors::Primary)
+                    Widget<TChar>(std::basic_string<TChar>(")"), Colors::Inactive)
                 }, Colors::None);
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Except)
             {
                 return Widget<TChar>(WidgetLayout::Horizontal, {
-                    Widget<TChar>(std::basic_string<TChar>("("), Colors::Primary),
+                    Widget<TChar>(std::basic_string<TChar>("("), Colors::Inactive),
+                    Widget<TChar>(std::basic_string<TChar>("("), Colors::Accent),
                     make_recurse_op(std::get<0>(s.terms)),
                     Widget<TChar>(std::basic_string<TChar>("-"), Colors::Accent),
                     make_recurse_op(std::get<1>(s.terms)),
-                    Widget<TChar>(std::basic_string<TChar>(")"), Colors::Primary)
+                    Widget<TChar>(std::basic_string<TChar>(")"), Colors::Accent),
+                    Widget<TChar>(std::basic_string<TChar>(")"), Colors::Inactive),
                 }, Colors::None);
             }
             else if constexpr (get_operator<TSymbol>() == OpType::End)
             {
                 return op(WidgetLayout::Horizontal, {
                     make_recurse_op(std::get<0>(s.terms)),
-                    Widget<TChar>(std::basic_string<TChar>(";"), Colors::Primary)
+                    Widget<TChar>(std::basic_string<TChar>(";"), Colors::Inactive)
                 }, Colors::None);
             }
             else // Repeat* operators

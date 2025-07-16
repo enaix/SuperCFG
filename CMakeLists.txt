@@ -15,6 +15,6 @@ include_directories("simply-curse/lib/")
 add_subdirectory(simply-curse)
 
 add_executable(SuperCFG tests/main.cpp ${SUPERCFG_FILES})
-add_executable(super-dbg extra/dbg.cpp ${SUPERCFG_FILES} simply-curse/lib/curse.h)
+add_executable(superdbg extra/dbg.cpp ${SUPERCFG_FILES} simply-curse/lib/curse.h)
 
-target_link_libraries(super-dbg INTERFACE curse)
+target_link_libraries(superdbg INTERFACE curse)
