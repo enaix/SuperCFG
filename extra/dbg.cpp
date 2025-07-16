@@ -46,14 +46,14 @@ bool test_heuristic_ctx_init()
     auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer, LexerConfEnum::HandleDuplicates>());
     //LexerLegacy<VStr, TokenType> lexer(ruleset); // Lexer init
 
+    // Init prettyprinter
+    PrettyPrinter printer;
+
     // Parser init
     constexpr auto conf = mk_sr_parser_conf<SRConfEnum::Lookahead, SRConfEnum::HeuristicCtx>();
-    auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf);
+    auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf, printer);
 
-    // Render prettyprint
-    PrettyPrinter printer;
-    printer.init_windows(parser.reverse_rules, ruleset);
-    while (printer.process()) {}
+    //while (printer.process()) {}
 
     //
     StdStr<char> in("(abc,asdf,[a,(gfds,sdf)])");
@@ -68,7 +68,7 @@ bool test_heuristic_ctx_init()
 
     TreeNode<VStr> tree;
     std::cout << "======" << std::endl << "SR parser routine : " << std::endl;
-    ok = parser.run(tree, op, tokens);
+    ok = parser.run(tree, op, tokens, printer);
 
     std::cout << "======" << std::endl << "parser output : " << std::endl;
     tree.traverse([&](const auto& node, std::size_t depth){

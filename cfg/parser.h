@@ -364,7 +364,7 @@ constexpr auto mk_sr_parser_conf()
 }
 
 
-template<class VStr, class TokenType, class TokenTSet, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf, class Lookahead, class RChecker, class CtxMgr>
+template<class VStr, class TokenType, class TokenTSet, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf, class Lookahead, class RChecker, class CtxMgr, class TPrinter>
 class SRParser
 {
 public:
@@ -386,7 +386,7 @@ public:
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
 
     template<class RootSymbol>
-    bool run(Tree& node, const RootSymbol& root, std::vector<TokenV>& tokens)
+    bool run(Tree& node, const RootSymbol& root, std::vector<TokenV>& tokens, TPrinter& printer = TPrinter())
     {
         if constexpr (enabled<SRConfEnum::ReducibilityChecker>())
             r_checker.reset_ctx();
@@ -398,7 +398,7 @@ public:
 
         while (true) //(i < tokens.size())
         {
-            if (!reduce_lookahead_runtime(stack, &node, tokens, i))
+            if (!reduce_lookahead_runtime(stack, &node, tokens, i, printer))
             {
                 // Shift operation
                 if (i == tokens.size()) [[unlikely]]
@@ -582,29 +582,29 @@ protected:
         return false;
     }
 
-    bool reduce_lookahead_runtime(std::vector<GSymbolV>& stack, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind)
+    bool reduce_lookahead_runtime(std::vector<GSymbolV>& stack, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind, TPrinter& printer)
     {
         if constexpr (enabled<SRConfEnum::Lookahead>())
         {
             if (tokens_ind != tokens.size()) [[likely]]
             {
-                if constexpr (enabled<SRConfEnum::PrettyPrint>())
-                    std::cout << "l: " << tokens[tokens_ind].type << std::endl;
-                return reduce_runtime(stack, root, tokens, tokens_ind, tokens[tokens_ind].type);
+                //if constexpr (enabled<SRConfEnum::PrettyPrint>())
+                //    std::cout << "l: " << tokens[tokens_ind].type << std::endl;
+                return reduce_runtime(stack, root, tokens, tokens_ind, tokens[tokens_ind].type, printer);
             }
             // Disable lookahead check
-            return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type());
-        } else return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type());
+            return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type(), printer);
+        } else return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type(), printer);
     }
 
     template<class LookaheadS>
-    bool reduce_runtime(std::vector<GSymbolV>& stack, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind, const LookaheadS& lookahead)
+    bool reduce_runtime(std::vector<GSymbolV>& stack, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind, const LookaheadS& lookahead, TPrinter& printer)
     {
         // First loop over the stack
         // Greedy mode: check longer substr first
         //for (std::int64_t i = stack.size() - 1; i >= 0; i--)
 
-
+        std::vector<ConstVec<TokenType>> printer_rt; // related types
 
         for (std::int64_t i = 0; i < stack.size(); i++)
         {
@@ -630,6 +630,9 @@ protected:
                 });
             }
 
+            if constexpr (enabled<SRConfEnum::Lookahead>())
+                printer_rt.push_back(intersect);
+
             // Loop over the window
             for (std::int64_t j = i + 1; j < stack.size(); j++)
             {
@@ -638,6 +641,16 @@ protected:
 
                 if (elem.is_token())
                 {
+                    if constexpr (enabled<SRConfEnum::Lookahead>())
+                    {
+                        // Push all possible token types
+                        printer_rt.push_back(ConstVec<TokenType>(0, elem.type.size()));
+                        for (std::size_t l = 0; l < elem.type.size(); l++)
+                        {
+                            printer_rt.front() += elem.type[l];
+                        }
+                    }
+
                     if constexpr (TokenTSet::is_singleton())
                     {
                         // Find intersection with token - only a single type
@@ -673,6 +686,10 @@ protected:
                     }
 
                 } else {
+                    if constexpr (enabled<SRConfEnum::Lookahead>())
+                        // Push the nterm type
+                        printer_rt.push_back(ConstVec<TokenType>(elem.type.front()));
+
                     // Size of the set will be not greater than the related element
                     symbols_ht.get_nterm(elem.type.front(), [&](const auto& nterm){
                         // Tuple of related elements
@@ -712,6 +729,10 @@ protected:
                 }
                 std::cout << "}" << std::endl;
             }
+
+            printer.update_stack(stack, printer_rt, intersect);
+            if (!printer.process())
+                return false; // exit
 
             // Iterate over the matching elements
             for (std::size_t k = 0; k < intersect.size(); k++)
@@ -993,7 +1014,7 @@ protected:
 
 
 template<class VStr, class TokenType, class Tree, class RulesSymbol, class TLexer, class Conf>
-constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf conf)
+constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf conf, auto& printer = NoPrettyPrinter())
 {
     // Initialize reverse rules tree
     auto rr_tree = reverse_rules_tree_factory(rules); //ReverseRuleTreeFactory().build(root);
@@ -1008,8 +1029,11 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
     // Get tokens container class
     using TokenSetClass = typename TLexer::TokenSetClass;
 
+    // Init prettyprinter windows
+    printer.init_windows(rr_tree, rules);
+
     auto instantiate_parser = [&](const auto& lookahead, const auto& rchecker, const auto& ctx_mgr){
-        return SRParser<VStr, TokenType, TokenSetClass, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), std::decay_t<decltype(lookahead)>, std::decay_t<decltype(rchecker)>, std::decay_t<decltype(ctx_mgr)>>(rules, rr_tree, symbols_ht, terms_map, conf, lookahead, rchecker, ctx_mgr);
+        return SRParser<VStr, TokenType, TokenSetClass, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), std::decay_t<decltype(lookahead)>, std::decay_t<decltype(rchecker)>, std::decay_t<decltype(ctx_mgr)>, std::decay_t<decltype(printer)>>(rules, rr_tree, symbols_ht, terms_map, conf, lookahead, rchecker, ctx_mgr);
     };
 
     auto instantiate_lookahead = [&](){

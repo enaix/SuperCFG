@@ -24,7 +24,7 @@ public:
         ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::BrightWhite), // Secondary (NTerms)
         ANSIColor(ANSIColor::FG::BrightBlue, ANSIColor::BG::BrightWhite), // Accent 1 (Operators)
         ANSIColor(ANSIColor::FG::BrightGreen, ANSIColor::BG::BrightWhite), // Accent 2 (Terms)
-        ANSIColor(ANSIColor::FG::BrightBlue, ANSIColor::BG::BrightWhite), // Accent 3
+        ANSIColor(ANSIColor::FG::BrightWhite, ANSIColor::BG::BrightBlue), // Accent 3 (highlight)
         ANSIColor(ANSIColor::FG::BrightWhite, ANSIColor::BG::BrightRed), // Selected
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightWhite), // Inactive (Grouping)
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlue), // Disabled
@@ -44,8 +44,10 @@ public:
     template<class RRTree, class RulesDef>
     void init_windows(const RRTree& rr_tree, const RulesDef& rules)
     {
-        winstack.push(make_ebnf_preview(rules));
-        winstack.push(make_rr_tree(rr_tree));
+        winstack.push(Widget<TChar>()); // STACK
+        winstack.push(make_ebnf_preview(rules)); // EBNF
+        winstack.push(make_rr_tree(rr_tree)); // RR TREE
+        winstack.selector_idx = 0;
     }
 
     bool process()
@@ -59,7 +61,15 @@ public:
         int c = terminal.getch();
         if (c == 'q') return false;
         if (c == '\t') winstack.move_selector_tab(1);
+        if (c == ' ') return true; // Next step
         return true;
+    }
+
+    // Stack rendering
+    template<class VStr, class TokenTSet, class TokenType>
+    void update_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect)
+    {
+        winstack.stack[0] = make_stack(stack, related_types, intersect);
     }
 
 
@@ -76,6 +86,14 @@ protected:
     {
         Widget<TChar> term('\"' + std::basic_string<TChar>(s.name.c_str()) + '\"', Colors::Accent2);
         return term;
+    }
+
+    template<class VStr, class TokenTSet>
+    static Widget<TChar> make_token(const GrammarSymbol<VStr, TokenTSet>& s)
+    {
+        if (s.is_token())
+            return Widget<TChar>(std::basic_string<TChar>('\"' + std::basic_string<TChar>(s.value)) + '\"', Colors::Accent2);
+        return Widget<TChar>(std::basic_string<TChar>(std::basic_string<TChar>(s.type.front())), Colors::Secondary);
     }
 
     template<class TSymbol>
@@ -299,6 +317,65 @@ protected:
         return Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("EBNF Grammar"), Colors::Primary, Quad(1,0,1,0)),
             rr_grid
+        }, Colors::None, Quad(), Quad(1,1,1,1), DoubleBoxStyle);
+    }
+
+    template<class VStr, class TokenTSet, class TokenType>
+    static Widget<TChar> make_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect)
+    {
+        Widget<TChar> stack_box(WidgetLayout::Horizontal, {
+            Widget<TChar>(WidgetLayout::Vertical, {
+                Widget<TChar>(std::basic_string<TChar>("Stack "), Colors::Accent),
+                Widget<TChar>(std::basic_string<TChar>("RelType "), Colors::Accent),
+                // ...
+            }, Colors::None), // First row
+        }, Colors::None);
+
+        auto first_col = [&stack_box]() -> Widget<TChar>& { return stack_box._children[0]; };
+
+        // Get max number of related types
+        std::size_t maxlen = 0;
+        for (const auto& types : related_types)
+            if (types.size() > maxlen)
+                maxlen = types.size();
+
+        // Populate left column
+        for (std::size_t i = 1; i < maxlen; i++)
+            first_col().add_child(Widget<TChar>(std::basic_string<TChar>(" "), Colors::Accent));
+
+        for (std::size_t i = 0; i < stack.size(); i++)
+        {
+            // Highlight the last row if this column is in the stack
+            const Colors stack_color = (i < related_types.size() ? Colors::Accent3 : Colors::None);
+            // Add column
+            stack_box.add_child(Widget<TChar>(WidgetLayout::Vertical, {
+                make_token(stack[i])
+            }, stack_color));
+            auto col = [&stack_box]() -> Widget<TChar>& { return stack_box._children.front(); };
+
+            for (std::size_t j = 0; j < maxlen; j++)
+            {
+                if (i < related_types.size() && j < related_types[i].size())
+                    col().add_child(Widget<TChar>(std::basic_string<TChar>(related_types[i][j]), Colors::Secondary));
+                else
+                    col().add_child(Widget<TChar>(std::basic_string<TChar>(" "), Colors::Secondary));
+            }
+            col().add_child(Widget<TChar>(std::basic_string<TChar>(" "), Colors::None)); // Add bottom highlight widget
+            //for (std::size_t j = 1; j < intersect.size(); j++)
+            //    col().add_child(Widget<TChar>(std::basic_string<TChar>(" "), Colors::Primary));
+        }
+
+        // Add emptyset sign
+        if (intersect.size() == 0)
+            first_col().add_child(Widget<TChar>(std::basic_string<TChar>((char)0xd8, 1), Colors::Secondary));
+        else
+            for (std::size_t i = 0; i < intersect.size(); i++)
+                first_col().add_child(Widget<TChar>(std::basic_string<TChar>(intersect[i]), Colors::Secondary));
+
+        // Create wrapper
+        return Widget<TChar>(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("SR PARSER ROUTINE"), Colors::Primary, Quad(1,0,1,0)),
+            stack_box
         }, Colors::None, Quad(), Quad(1,1,1,1), DoubleBoxStyle);
     }
 };
