@@ -10,17 +10,18 @@
 using namespace curse;
 
 
-class PrettyPrinter
-{
-protected:
-    using TChar = char;
-    CurseTerminal<ANSIColor, TChar> terminal;
-    AppStyle<ANSIColor> style;
-    WindowStack<TChar> winstack;
 
-public:
-    PrettyPrinter() : terminal(std::cout), style( // Default style
-        ANSIColor(ANSIColor::FG::Default, ANSIColor::BG::Default), // Primary (delimeters)
+enum class PrinterThemes
+{
+    // user themes:
+    BIOSBlue, // default theme
+    // system themes:
+    Panic // critical error
+};
+
+static constexpr AppStyle<ANSIColor> printer_themes[] = {
+    // BIOSBlue
+    AppStyle<ANSIColor>(ANSIColor(ANSIColor::FG::Default, ANSIColor::BG::Default), // Primary (delimeters)
         ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::BrightWhite), // Secondary (NTerms)
         ANSIColor(ANSIColor::FG::BrightBlue, ANSIColor::BG::BrightWhite), // Accent 1 (Operators)
         ANSIColor(ANSIColor::FG::BrightGreen, ANSIColor::BG::BrightWhite), // Accent 2 (Terms)
@@ -30,16 +31,39 @@ public:
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlue), // Disabled
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightRed), // BorderActive
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::Blue), // BorderInactive
-        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlue) // BorderDisabled
-    )
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlue)), // BorderDisabled
+    // Panic
+    AppStyle<ANSIColor>(ANSIColor(ANSIColor::FG::Default, ANSIColor::BG::Default), // Primary (delimeters)
+        ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::BrightWhite), // Secondary (NTerms)
+        ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::BrightWhite), // Accent 1 (Operators)
+        ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::BrightWhite), // Accent 2 (Terms)
+        ANSIColor(ANSIColor::FG::BrightWhite, ANSIColor::BG::Red), // Accent 3 (highlight)
+        ANSIColor(ANSIColor::FG::BrightWhite, ANSIColor::BG::BrightRed), // Selected
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightWhite), // Inactive (Grouping)
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightRed), // Disabled
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightRed), // BorderActive
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::Red), // BorderInactive
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightRed)), // BorderDisabled
+};
+
+
+class PrettyPrinter
+{
+protected:
+    using TChar = char;
+    CurseTerminal<ANSIColor, TChar> terminal;
+    AppStyle<ANSIColor> style;
+    WindowStack<TChar> winstack;
+
+public:
+    PrettyPrinter() : terminal(std::cout), style(printer_themes[static_cast<int>(PrinterThemes::BIOSBlue)])
     {
         terminal.init_renderer();
     }
 
-    ~PrettyPrinter()
-    {
-        CurseTerminal<ANSIColor, char>::restore_terminal();
-    }
+    ~PrettyPrinter() { close(); }
+
+    static void close() { CurseTerminal<ANSIColor, char>::restore_terminal(); }
 
     template<class RRTree, class RulesDef>
     void init_windows(const RRTree& rr_tree, const RulesDef& rules)
@@ -50,8 +74,9 @@ public:
         winstack.selector_idx = 0;
     }
 
-    bool process()
+    bool process() // Returns true if the stack can progress further
     {
+        //return true; // useful for debugging
         int term_w = terminal.get_terminal_width();
         int term_h = terminal.get_terminal_height();
         terminal.init_matrix(term_h, term_w);
@@ -59,17 +84,45 @@ public:
         winstack.render_all(terminal._output_matrix, terminal._color_matrix, style);
         terminal.render_matrix();
         int c = terminal.getch();
-        if (c == 'q') return false;
+        //if (c == 'q') return false;
+        if (c == 10 || c == ' ')
+        {
+            // Enter or space
+            winstack.handle_event(IPEvent(EventType::Select));
+            if (winstack.selector_idx == 0) // Very crude check for current window
+                return true;
+        }
+        if (c == 27)
+        {
+            // Escape sequence for arrows
+            int c2 = terminal.getch();
+            if (c2 == '[')
+            {
+                int c3 = terminal.getch();
+                if (c3 == 'A') winstack.handle_event(IPEvent(EventType::ArrowUp));
+                else if (c3 == 'B') winstack.handle_event(IPEvent(EventType::ArrowDown));
+                else if (c3 == 'C') winstack.handle_event(IPEvent(EventType::ArrowRight));
+                else if (c3 == 'D') winstack.handle_event(IPEvent(EventType::ArrowLeft));
+            }
+        }
         if (c == '\t') winstack.move_selector_tab(1);
-        if (c == ' ') return true; // Next step
-        return true;
+        return false;
     }
 
     // Stack rendering
     template<class VStr, class TokenTSet, class TokenType>
-    void update_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect)
+    void update_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect, std::size_t idx)
     {
-        winstack.stack[0] = make_stack(stack, related_types, intersect);
+        winstack.stack[0] = make_stack(stack, related_types, intersect, idx);
+    }
+
+    // Blocking !!
+    [[noreturn]] void guru_meditation(const char* message, const char* file, int line)
+    {
+        style = printer_themes[static_cast<int>(PrinterThemes::Panic)];
+        winstack.push(make_guru(message, file, line), (std::size_t)IPWindowFlags::Modal);
+        // block input
+        while (true) { process(); } // will shut down when user presses abort
     }
 
 
@@ -321,17 +374,15 @@ protected:
     }
 
     template<class VStr, class TokenTSet, class TokenType>
-    static Widget<TChar> make_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect)
+    static Widget<TChar> make_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect, std::size_t idx)
     {
         Widget<TChar> stack_box(WidgetLayout::Horizontal, {
             Widget<TChar>(WidgetLayout::Vertical, {
-                Widget<TChar>(std::basic_string<TChar>("Stack "), Colors::Accent),
-                Widget<TChar>(std::basic_string<TChar>("RelType "), Colors::Accent),
+                Widget<TChar>(std::basic_string<TChar>("stack"), Colors::Accent),
+                Widget<TChar>(std::basic_string<TChar>("reltype"), Colors::Accent),
                 // ...
             }, Colors::None), // First row
-        }, Colors::None);
-
-        auto first_col = [&stack_box]() -> Widget<TChar>& { return stack_box._children[0]; };
+        }, Colors::None, Quad(), Quad(1,0,1,0));
 
         // Get max number of related types
         std::size_t maxlen = 0;
@@ -341,42 +392,64 @@ protected:
 
         // Populate left column
         for (std::size_t i = 1; i < maxlen; i++)
-            first_col().add_child(Widget<TChar>(std::basic_string<TChar>(" "), Colors::Accent));
+            stack_box.front().add_child(Widget<TChar>(std::basic_string<TChar>("      -"), Colors::Accent));
 
         for (std::size_t i = 0; i < stack.size(); i++)
         {
-            // Highlight the last row if this column is in the stack
-            const Colors stack_color = (i < related_types.size() ? Colors::Accent3 : Colors::None);
             // Add column
             stack_box.add_child(Widget<TChar>(WidgetLayout::Vertical, {
                 make_token(stack[i])
-            }, stack_color));
-            auto col = [&stack_box]() -> Widget<TChar>& { return stack_box._children.front(); };
+            }, Colors::None));
 
             for (std::size_t j = 0; j < maxlen; j++)
             {
-                if (i < related_types.size() && j < related_types[i].size())
-                    col().add_child(Widget<TChar>(std::basic_string<TChar>(related_types[i][j]), Colors::Secondary));
+                if (j < related_types[i].size())
+                    stack_box.back().add_child(Widget<TChar>(std::basic_string<TChar>(related_types[i][j]), Colors::Secondary));
                 else
-                    col().add_child(Widget<TChar>(std::basic_string<TChar>(" "), Colors::Secondary));
+                    stack_box.back().add_child(Widget<TChar>(std::basic_string<TChar>(" "), Colors::None));
             }
-            col().add_child(Widget<TChar>(std::basic_string<TChar>(" "), Colors::None)); // Add bottom highlight widget
-            //for (std::size_t j = 1; j < intersect.size(); j++)
-            //    col().add_child(Widget<TChar>(std::basic_string<TChar>(" "), Colors::Primary));
+            if (i >= idx) // Take only rhs slices of the stack
+                stack_box.back().add_child(Widget<TChar>(std::basic_string<TChar>("*"), Colors::Accent3)); // Add bottom highlight widget
+            else
+                stack_box.back().add_child(Widget<TChar>(std::basic_string<TChar>("-"), Colors::None));
         }
 
         // Add emptyset sign
         if (intersect.size() == 0)
-            first_col().add_child(Widget<TChar>(std::basic_string<TChar>((char)0xd8, 1), Colors::Secondary));
+            stack_box.front().add_child(Widget<TChar>("?", Colors::Secondary));
         else
             for (std::size_t i = 0; i < intersect.size(); i++)
-                first_col().add_child(Widget<TChar>(std::basic_string<TChar>(intersect[i]), Colors::Secondary));
+                stack_box.front().add_child(Widget<TChar>(std::basic_string<TChar>(intersect[i]), Colors::Secondary));
 
         // Create wrapper
         return Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("SR PARSER ROUTINE"), Colors::Primary, Quad(1,0,1,0)),
             stack_box
         }, Colors::None, Quad(), Quad(1,1,1,1), DoubleBoxStyle);
+    }
+
+    static Widget<TChar> make_guru(const char* message, const char* file, int line)
+    {
+        Widget<TChar> alert(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("GURU MEDITATION"), Colors::Primary, Quad(1,0,1,0)),
+            Widget<TChar>(std::basic_string<TChar>(message), Colors::Primary, Quad(1,0,1,0)),
+            Widget<TChar>(std::basic_string<TChar>("at ") + std::basic_string<TChar>(file) + ':' + std::basic_string<TChar>(std::to_string(line)), Colors::Primary, Quad(1,0,1,0)),
+        }, Colors::None, Quad(), Quad(1,1,1,1), DoubleBoxStyle);
+
+        Widget<TChar> abort_btn(std::basic_string<TChar>("<ABORT>"), Colors::Primary, Quad(1,1,1,1));
+        abort_btn.set_selectable(true);
+        abort_btn.on_event = [](Widget<TChar>* self, WindowStack<TChar>* window, const IPEvent& ev,
+                                         const std::vector<int>& path) -> bool
+        {
+            if (ev.type == EventType::Select || ev.type == EventType::Click)
+            {
+                close(); // Return to regular input mode
+                exit(1); // Abort
+            }
+            return false;
+        };
+        alert.add_child(abort_btn);
+        return alert;
     }
 };
 

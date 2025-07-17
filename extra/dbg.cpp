@@ -50,7 +50,7 @@ bool test_heuristic_ctx_init()
     PrettyPrinter printer;
 
     // Parser init
-    constexpr auto conf = mk_sr_parser_conf<SRConfEnum::Lookahead, SRConfEnum::HeuristicCtx>();
+    constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint, SRConfEnum::Lookahead, SRConfEnum::HeuristicCtx>();
     auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf, printer);
 
     //while (printer.process()) {}

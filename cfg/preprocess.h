@@ -1060,7 +1060,7 @@ class NoPrettyPrinter
 {
 public:
     template<class VStr, class TokenTSet, class TokenType>
-    void update_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect)
+    void update_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect, int idx)
     {
         // do nothing
     }
@@ -1069,6 +1069,8 @@ public:
     void init_windows(const RRTree& rr_tree, const RulesDef& rules) {}
 
     bool process() { return true; }
+
+    void guru_meditation(const char* msg, const char* file, int line) {}
 };
 
 

@@ -119,7 +119,7 @@ public:
      * @brief Consume the next token and perform context analysis. Returns false on ambiguity
      */
     template<class GSymbol, class SymbolsHT>
-    bool next(const GSymbol& g_symbol, std::size_t stack_size, const SymbolsHT& symbols_ht)
+    bool next(const GSymbol& g_symbol, std::size_t stack_size, const SymbolsHT& symbols_ht, auto& prettyprinter)
     {
         // Visit the explicit type. Note that it may return either an NTerm or
         g_symbol.with_types(symbols_ht, [&](const auto& symbol){
@@ -186,7 +186,12 @@ public:
                             if (stack_size - 1 - prefix.fix != pre) [[unlikely]] // same rule, different symbol - looks counterintuitive
                             {
                                 // we have already applied the ctx, unexpected behavior
-                                assert(stack_size - 1 - prefix.fix != pre && "next() : guru meditation : expected static prefix to match with runtime, got a mismatch");
+                                if (stack_size - 1 - prefix.fix == pre)
+                                {
+                                    prettyprinter.guru_meditation("expected static prefix to match with runtime, got a mismatch", __FILE__, __LINE__);
+                                    assert(stack_size - 1 - prefix.fix != pre && "next() : guru meditation : expected static prefix to match with runtime, got a mismatch");
+                                }
+
                             }
                             if (stack_size - 1 - prefix.fix == max_pre)
                             {
@@ -333,7 +338,7 @@ public:
      * @param stack_size Size of the stack before the reduction
      */
     template<class TSymbol>
-    constexpr bool apply_reduce(const TSymbol& match, std::size_t stack_size)
+    constexpr bool apply_reduce(const TSymbol& match, std::size_t stack_size, auto& prettyprinter = NoPrettyPrinter())
     {
         if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
         {
@@ -344,9 +349,15 @@ public:
                 if (postfix.fix != stack_size - 1) [[unlikely]]
                 {
                     // The symbol is reduced
+                    prettyprinter.guru_meditation("match candidate reduced in the illegal postfix position", __FILE__, __LINE__);
                     assert(postfix.fix == stack_size - 1 && "apply_reduce() : guru meditation : match candidate reduced in the illegal postfix position");
                 }
-                assert(context[index] > 0 && "apply_reduce() : guru meditation : empty context with non-empty postfix");
+
+                if (context[index] == 0)
+                {
+                    prettyprinter.guru_meditation("empty context with non-empty postfix", __FILE__, __LINE__);
+                    assert(context[index] > 0 && "apply_reduce() : guru meditation : empty context with non-empty postfix");
+                }
                 context[index]--;
                 postfix.reset();
             }
