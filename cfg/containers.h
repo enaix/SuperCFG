@@ -303,7 +303,19 @@ public:
     constexpr ConstVec(std::size_t size, std::size_t cap) : _st(new T[cap]), _n(size), _cap(cap) {}
 
     // Copy ctor
-    constexpr ConstVec(const ConstVec<T>& rhs) : _st(new T[rhs.size()]), _cap(rhs.size()) { deepcopy(rhs); }
+    constexpr ConstVec(const ConstVec<T>& rhs)
+    {
+        if (rhs.cap() > 0)
+        {
+            _st = std::make_unique_for_overwrite<T[]>(rhs.cap()); //new T[rhs.cap()];
+            _cap = rhs.cap();
+            deepcopy(rhs); // _n is assigned here
+        } else {
+            // rhs is empty
+            _n = 0;
+            _cap = 0;
+        }
+    }
 
     // Initialize a singleton
     constexpr explicit ConstVec(const T& elem) : _st(new T[1]), _n(1), _cap(1) { _st[0] = elem; }
@@ -401,7 +413,7 @@ public:
         return *this;
     }
 
-    ConstVec<T>& operator+=(const T& rhs)
+    ConstVec<T>& operator+=(const T& rhs) // push_back
     {
         _st[_n] = rhs;
         _n++;

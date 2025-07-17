@@ -364,10 +364,10 @@ constexpr auto mk_sr_parser_conf()
 }
 
 
-template<class VStr, class TokenType, class TokenTSet, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf, class Lookahead, class RChecker, class CtxMgr>
+template<class VStr, class TokenType, class TokenTSet, class Tree, std::size_t STACK_MAX, class RulesSymbol, class RRTree, class SymbolsHT, class TermsMap, std::uint64_t Conf, class Lookahead, class RChecker, class CtxMgr, class TPrinter>
 class SRParser
 {
-protected:
+public:
     SymbolsHT symbols_ht;
     TermsMap terms_storage;
     RRTree reverse_rules;
@@ -381,12 +381,19 @@ protected:
 
     using TokenV = Token<VStr, TokenTSet>;
     using GSymbolV = GrammarSymbol<VStr, TokenTSet>;
-public:
+
     constexpr explicit SRParser(const RulesSymbol& rules, const RRTree& rr_tree, const SymbolsHT& ht, const TermsMap& t_map, SRParserConfig<Conf> conf, const Lookahead& lookahead, const RChecker& checker, const CtxMgr& h_ctx) : symbols_ht(ht), terms_storage(t_map), reverse_rules(rr_tree), defs(rules), conf(conf), look(lookahead), r_checker(checker), ctx_mgr(h_ctx) {}
     // Construct reverse tree (mapping TokenType -> tuple(NTerms)), in which nterms is it contained
 
     template<class RootSymbol>
     bool run(Tree& node, const RootSymbol& root, std::vector<TokenV>& tokens)
+    {
+        TPrinter printer;
+        return run(node, root, tokens, printer);
+    }
+
+    template<class RootSymbol>
+    bool run(Tree& node, const RootSymbol& root, std::vector<TokenV>& tokens, TPrinter& printer)
     {
         if constexpr (enabled<SRConfEnum::ReducibilityChecker>())
             r_checker.reset_ctx();
@@ -398,7 +405,7 @@ public:
 
         while (true) //(i < tokens.size())
         {
-            if (!reduce_lookahead_runtime(stack, &node, tokens, i))
+            if (!reduce_lookahead_runtime(stack, &node, tokens, i, printer))
             {
                 // Shift operation
                 if (i == tokens.size()) [[unlikely]]
@@ -411,12 +418,12 @@ public:
 
                     auto tok = stack.back();
 
-                    for (std::size_t j = 0; !ctx_mgr.next(tok, stack.size(), symbols_ht); j++)
+                    for (std::size_t j = 0; !ctx_mgr.next(tok, stack.size(), symbols_ht, printer); j++)
                     {
                         // Ambiguity found, move tok
                         if (j >= tokens.size()) [[unlikely]]
                         {
-                            if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "unresolved ambiguity encountered" << std::endl;
+                            //if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "unresolved ambiguity encountered" << std::endl;
                             return false;
                         }
                         // TODO replace Token class with GSymbol
@@ -427,9 +434,9 @@ public:
 
                 stack.push_back(GSymbolV(tokens[i].value, tokens[i].type));
                 i++;
-                if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "[sh] s: [";
-            } else if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "[re] s: [";
-            if constexpr (enabled<SRConfEnum::PrettyPrint>()) { prettyprint(stack); std::cout << "]" << std::endl; }
+                //if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "[sh] s: [";
+            } //else if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "[re] s: [";
+            //if constexpr (enabled<SRConfEnum::PrettyPrint>()) { prettyprint(stack); std::cout << "]" << std::endl; }
         }
         // We only have the root symbol, nothing to parse
         if (stack.size() == 1 && !stack[0].is_token() && stack[0].type.front() == root.type())
@@ -440,13 +447,13 @@ public:
 protected:
     void prettyprint(std::vector<GSymbolV>& stack, std::size_t start = 0) const
     {
-        for (std::size_t i = start; i < stack.size(); i++)
+        /*for (std::size_t i = start; i < stack.size(); i++)
         {
             if (i != start) std::cout << " ";
             const auto& g = stack[i];
             if (g.is_token()) std::cout << g.value;
             else std::cout << "<" << g.type << ">";
-        }
+        }*/
     }
 
     bool reduce(std::vector<GSymbolV>& stack, Tree* root, Tree* cur_node)
@@ -582,29 +589,52 @@ protected:
         return false;
     }
 
-    bool reduce_lookahead_runtime(std::vector<GSymbolV>& stack, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind)
+    bool reduce_lookahead_runtime(std::vector<GSymbolV>& stack, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind, TPrinter& printer)
     {
         if constexpr (enabled<SRConfEnum::Lookahead>())
         {
             if (tokens_ind != tokens.size()) [[likely]]
             {
-                if constexpr (enabled<SRConfEnum::PrettyPrint>())
-                    std::cout << "l: " << tokens[tokens_ind].type << std::endl;
-                return reduce_runtime(stack, root, tokens, tokens_ind, tokens[tokens_ind].type);
+                //if constexpr (enabled<SRConfEnum::PrettyPrint>())
+                //    std::cout << "l: " << tokens[tokens_ind].type << std::endl;
+                return reduce_runtime(stack, root, tokens, tokens_ind, tokens[tokens_ind].type, printer);
             }
             // Disable lookahead check
-            return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type());
-        } else return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type());
+            return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type(), printer);
+        } else return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type(), printer);
     }
 
     template<class LookaheadS>
-    bool reduce_runtime(std::vector<GSymbolV>& stack, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind, const LookaheadS& lookahead)
+    bool reduce_runtime(std::vector<GSymbolV>& stack, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind, const LookaheadS& lookahead, TPrinter& printer)
     {
         // First loop over the stack
         // Greedy mode: check longer substr first
         //for (std::int64_t i = stack.size() - 1; i >= 0; i--)
 
-
+        std::vector<ConstVec<TokenType>> printer_rt; // related types
+        if constexpr (enabled<SRConfEnum::PrettyPrint>())
+        {
+            // Populate related types for prettyprinting
+            for (std::size_t i = 0; i < stack.size(); i++)
+            {
+                if (stack[i].is_token())
+                {
+                    // Push all possible token types
+                    printer_rt.push_back(ConstVec<TokenType>(0, stack[i].type.size()));
+                    for (std::size_t l = 0; l < stack[i].type.size(); l++)
+                        printer_rt.back() += stack[i].type[l];
+                } else {
+                    symbols_ht.get_nterm(stack[i].type.front(), [&](const auto& nterm){
+                        // Tuple of related elements
+                        const auto& related_types = reverse_rules.get(nterm);
+                        printer_rt.push_back(ConstVec<TokenType>(0, std::tuple_size_v<std::decay_t<decltype(related_types)>>));
+                        tuple_each(related_types, [&](std::size_t l, const auto& t){
+                            printer_rt.back() += TokenType(t.type());
+                        });
+                    });
+                }
+            }
+        }
 
         for (std::int64_t i = 0; i < stack.size(); i++)
         {
@@ -699,7 +729,7 @@ protected:
                 }
             }
 
-            if constexpr (enabled<SRConfEnum::PrettyPrint>())
+            /*if constexpr (enabled<SRConfEnum::PrettyPrint>())
             {
                 std::cout << "  " << "s: [";
                 prettyprint(stack, i);
@@ -711,7 +741,10 @@ protected:
                     std::cout << intersect[k];
                 }
                 std::cout << "}" << std::endl;
-            }
+            }*/
+
+            printer.update_stack(stack, printer_rt, intersect, i);
+            while (!printer.process()) {}
 
             // Iterate over the matching elements
             for (std::size_t k = 0; k < intersect.size(); k++)
@@ -732,7 +765,7 @@ protected:
                     bool success = descend_batch_runtime(stack, i, def, index, [](const auto&... args){});
                     if constexpr (enabled<SRConfEnum::PrettyPrint>())
                     {
-                        std::cout << "  " << "found : " << success << ", i: " << index << "/" << stack.size() - i << std::endl;
+                        //std::cout << "  " << "found : " << success << ", i: " << index << "/" << stack.size() - i << std::endl;
                     }
 
                     // We need to cover all stack with one iteration
@@ -757,7 +790,7 @@ protected:
                         r_checker.apply_ctx(); // Apply the context
                         if (!ok)
                         {
-                            std::cout << "  rc(1) doesn't allow to reduce" << std::endl;
+                            //std::cout << "  rc(1) doesn't allow to reduce" << std::endl;
                             return false;
                         }
                     }// else return true;
@@ -771,8 +804,8 @@ protected:
                             if (!symbols_ht.get_nterm(lookahead[l], [&](const auto& nterm){ return look.can_reduce(match, nterm); }))
                             {
                                 // No suitable symbol found
-                                if constexpr (enabled<SRConfEnum::PrettyPrint>())
-                                    std::cout << "^ look mismatch" << std::endl;
+                                //if constexpr (enabled<SRConfEnum::PrettyPrint>())
+                                //    std::cout << "^ look mismatch" << std::endl;
                                 return false; // Not found
                             }
                         }
@@ -781,7 +814,7 @@ protected:
                     if constexpr (enabled<SRConfEnum::ReducibilityChecker>())
                         r_checker.apply_reduce(match); // If the matched symbol has context, we need to decrement
                     if constexpr (enabled<SRConfEnum::HeuristicCtx>())
-                        ctx_mgr.apply_reduce(match, stack.size()); // ditto
+                        ctx_mgr.apply_reduce(match, stack.size(), printer); // ditto
                     return true;
                 });
 
@@ -993,7 +1026,7 @@ protected:
 
 
 template<class VStr, class TokenType, class Tree, class RulesSymbol, class TLexer, class Conf>
-constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf conf)
+constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf conf, auto& printer)
 {
     // Initialize reverse rules tree
     auto rr_tree = reverse_rules_tree_factory(rules); //ReverseRuleTreeFactory().build(root);
@@ -1008,8 +1041,11 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
     // Get tokens container class
     using TokenSetClass = typename TLexer::TokenSetClass;
 
+    // Init prettyprinter windows
+    printer.init_windows(rr_tree, rules);
+
     auto instantiate_parser = [&](const auto& lookahead, const auto& rchecker, const auto& ctx_mgr){
-        return SRParser<VStr, TokenType, TokenSetClass, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), std::decay_t<decltype(lookahead)>, std::decay_t<decltype(rchecker)>, std::decay_t<decltype(ctx_mgr)>>(rules, rr_tree, symbols_ht, terms_map, conf, lookahead, rchecker, ctx_mgr);
+        return SRParser<VStr, TokenType, TokenSetClass, Tree, 1, std::decay_t<decltype(rules)>, std::decay_t<decltype(rr_tree)>, std::decay_t<decltype(symbols_ht)>, std::decay_t<decltype(terms_map)>, decltype(conf)::value(), std::decay_t<decltype(lookahead)>, std::decay_t<decltype(rchecker)>, std::decay_t<decltype(ctx_mgr)>, std::decay_t<decltype(printer)>>(rules, rr_tree, symbols_ht, terms_map, conf, lookahead, rchecker, ctx_mgr);
     };
 
     auto instantiate_lookahead = [&](){
@@ -1018,11 +1054,11 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
             auto look = simple_lookahead_factory(rr_tree, defs);
             if constexpr (conf.template flag<SRConfEnum::PrettyPrint>())
             {
-                std::cout << "  REVERSE RULES TREE : " << std::endl;
+                /*std::cout << "  REVERSE RULES TREE : " << std::endl;
                 rr_tree.template prettyprint<VStr>();
                 look.template prettyprint<VStr>();
                 std::cout << "  LEXER TERMS TYPES : " << std::endl;
-                lex.prettyprint();
+                lex.prettyprint();*/
             }
             return look;
         } else
@@ -1056,8 +1092,8 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
             auto checker = make_reducibility_checker1<conf.template flag<SRConfEnum::PrettyPrint>(), conf.template flag<SRConfEnum::RC1CheckContext>()>(rr_tree, defs);
             if constexpr (conf.template flag<SRConfEnum::PrettyPrint>())
             {
-                std::cout << "  RC(1) match -> {related_rule, first_pos} : " << std::endl;
-                checker.template prettyprint<VStr>();
+                //std::cout << "  RC(1) match -> {related_rule, first_pos} : " << std::endl;
+                //checker.template prettyprint<VStr>();
             }
             return checker;
         }
@@ -1075,6 +1111,13 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
         // Parser init
         return instantiate_parser(instantiate_lookahead(), NoReducibilityChecker(), NoReducibilityChecker());
     }
+}
+
+template<class VStr, class TokenType, class Tree, class RulesSymbol, class TLexer, class Conf>
+constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf conf)
+{
+    NoPrettyPrinter printer;
+    return make_sr_parser<VStr, TokenType, Tree>(rules, lex, conf, printer);
 }
 
 
