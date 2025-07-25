@@ -743,8 +743,15 @@ protected:
                 std::cout << "}" << std::endl;
             }*/
 
-            printer.update_stack(stack, printer_rt, intersect, i);
-            while (!printer.process()) {}
+            if constexpr (enabled<SRConfEnum::PrettyPrint>())
+            {
+                printer.update_stack(stack, printer_rt, intersect, i);
+                if (intersect.size() == 0)
+                {
+                    printer.set_empty_descend();
+                    while (!printer.process()) {}
+                }
+            }
 
             // Iterate over the matching elements
             for (std::size_t k = 0; k < intersect.size(); k++)
@@ -758,6 +765,7 @@ protected:
                     }
 
                     // Get definition of the common type
+                    const auto& rule = defs.get(match)->terms;
                     const auto& def = std::get<1>(defs.get(match)->terms);
 
                     std::size_t index = 0;
@@ -765,6 +773,8 @@ protected:
                     bool success = descend_batch_runtime(stack, i, def, index, [](const auto&... args){});
                     if constexpr (enabled<SRConfEnum::PrettyPrint>())
                     {
+                        printer.update_descend(stack, rule, i, index, success);
+                        while (!printer.process()) {}
                         //std::cout << "  " << "found : " << success << ", i: " << index << "/" << stack.size() - i << std::endl;
                     }
 

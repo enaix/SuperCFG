@@ -7,27 +7,47 @@
 
 #include "curse.h"
 
+#include <ctime>
+
 using namespace curse;
 
 
 
-enum class PrinterThemes
+enum class PrinterThemes : std::size_t
 {
     // user themes:
-    BIOSBlue, // default theme
+    BIOSLight, // default theme for white terminals (OSX)
+    BIOSBlue, // default theme (dark terminals)
     // system themes:
     Panic // critical error
 };
 
+static constexpr std::array<std::string, 2> printer_theme_names {
+    std::string("bioslight"),
+    std::string("biosblue")
+};
+
 static constexpr AppStyle<ANSIColor> printer_themes[] = {
-    // BIOSBlue
+    // BIOSLight
     AppStyle<ANSIColor>(ANSIColor(ANSIColor::FG::Default, ANSIColor::BG::Default), // Primary (delimeters)
         ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::BrightWhite), // Secondary (NTerms)
         ANSIColor(ANSIColor::FG::BrightBlue, ANSIColor::BG::BrightWhite), // Accent 1 (Operators)
         ANSIColor(ANSIColor::FG::BrightGreen, ANSIColor::BG::BrightWhite), // Accent 2 (Terms)
         ANSIColor(ANSIColor::FG::BrightWhite, ANSIColor::BG::BrightBlue), // Accent 3 (highlight)
         ANSIColor(ANSIColor::FG::BrightWhite, ANSIColor::BG::BrightRed), // Selected
-        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightWhite), // Inactive (Grouping)
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlack), // Inactive (Grouping)
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlue), // Disabled
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightRed), // BorderActive
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::Blue), // BorderInactive
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlue)), // BorderDisabled
+    // BIOSBlue
+    AppStyle<ANSIColor>(ANSIColor(ANSIColor::FG::Default, ANSIColor::BG::Default), // Primary (delimeters)
+        ANSIColor(ANSIColor::FG::BrightWhite, ANSIColor::BG::BrightBlack), // Secondary (NTerms)
+        ANSIColor(ANSIColor::FG::BrightBlue, ANSIColor::BG::BrightBlack), // Accent 1 (Operators)
+        ANSIColor(ANSIColor::FG::BrightGreen, ANSIColor::BG::BrightBlack), // Accent 2 (Terms)
+        ANSIColor(ANSIColor::FG::BrightBlue, ANSIColor::BG::BrightBlack), // Accent 3 (highlight)
+        ANSIColor(ANSIColor::FG::BrightRed, ANSIColor::BG::BrightWhite), // Selected
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlack), // Inactive (Grouping)
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlue), // Disabled
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightRed), // BorderActive
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::Blue), // BorderInactive
@@ -47,6 +67,14 @@ static constexpr AppStyle<ANSIColor> printer_themes[] = {
 };
 
 
+enum class PrinterMode : std::size_t
+{
+    Normal,
+    Open,
+    Theme
+};
+
+
 class PrettyPrinter
 {
 protected:
@@ -54,11 +82,20 @@ protected:
     CurseTerminal<ANSIColor, TChar> terminal;
     AppStyle<ANSIColor> style;
     WindowStack<TChar> winstack;
+    PrinterMode _mode;
+
+    // pre-rendered widgets
+    Widget<TChar> _ebnf;
+    Widget<TChar> _rr_tree;
+    // current selection
+    PrinterThemes _style_select;
+    std::basic_string<TChar> _style_name;
 
 public:
-    PrettyPrinter() : terminal(std::cout), style(printer_themes[static_cast<int>(PrinterThemes::BIOSBlue)])
+    PrettyPrinter() : terminal(std::cout), style(printer_themes[static_cast<std::size_t>(PrinterThemes::BIOSBlue)]), _mode(PrinterMode::Normal), _style_select(PrinterThemes::Panic)
     {
         terminal.init_renderer();
+        std::srand(std::time({}));
     }
 
     ~PrettyPrinter() { close(); }
@@ -68,28 +105,46 @@ public:
     template<class RRTree, class RulesDef>
     void init_windows(const RRTree& rr_tree, const RulesDef& rules)
     {
+        int term_w = terminal.get_terminal_width();
+        int term_h = terminal.get_terminal_height();
+        terminal.init_matrix(term_h, term_w);
+
         winstack.push(Widget<TChar>()); // STACK
-        winstack.push(make_ebnf_preview(rules)); // EBNF
-        winstack.push(make_rr_tree(rr_tree)); // RR TREE
+        winstack.push(Widget<TChar>()); // DESCEND
+        winstack.push_overlay(make_bottom_overlay());
         winstack.selector_idx = 0;
+
+        _ebnf = make_ebnf_preview(rules);
+        _rr_tree = make_rr_tree(rr_tree);
     }
 
     bool process() // Returns true if the stack can progress further
     {
         //return true; // useful for debugging
-        int term_w = terminal.get_terminal_width();
-        int term_h = terminal.get_terminal_height();
-        terminal.init_matrix(term_h, term_w);
-
-        winstack.render_all(terminal._output_matrix, terminal._color_matrix, style);
-        terminal.render_matrix();
-        int c = terminal.getch();
         //if (c == 'q') return false;
+
+        // HANDLE OVERLAY
+
+        bool handled = true;
+        int c = terminal.getch(), last_char = '\0';
+        while (true) {
+            bool next = handle_mode(c, handled, last_char);
+            last_char = c; // save last char
+            terminal.reset_output_matrix();
+            winstack.render_all(terminal._output_matrix, terminal._color_matrix, style);
+            winstack.render_overlays(terminal._output_matrix, terminal._color_matrix, style);
+            terminal.render_matrix();
+            if (!next) break;
+            c = terminal.getch();
+        }
+        if (handled)
+            return false; // continue
+
         if (c == 10 || c == ' ')
         {
             // Enter or space
             winstack.handle_event(IPEvent(EventType::Select));
-            if (winstack.selector_idx == 0) // Very crude check for current window
+            if (winstack.selector_idx == 0 || winstack.selector_idx == 1) // Very crude check for current window
                 return true;
         }
         if (c == 27)
@@ -114,6 +169,20 @@ public:
     void update_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect, std::size_t idx)
     {
         winstack.stack[0] = make_stack(stack, related_types, intersect, idx);
+    }
+
+    template<class VStr, class TokenTSet, class TSymbol>
+    void update_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t parsed, bool found)
+    {
+        winstack.stack[1] = make_descend(stack, rule, idx, parsed, found);
+    }
+
+    void set_empty_descend()
+    {
+        winstack.stack[1] = Widget<TChar>(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("DESCEND"), Colors::Primary, Quad(1,0,1,0)),
+            Widget<TChar>(std::basic_string<TChar>("<empty>"), Colors::Primary, Quad(1,0,1,0))
+        }, Colors::None, Quad(), Quad(1,1,1,1), DoubleBoxStyle);
     }
 
     // Blocking !!
@@ -246,66 +315,65 @@ protected:
         }
     }
 
-    template<class TSymbol>
+template<class TSymbol>
     static Widget<TChar> make_recurse_op(const TSymbol& s)
+    {
+        Widget<TChar> op(WidgetLayout::Horizontal, {}, Colors::None);
+        make_recurse_op(s, [&op](auto wid){ op.add_child(wid); });
+        return op;
+    }
+
+    template<class TSymbol>
+    static void make_recurse_op(const TSymbol& s, auto push)
     {
         if constexpr (is_operator<TSymbol>())
         {
             if constexpr (get_operator<TSymbol>() == OpType::Concat || get_operator<TSymbol>() == OpType::Alter)
             {
-                Widget<TChar> op(WidgetLayout::Horizontal, {
-                    Widget<TChar>(std::basic_string<TChar>("("), Colors::Inactive)
-                }, Colors::None);
+                push(Widget<TChar>(std::basic_string<TChar>("("), Colors::Inactive));
                 tuple_each(s.terms, [&](std::size_t i, const auto& symbol){
-                    op.add_child(make_recurse_op(symbol));
+                    push(make_recurse_op(symbol));
                     if (i < std::tuple_size_v<std::decay_t<decltype(s.terms)>> - 1)
-                        op.add_child(make_bnf_symbol_multi<get_operator<TSymbol>()>());
+                        push(make_bnf_symbol_multi<get_operator<TSymbol>()>());
                 });
-                op.add_child(Widget<TChar>(std::basic_string<TChar>(")"), Colors::Inactive));
-                return op;
+                push(Widget<TChar>(std::basic_string<TChar>(")"), Colors::Inactive));
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Optional || get_operator<TSymbol>() == OpType::Repeat || get_operator<TSymbol>() == OpType::Group)
             {
-                return Widget<TChar>(WidgetLayout::Horizontal, {
-                    Widget<TChar>(std::basic_string<TChar>("("), Colors::Inactive),
-                    make_bnf_symbol_left<get_operator<TSymbol>()>(),
-                    make_recurse_op(std::get<0>(s.terms)),
-                    make_bnf_symbol_right<get_operator<TSymbol>()>(),
-                    Widget<TChar>(std::basic_string<TChar>(")"), Colors::Inactive)
-                }, Colors::None);
+                push(Widget<TChar>(std::basic_string<TChar>("("), Colors::Inactive));
+                push(make_bnf_symbol_left<get_operator<TSymbol>()>());
+                push(make_recurse_op(std::get<0>(s.terms)));
+                push(make_bnf_symbol_right<get_operator<TSymbol>()>());
+                push(Widget<TChar>(std::basic_string<TChar>(")"), Colors::Inactive));
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Except)
             {
-                return Widget<TChar>(WidgetLayout::Horizontal, {
-                    Widget<TChar>(std::basic_string<TChar>("("), Colors::Inactive),
-                    Widget<TChar>(std::basic_string<TChar>("("), Colors::Accent),
-                    make_recurse_op(std::get<0>(s.terms)),
-                    Widget<TChar>(std::basic_string<TChar>("-"), Colors::Accent),
-                    make_recurse_op(std::get<1>(s.terms)),
-                    Widget<TChar>(std::basic_string<TChar>(")"), Colors::Accent),
-                    Widget<TChar>(std::basic_string<TChar>(")"), Colors::Inactive),
-                }, Colors::None);
+                push(Widget<TChar>(std::basic_string<TChar>("("), Colors::Inactive));
+                push(Widget<TChar>(std::basic_string<TChar>("("), Colors::Accent));
+                push(make_recurse_op(std::get<0>(s.terms)));
+                push(Widget<TChar>(std::basic_string<TChar>("-"), Colors::Accent));
+                push(make_recurse_op(std::get<1>(s.terms)));
+                push(Widget<TChar>(std::basic_string<TChar>(")"), Colors::Accent));
+                push(Widget<TChar>(std::basic_string<TChar>(")"), Colors::Inactive));
             }
             else if constexpr (get_operator<TSymbol>() == OpType::End)
             {
-                return op(WidgetLayout::Horizontal, {
-                    make_recurse_op(std::get<0>(s.terms)),
-                    Widget<TChar>(std::basic_string<TChar>(";"), Colors::Inactive)
-                }, Colors::None);
+                push(make_recurse_op(std::get<0>(s.terms)));
+                push(Widget<TChar>(std::basic_string<TChar>(";"), Colors::Inactive));
             }
             else // Repeat* operators
-                return make_bnf_symbol_ext_repeat(s);
+                push(make_bnf_symbol_ext_repeat(s));
         }
         else if constexpr (is_nterm<TSymbol>())
         {
-            return make_nterm(s);
+            push(make_nterm(s));
         }
         else
         {
             if constexpr (is_term<TSymbol>())
-                return make_term(s);
+                push(make_term(s));
             else
-                return make_terms_range(s);
+                push(make_terms_range(s));
         }
     }
 
@@ -451,6 +519,253 @@ protected:
         alert.add_child(abort_btn);
         return alert;
     }
+
+    template<class VStr, class TokenTSet, class TSymbol>
+    static Widget<TChar> make_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t parsed, bool found)
+    {
+        Widget<TChar> rr_grid(WidgetLayout::Horizontal, {
+            Widget<TChar>(WidgetLayout::Vertical, {make_nterm(std::get<0>(rule))}, Colors::None)
+        }, Colors::None, Quad(), Quad(1,0,1,0));
+
+        if (found)
+            rr_grid.front().add_child(Widget<TChar>(std::basic_string<TChar>("[OK]"), Colors::Accent2));
+        else
+            rr_grid.front().add_child(Widget<TChar>(std::basic_string<TChar>("[--]"), Colors::Primary));
+
+        make_recurse_op(std::get<1>(rule), [&](auto wid){
+            rr_grid.add_child(Widget<TChar>(WidgetLayout::Vertical, {wid}, Colors::None));
+        }); // populate the grid
+
+        for (std::size_t i = idx; i < stack.size(); i++)
+        {
+            const std::size_t cell_pos = i - idx + 1;
+            if (cell_pos >= rr_grid.widgets_num())
+            {
+                rr_grid.add_child(Widget<TChar>(WidgetLayout::Vertical, {Widget<TChar>(std::basic_string<TChar>(""))}));
+            }
+
+            // spacer
+            rr_grid._children[cell_pos].add_child(Widget<TChar>(std::basic_string<TChar>("")));
+
+            rr_grid._children[cell_pos].add_child(make_token(stack[i]));
+
+            if (i <= parsed)
+                rr_grid._children[cell_pos].add_child(Widget<TChar>(std::basic_string<TChar>("*"), Colors::Accent3)); // Add bottom highlight widget
+            else
+                rr_grid._children[cell_pos].add_child(Widget<TChar>(std::basic_string<TChar>("-"), Colors::None));
+        }
+
+        // Create wrapper
+        return Widget<TChar>(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("DESCEND"), Colors::Primary, Quad(1,0,1,0)),
+            rr_grid
+        }, Colors::None, Quad(), Quad(1,1,1,1), DoubleBoxStyle);
+    }
+
+    bool handle_mode(const char input, bool& handled, int last_char) // handled = true means that we shouldn't handle the event further
+    {
+        if (_mode == PrinterMode::Normal && last_char == 17) [[unlikely]]
+        {
+            if (input == 10 || input == 'y' || input == 'Y')
+            {
+                close();
+                exit(0);
+            }
+            winstack.overlays[0] = make_bottom_overlay();
+            return false;
+        }
+
+        switch (_mode)
+        {
+        case PrinterMode::Normal:
+            switch (input)
+            {
+                case 15: // ^O
+                    _mode = PrinterMode::Open;
+                    winstack.overlays[0] = make_bottom_overlay();
+                    return true; // continue
+                case 17: // ^Q
+                {
+                    if (std::rand() % 50)
+                        winstack.overlays[0] = make_bottom_overlay_custom("I wouldn\'t leave if I were you. DOS is much worse. [Y/n]");
+                    else
+                        winstack.overlays[0] = make_bottom_overlay_custom("Really quit? [Y/n]");
+                    return true; // read next input
+                }
+                case 20:
+                    _mode = PrinterMode::Theme;
+                    winstack.overlays[0] = make_bottom_overlay();
+                    return true; // continue
+                case 1: // ^A
+                    // TODO show about
+                    return false; // release handle
+                default: // we don't have to print err & handle anything
+                    handled = false;
+                    winstack.overlays[0] = make_bottom_overlay();
+                    return false;
+            }
+            break;
+        case PrinterMode::Open:
+            switch (input)
+            {
+                case 'e':
+                    winstack.push(_ebnf); // EBNF
+                    winstack.overlays[0] = make_bottom_overlay();
+                    return false;
+                case 'r':
+                    winstack.push(_rr_tree); // RR TREE
+                    winstack.overlays[0] = make_bottom_overlay();
+                    return false;
+                case 27: // esc, ignore the sequence
+                    winstack.overlays[0] = make_bottom_overlay();
+                    return false;
+                default:
+                    _mode = PrinterMode::Normal;
+                    winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("Unknown key: ^") + std::basic_string<TChar>(input, 1)); // bad key
+                    return false;
+            }
+            break;
+        case PrinterMode::Theme:
+            switch (input)
+            {
+            case 10: // enter
+                if (_style_select == PrinterThemes::Panic)
+                    winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("No such theme"));
+                else
+                {
+                    style = printer_themes[(std::size_t)_style_select];
+                    _style_select = PrinterThemes::Panic;
+                    winstack.overlays[0] = make_bottom_overlay();
+                }
+                _mode = PrinterMode::Normal;
+                return false;
+            case 27: // esc sequence
+                if (last_char != 27) // no prior
+                    return true; // continue
+                else if (last_char == 27)
+                {
+                    // ESC-ESC - exit mode
+                    _style_select = PrinterThemes::Panic;
+                    _style_name.clear();
+                    winstack.overlays[0] = make_bottom_overlay();
+                    _mode = PrinterMode::Normal;
+                    return false; // exit
+                }
+            case '[': // Arrows
+                {
+                    // Escape sequence
+                    if (last_char == 27)
+                    {
+                        int c3 = terminal.getch();
+                        switch (c3)
+                        {
+                        case 'A':
+                            // Move up
+                            if (_style_select == PrinterThemes::Panic) _style_select = (PrinterThemes)0;
+                            _style_select = (PrinterThemes)(((std::size_t)_style_select + 1) % (std::size_t)PrinterThemes::Panic);
+                            _style_name = printer_theme_names[(std::size_t)_style_select];
+                            winstack.overlays[0] = make_bottom_overlay_theme();
+                            return true;
+                        case 'B':
+                            // Move down
+                            _style_select = (PrinterThemes)(((std::size_t)_style_select - 1) % (std::size_t)PrinterThemes::Panic);
+                            _style_name = printer_theme_names[(std::size_t)_style_select];
+                            winstack.overlays[0] = make_bottom_overlay_theme();
+                            return true;
+                        }
+                        break; // do not append chars
+                    } // else skip
+                }
+            case 8: // backspace
+                if (_style_name.size() > 0) _style_name.pop_back();
+                winstack.overlays[0] = make_bottom_overlay_theme();
+                return true;
+            default:
+                // Append chars to the string
+                _style_name += input;
+                winstack.overlays[0] = make_bottom_overlay_theme();
+                return true; // continue
+            }
+        }
+        return false;
+    }
+
+    Widget<TChar> make_bottom_overlay_theme()
+    {
+        if (_style_name.size() == 0)
+        {
+            return Widget<TChar>(WidgetLayout::Horizontal, {
+                Widget<TChar>(std::basic_string<TChar>("App theme: "), Colors::Accent),
+                Widget<TChar>(std::basic_string<TChar>("UP/DOWN for choosing, ESC-ESC to exit"), Colors::Disabled)
+            }, Colors::None);
+        }
+
+        _style_select = PrinterThemes::Panic;
+        for (std::size_t i = 0; i < printer_theme_names.size(); i++)
+        {
+            if (_style_name.starts_with(printer_theme_names[i]))
+            {
+                _style_select = (PrinterThemes)i;
+                break;
+            }
+        }
+
+        // autocomplete
+        if (_style_select != PrinterThemes::Panic)
+        {
+            std::string postfix(printer_theme_names[(std::size_t)_style_select].begin() + _style_name.size(), printer_theme_names[(std::size_t)_style_select].end()); // for equal strings the result will be '\0'
+
+            return Widget<TChar>(WidgetLayout::Horizontal, {
+                Widget<TChar>(std::basic_string<TChar>("App theme: "), Colors::Accent),
+                Widget<TChar>(_style_name, Colors::Primary),
+                Widget<TChar>(postfix, Colors::Disabled)
+            }, Colors::None);
+        }
+        // not found
+        return Widget<TChar>(WidgetLayout::Horizontal, {
+            Widget<TChar>(std::basic_string<TChar>("App theme: "), Colors::Accent),
+            Widget<TChar>(_style_name, Colors::Primary)
+        }, Colors::None);
+    }
+
+    Widget<TChar> make_bottom_overlay_custom(const std::basic_string<TChar>& text)
+    {
+        return Widget<TChar>(text, Colors::Disabled);
+    }
+
+    Widget<TChar> make_bottom_overlay()
+    {
+        switch (_mode)
+        {
+        case PrinterMode::Normal:
+            return Widget<TChar>(WidgetLayout::Horizontal, {
+                    Widget<TChar>(std::basic_string<TChar>("TAB"), Colors::Accent3),
+                    Widget<TChar>(std::basic_string<TChar>("Next Win"), Colors::Primary),
+                    Widget<TChar>(std::basic_string<TChar>("^O"), Colors::Accent3),
+                    Widget<TChar>(std::basic_string<TChar>("Open Win"), Colors::Primary),
+                    Widget<TChar>(std::basic_string<TChar>("^Q"), Colors::Accent3),
+                    Widget<TChar>(std::basic_string<TChar>("Quit"), Colors::Primary),
+                    Widget<TChar>(std::basic_string<TChar>("ESC"), Colors::Accent3),
+                    Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
+                    Widget<TChar>(std::basic_string<TChar>("^T"), Colors::Accent3),
+                    Widget<TChar>(std::basic_string<TChar>("Theme"), Colors::Primary),
+                    Widget<TChar>(std::basic_string<TChar>("^A"), Colors::Accent3),
+                    Widget<TChar>(std::basic_string<TChar>("About"), Colors::Primary),
+            }, Colors::None, Quad(), Quad(1,0,1,0));
+        case PrinterMode::Open:
+            return Widget<TChar>(WidgetLayout::Horizontal, {
+                    Widget<TChar>(std::basic_string<TChar>("E"), Colors::Accent3),
+                    Widget<TChar>(std::basic_string<TChar>("EBNF"), Colors::Primary),
+                    Widget<TChar>(std::basic_string<TChar>("R"), Colors::Accent3),
+                    Widget<TChar>(std::basic_string<TChar>("Rev Rules"), Colors::Primary),
+                    Widget<TChar>(std::basic_string<TChar>("ESC"), Colors::Accent3),
+                    Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
+            }, Colors::None, Quad(), Quad(1,0,1,0));
+        default:
+            assert(false && "make_bottom_overlay() can only work in normal and open modes");
+        }
+    }
+    return Widget<TChar>(); // unreachable
 };
 
 
