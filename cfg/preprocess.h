@@ -1073,6 +1073,9 @@ public:
     template<class RRTree, class RulesDef>
     void init_windows(const RRTree& rr_tree, const RulesDef& rules) {}
 
+    template<class RulesDef, class AllTerms, class NTermsPosPairs, class TermsPosPairs>
+    void init_ctx_classes(const RulesDef& rules, const AllTerms& all_t, const NTermsPosPairs& nt_pairs, const TermsPosPairs& t_pairs) {}
+
     bool process() { return true; }
 
     void guru_meditation(const char* msg, const char* file, int line) {}

@@ -1086,7 +1086,7 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
         {
             if constexpr (!std::decay_t<TLexer>::is_legacy())
             {
-                auto ctx_mgr = make_ctx_manager(rr_tree, defs, lex.terms_map, h_pre);
+                auto ctx_mgr = make_ctx_manager(rules, rr_tree, defs, lex.terms_map, h_pre, printer);
                 return ctx_mgr;
             } else {
                 static_assert(!std::decay_t<TLexer>::is_legacy(), "Cannot use legacy lexer with HeuristicCtx");

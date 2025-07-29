@@ -108,6 +108,7 @@ protected:
     // pre-rendered widgets
     Widget<TChar> _ebnf;
     Widget<TChar> _rr_tree;
+    Widget<TChar> _fix;
     // current selection
     PrinterThemes _style_select;
     std::basic_string<TChar> _style_name;
@@ -141,6 +142,14 @@ public:
 
         _ebnf = make_ebnf_preview(rules);
         _rr_tree = make_rr_tree(rr_tree);
+        _fix = make_empty_fix();
+    }
+
+
+    template<class TMatches, class AllTerms, class NTermsPosPairs, class TermsPosPairs>
+    void init_ctx_classes(const TMatches& rules, const AllTerms& all_t, const NTermsPosPairs& nt_pairs, const TermsPosPairs& t_pairs)
+    {
+        _fix = make_rules_fix(rules, all_t, nt_pairs, t_pairs);
     }
 
     bool process() // Returns true if the stack can progress further
@@ -256,6 +265,19 @@ protected:
         return term;
     }
 
+    template<class TSymbol>
+    static Widget<TChar> make_symbol(const TSymbol& s)
+    {
+        if constexpr (is_nterm<TSymbol>())
+            return make_nterm(s);
+        else {
+            if constexpr (is_term<TSymbol>())
+                return make_term(s);
+            else
+                return make_terms_range(s);
+        }
+    }
+
     template<class VStr, class TokenTSet>
     static Widget<TChar> make_token(const GrammarSymbol<VStr, TokenTSet>& s)
     {
@@ -361,7 +383,7 @@ protected:
         }
     }
 
-template<class TSymbol>
+    template<class TSymbol>
     static Widget<TChar> make_recurse_op(const TSymbol& s)
     {
         Widget<TChar> op(WidgetLayout::Horizontal, {}, Colors::None);
@@ -452,6 +474,86 @@ template<class TSymbol>
         // Create wrapper
         return Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("REVERSE RULES TREE"), Colors::Primary, Quad(1,0,1,0)),
+            rr_grid
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
+    }
+
+    Widget<TChar> make_empty_fix()
+    {
+        return Widget<TChar>(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("-FIX Heuristic"), Colors::Primary, Quad(1,0,1,0)),
+            Widget<TChar>(std::basic_string<TChar>("Heuristic context manager is not initialized"), Colors::Secondary)
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
+    }
+
+    template<class TMatches, class AllTerms, class NTermsPosPairs, class TermsPosPairs>
+    Widget<TChar> make_rules_fix(const TMatches& rules, const AllTerms& all_t, const NTermsPosPairs& nt_pairs, const TermsPosPairs& t_pairs)
+    {
+        // Each of these classes contains an element and its position in a rule
+
+        Widget<TChar> rr_grid(WidgetLayout::Horizontal, {
+            Widget<TChar>(WidgetLayout::Vertical, {}, Colors::None), // NTerm
+            Widget<TChar>(WidgetLayout::Vertical, {}, Colors::None), // ->
+            Widget<TChar>(WidgetLayout::Vertical, {}, Colors::None) // Symbols
+        }, Colors::None, Quad(), Quad(1,0,1,0));
+
+        // Initialize the grid with empty cells
+        tuple_each(rules, [&](std::size_t i, const auto& rule){
+            rr_grid.at(0).add_child(make_nterm(std::get<0>(rule.terms)));
+            rr_grid.at(1).add_child(Widget<TChar>(std::basic_string<TChar>(" -> PRE : ")));
+            rr_grid.at(2).add_child(Widget<TChar>(std::basic_string<TChar>("; POST : "))); // separator
+        });
+
+        auto create_empty_col = [&](std::size_t col){
+            for (std::size_t row = 0; row < rr_grid.widgets_num(); row++)
+            {
+                rr_grid.at(row)._children.insert(rr_grid.at(row)._children.begin() + col, Widget<TChar>());
+            }
+        };
+
+        int prefix_start = 2, prefix_end = 2, postfix_start = 3;
+
+        auto populate_grid = [&]<bool is_nt>(const auto& symbol_pairs){
+            tuple_each_idx(symbol_pairs, [&]<std::size_t i>(const auto& elem){
+
+                const auto& symbol = [&](){
+                    if constexpr (is_nt)
+                        // fetch from rules
+                        return std::get<0>(std::get<i>(rules).terms);
+                    else
+                        return std::get<i>(all_t);
+                }();
+
+                const auto& [related_types, fix_limits] = elem;
+                tuple_each(related_types, [&,fix_limits](std::size_t j, const auto& pack){
+                    const auto& [rule, fix] = pack;
+                    const auto [pre, post_dist] = fix;
+                    const auto [max_pre, min_post] = fix_limits; // Get max prefix and min postfix in this rule
+                    const auto post = min_post - post_dist; // Convert post from the distance to the end to an id
+
+                    // find grid positions
+                    std::size_t prefix_pos = pre + prefix_start, postfix_pos = postfix_start + post;
+                    // initialize grid for the prefix
+                    for (int l = prefix_end; l <= prefix_pos + 1; l++)
+                        create_empty_col(l);
+
+                    prefix_end = prefix_pos + 1; // now this is the end
+
+                    // initialize grid for the postfix
+                    for (int l = rr_grid._children.size(); l <= postfix_pos + 1; l++)
+                        create_empty_col(l);
+
+                    rr_grid.at(j).at(prefix_pos).refresh(make_symbol(symbol));
+                    rr_grid.at(j).at(postfix_pos).refresh(make_symbol(symbol));
+                });
+            });
+        };
+        populate_grid.template operator()<true>(nt_pairs);
+        populate_grid.template operator()<false>(t_pairs);
+
+        // Create wrapper
+        return Widget<TChar>(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("-FIX Heuristic"), Colors::Primary, Quad(1,0,1,0)),
             rr_grid
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
@@ -691,6 +793,11 @@ template<class TSymbol>
                     return true;
                 case 'r':
                     winstack.push(_rr_tree); // RR TREE
+                    _mode = PrinterMode::Normal;
+                    winstack.overlays[0] = make_bottom_overlay();
+                    return true;
+                case 'f':
+                    winstack.push(_fix); // FIX
                     _mode = PrinterMode::Normal;
                     winstack.overlays[0] = make_bottom_overlay();
                     return true;
@@ -948,6 +1055,8 @@ Widget<TChar>(std::basic_string<TChar>("        /_/                            "
                     Widget<TChar>(std::basic_string<TChar>("EBNF Repr"), Colors::Primary),
                     Widget<TChar>(std::basic_string<TChar>("R"), Colors::Accent3),
                     Widget<TChar>(std::basic_string<TChar>("Rev Rules"), Colors::Primary),
+                    Widget<TChar>(std::basic_string<TChar>("F"), Colors::Accent3),
+                    Widget<TChar>(std::basic_string<TChar>("Fix Heur"), Colors::Primary),
                     Widget<TChar>(std::basic_string<TChar>("ESC"), Colors::Accent3),
                     Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
             }, Colors::None, Quad(), Quad(1,0,1,0));

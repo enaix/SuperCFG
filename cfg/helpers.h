@@ -93,6 +93,14 @@ namespace cfg_helpers
     }
 
     template<std::size_t depth, class Tuple>
+    constexpr void do_tuple_each_idx(const Tuple& tuple, auto each_elem)
+    {
+        each_elem.template operator()<depth>(std::get<depth>(tuple));
+        if constexpr (depth + 1 < std::tuple_size_v<Tuple>)
+            do_tuple_each_idx<depth+1>(tuple, each_elem);
+    }
+
+    template<std::size_t depth, class Tuple>
     constexpr bool do_tuple_each_or_return(const Tuple& tuple, auto each_elem)
     {
         if (each_elem(depth, std::get<depth>(tuple))) return true;
@@ -551,6 +559,18 @@ constexpr void tuple_each(const Tuple& tuple, auto each_elem)
 {
     if constexpr (std::tuple_size_v<Tuple> != 0) cfg_helpers::do_tuple_each<0>(tuple, each_elem);
 }
+
+
+/**
+ * @brief Iterate over each tuple element and pass index as a template argument
+ * @param each_elem Lambda that takes an index and tuple element
+ */
+template<class Tuple>
+constexpr void tuple_each_idx(const Tuple& tuple, auto each_elem)
+{
+    if constexpr (std::tuple_size_v<Tuple> != 0) cfg_helpers::do_tuple_each_idx<0>(tuple, each_elem);
+}
+
 
 /**
  * @brief Iterate over each tuple element and concatenate the result into a new tuple
