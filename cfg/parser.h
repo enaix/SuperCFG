@@ -773,7 +773,7 @@ protected:
                     bool success = descend_batch_runtime(stack, i, def, index, [](const auto&... args){});
                     if constexpr (enabled<SRConfEnum::PrettyPrint>())
                     {
-                        printer.update_descend(stack, rule, i, index, success);
+                        printer.update_descend(stack, rule, i, k, intersect.size(), index, success);
                         while (!printer.process()) {}
                         //std::cout << "  " << "found : " << success << ", i: " << index << "/" << stack.size() - i << std::endl;
                     }

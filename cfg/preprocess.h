@@ -1066,7 +1066,7 @@ public:
     }
 
     template<class VStr, class TokenTSet, class TSymbol>
-    void update_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t parsed, bool found) {}
+    void update_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t candidate, std::size_t total, std::size_t parsed, bool found) {}
 
     void set_empty_descend() {}
 

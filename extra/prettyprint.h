@@ -8,6 +8,8 @@
 #include "curse.h"
 
 #include <ctime>
+#include <unordered_map>
+#include <format>
 
 using namespace curse;
 
@@ -86,6 +88,13 @@ enum class PrinterMode : std::size_t
 };
 
 
+enum class PrinterWindows
+{
+    Stack,
+    Descend
+};
+
+
 class PrettyPrinter
 {
 protected:
@@ -93,6 +102,7 @@ protected:
     CurseTerminal<ANSIColor, TChar> terminal;
     AppStyle<ANSIColor> style;
     WindowStack<TChar> winstack;
+    std::unordered_map<PrinterWindows, std::size_t> window_id;
     PrinterMode _mode;
 
     // pre-rendered widgets
@@ -121,7 +131,9 @@ public:
         int term_h = terminal.get_terminal_height();
         terminal.init_matrix(term_h, term_w);
 
+        window_id.insert({PrinterWindows::Stack, 0});
         winstack.push(Widget<TChar>()); // STACK
+        window_id.insert({PrinterWindows::Descend, 1});
         winstack.push(Widget<TChar>()); // DESCEND
         winstack.push_overlay(make_bottom_overlay());
         set_bottom_overlay_pos();
@@ -188,18 +200,25 @@ public:
     template<class VStr, class TokenTSet, class TokenType>
     void update_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect, std::size_t idx)
     {
-        winstack.stack[0].refresh(make_stack(stack, related_types, intersect, idx));
+        const auto& id = window_id.find(PrinterWindows::Stack);
+        if (id != window_id.end())
+            winstack.stack[id->second].refresh(make_stack(stack, related_types, intersect, idx));
     }
 
     template<class VStr, class TokenTSet, class TSymbol>
-    void update_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t parsed, bool found)
+    void update_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t candidate, std::size_t total, std::size_t parsed, bool found)
     {
-        winstack.stack[1].refresh(make_descend(stack, rule, idx, parsed, found));
+        const auto& id = window_id.find(PrinterWindows::Descend);
+        if (id != window_id.end())
+            winstack.stack[id->second].refresh(make_descend(stack, rule, idx, candidate, total, parsed, found));
     }
 
     void set_empty_descend()
     {
-        winstack.stack[1].refresh(Widget<TChar>(WidgetLayout::Vertical, {
+        const auto& id = window_id.find(PrinterWindows::Descend);
+        if (id == window_id.end())
+            return;
+        winstack.stack[id->second].refresh(Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("DESCEND"), Colors::Primary, Quad(1,0,1,0)),
             Widget<TChar>(std::basic_string<TChar>("<empty>"), Colors::Primary, Quad(1,0,1,0))
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style));
@@ -548,20 +567,27 @@ template<class TSymbol>
     }
 
     template<class VStr, class TokenTSet, class TSymbol>
-    Widget<TChar> make_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t parsed, bool found)
+    Widget<TChar> make_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t candidate, std::size_t total, std::size_t parsed, bool found)
     {
-        Widget<TChar> rr_grid(WidgetLayout::Horizontal, {
-            Widget<TChar>(WidgetLayout::Vertical, {make_nterm(std::get<0>(rule))}, Colors::None)
+        Widget<TChar> rr_grid(WidgetLayout::Horizontal, { // we have to populate the first row with a spacer for the status row
+            Widget<TChar>(WidgetLayout::Vertical, { Widget<TChar>(), make_nterm(std::get<0>(rule)) }, Colors::None)
         }, Colors::None, Quad(), Quad(1,0,1,0));
 
+        // Make status row
         if (found)
-            rr_grid.front().add_child(Widget<TChar>(std::basic_string<TChar>("[OK]"), Colors::Accent2));
+            rr_grid.front().front().refresh(Widget<TChar>(std::basic_string<TChar>("[OK]"), Colors::Accent2));
         else
-            rr_grid.front().add_child(Widget<TChar>(std::basic_string<TChar>("[--]"), Colors::Primary));
+            rr_grid.front().front().refresh(Widget<TChar>(std::basic_string<TChar>("[--]"), Colors::Primary));
 
         make_recurse_op(std::get<1>(rule), [&](auto wid){
-            rr_grid.add_child(Widget<TChar>(WidgetLayout::Vertical, {wid}, Colors::None));
+            rr_grid.add_child(Widget<TChar>(WidgetLayout::Vertical, { Widget<TChar>(), wid }, Colors::None));
         }); // populate the grid
+
+        for (std::size_t i = rr_grid.widgets_num(); i < 3; i++)
+            rr_grid.add_child(Widget<TChar>(WidgetLayout::Vertical, { Widget<TChar>(), Widget<TChar>() }, Colors::None));
+
+        rr_grid.at(1).front().refresh(Widget<TChar>(std::basic_string<TChar>("CND"), Colors::Primary));
+        rr_grid.at(2).front().refresh(Widget<TChar>(std::basic_string<TChar>(std::format("{}/{}", candidate+1, total)), Colors::Primary));
 
         for (std::size_t i = idx; i < stack.size(); i++)
         {
@@ -589,6 +615,9 @@ template<class TSymbol>
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
 
+
+
+    // ==========
     // MENU LOGIC
     //   You may edit keybinds here
     // ==========
@@ -635,8 +664,18 @@ template<class TSymbol>
                     winstack.overlays[0] = make_bottom_overlay_move();
                     return true;
                 case 5:
-                    winstack.pop(winstack.selector_idx);
+                {
+                    if (std::erase_if(window_id, [&](const auto& idx){
+                        if (idx.second == winstack.selector_idx)
+                        {
+                            winstack.pop(idx.second);
+                            return true; // erase
+                        }
+                        return false; // keep
+                    }) == 0) // window without an id
+                        winstack.pop(winstack.selector_idx);
                     return true;
+                }
                 default: // we don't have to print err & handle anything
                     winstack.overlays[0] = make_bottom_overlay();
                     return false; // the ONLY case when we release handle
