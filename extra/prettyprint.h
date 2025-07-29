@@ -22,6 +22,8 @@ enum class PrinterThemes : std::size_t
     Panic // critical error
 };
 
+static constexpr PrinterThemes default_printer_theme = PrinterThemes::BIOSBlue;
+
 static constexpr std::array<std::string, 2> printer_theme_names {
     std::string("bioslight"),
     std::string("biosblue")
@@ -48,10 +50,10 @@ static constexpr AppStyle<ANSIColor> printer_themes[] = {
         ANSIColor(ANSIColor::FG::BrightBlue, ANSIColor::BG::BrightBlack), // Accent 3 (highlight)
         ANSIColor(ANSIColor::FG::BrightRed, ANSIColor::BG::BrightWhite), // Selected
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlack), // Inactive (Grouping)
-        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlue), // Disabled
+        ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::Blue), // Disabled
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightRed), // BorderActive
-        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::Blue), // BorderInactive
-        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightBlue)), // BorderDisabled
+        ANSIColor(ANSIColor::FG::Black, ANSIColor::BG::BrightBlue), // BorderInactive
+        ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::Blue)), // BorderDisabled
     // Panic
     AppStyle<ANSIColor>(ANSIColor(ANSIColor::FG::Default, ANSIColor::BG::Default), // Primary (delimeters)
         ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::BrightWhite), // Secondary (NTerms)
@@ -65,6 +67,14 @@ static constexpr AppStyle<ANSIColor> printer_themes[] = {
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::Red), // BorderInactive
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightRed)), // BorderDisabled
 };
+
+
+static constexpr BoxStyle printer_theme_box_style[] = {
+    DoubleBoxStyle, // bioslight
+    PlainBoxStyle,  // biosblue
+    PlainBoxStyle,  // panic
+};
+
 
 
 enum class PrinterMode : std::size_t
@@ -91,9 +101,10 @@ protected:
     // current selection
     PrinterThemes _style_select;
     std::basic_string<TChar> _style_name;
+    BoxStyle _cur_box_style; // depends on the current theme
 
 public:
-    PrettyPrinter() : terminal(std::cout), style(printer_themes[static_cast<std::size_t>(PrinterThemes::BIOSBlue)]), _mode(PrinterMode::Normal), _style_select(PrinterThemes::Panic)
+    PrettyPrinter() : terminal(std::cout), style(printer_themes[(std::size_t)default_printer_theme]), _mode(PrinterMode::Normal), _style_select(PrinterThemes::Panic), _cur_box_style(printer_theme_box_style[(std::size_t)default_printer_theme])
     {
         terminal.init_renderer();
         std::srand(std::time({}));
@@ -191,13 +202,13 @@ public:
         winstack.stack[1].refresh(Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("DESCEND"), Colors::Primary, Quad(1,0,1,0)),
             Widget<TChar>(std::basic_string<TChar>("<empty>"), Colors::Primary, Quad(1,0,1,0))
-        }, Colors::None, Quad(), Quad(1,1,1,1), DoubleBoxStyle));
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style));
     }
 
     // Blocking !!
     [[noreturn]] void guru_meditation(const char* message, const char* file, int line)
     {
-        style = printer_themes[static_cast<int>(PrinterThemes::Panic)];
+        apply_theme(PrinterThemes::Panic);
         winstack.push(make_guru(message, file, line), (std::size_t)IPWindowFlags::Modal);
         // block input
         while (true) { process(); } // will shut down when user presses abort
@@ -205,6 +216,13 @@ public:
 
 
 protected:
+    void apply_theme(PrinterThemes theme)
+    {
+        const std::size_t thm = static_cast<std::size_t>(theme);
+        style = printer_themes[thm];
+        _cur_box_style = printer_theme_box_style[thm];
+    }
+
     template<class TSymbol>
     static Widget<TChar> make_nterm(const TSymbol& s)
     {
@@ -387,7 +405,7 @@ template<class TSymbol>
     }
 
     template<class RRTree>
-    static Widget<TChar> make_rr_tree(const RRTree& rr_tree)
+    Widget<TChar> make_rr_tree(const RRTree& rr_tree)
     {
         // Grid containing all columns
         Widget<TChar> rr_grid(WidgetLayout::Horizontal, {
@@ -416,11 +434,11 @@ template<class TSymbol>
         return Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("REVERSE RULES TREE"), Colors::Primary, Quad(1,0,1,0)),
             rr_grid
-        }, Colors::None, Quad(), Quad(1,1,1,1), DoubleBoxStyle);
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
 
     template<class RulesDef>
-    static Widget<TChar> make_ebnf_preview(const RulesDef& rules)
+    Widget<TChar> make_ebnf_preview(const RulesDef& rules)
     {
         // Grid containing all rules
         Widget<TChar> rr_grid(WidgetLayout::Horizontal, {
@@ -447,11 +465,11 @@ template<class TSymbol>
         return Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("EBNF Grammar"), Colors::Primary, Quad(1,0,1,0)),
             rr_grid
-        }, Colors::None, Quad(), Quad(1,1,1,1), DoubleBoxStyle);
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
 
     template<class VStr, class TokenTSet, class TokenType>
-    static Widget<TChar> make_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect, std::size_t idx)
+    Widget<TChar> make_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect, std::size_t idx)
     {
         Widget<TChar> stack_box(WidgetLayout::Horizontal, {
             Widget<TChar>(WidgetLayout::Vertical, {
@@ -502,16 +520,16 @@ template<class TSymbol>
         return Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("SR PARSER ROUTINE"), Colors::Primary, Quad(1,0,1,0)),
             stack_box
-        }, Colors::None, Quad(), Quad(1,1,1,1), DoubleBoxStyle);
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
 
-    static Widget<TChar> make_guru(const char* message, const char* file, int line)
+    Widget<TChar> make_guru(const char* message, const char* file, int line)
     {
         Widget<TChar> alert(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("GURU MEDITATION"), Colors::Primary, Quad(1,0,1,0)),
             Widget<TChar>(std::basic_string<TChar>(message), Colors::Primary, Quad(1,0,1,0)),
             Widget<TChar>(std::basic_string<TChar>("at ") + std::basic_string<TChar>(file) + ':' + std::basic_string<TChar>(std::to_string(line)), Colors::Primary, Quad(1,0,1,0)),
-        }, Colors::None, Quad(), Quad(1,1,1,1), DoubleBoxStyle);
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
 
         Widget<TChar> abort_btn(std::basic_string<TChar>("<ABORT>"), Colors::Primary, Quad(1,1,1,1));
         abort_btn.set_selectable(true);
@@ -530,7 +548,7 @@ template<class TSymbol>
     }
 
     template<class VStr, class TokenTSet, class TSymbol>
-    static Widget<TChar> make_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t parsed, bool found)
+    Widget<TChar> make_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t parsed, bool found)
     {
         Widget<TChar> rr_grid(WidgetLayout::Horizontal, {
             Widget<TChar>(WidgetLayout::Vertical, {make_nterm(std::get<0>(rule))}, Colors::None)
@@ -568,8 +586,12 @@ template<class TSymbol>
         return Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("DESCEND"), Colors::Primary, Quad(1,0,1,0)),
             rr_grid
-        }, Colors::None, Quad(), Quad(1,1,1,1), DoubleBoxStyle);
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
+
+    // MENU LOGIC
+    //   You may edit keybinds here
+    // ==========
 
     bool handle_mode(const char input, int last_char) // handled = true means that we shouldn't handle the event further
     {
@@ -653,7 +675,7 @@ template<class TSymbol>
                     winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("No such theme"));
                 else
                 {
-                    style = printer_themes[(std::size_t)_style_select]; // apply mode
+                    apply_theme(_style_select);
                     _mode = PrinterMode::Normal;
                     _style_select = PrinterThemes::Panic;
                     winstack.overlays[0] = make_bottom_overlay();
@@ -773,9 +795,9 @@ Widget<TChar>(std::basic_string<TChar>(" _\\ \\/ // / _ \\/ -_) __/ /__/ _// (_ 
 Widget<TChar>(std::basic_string<TChar>("/___/\\_,_/ .__/\\__/_/  \\___/_/  \\___/  "), Colors::Primary),
 Widget<TChar>(std::basic_string<TChar>("        /_/                            "), Colors::Primary),
             Widget<TChar>(std::basic_string<TChar>("Dynamic shift-reduce parser library"), Colors::Primary, Quad(1,0,1,0)),
-            Widget<TChar>(std::basic_string<TChar>("  project homepage: https://github.com/enaix/SuperCFG"), Colors::Accent3, Quad(1,0,1,0)),
-            Widget<TChar>(std::basic_string<TChar>("  ui library      : https://github.com/enaix/simply-curse"), Colors::Accent3, Quad(1,0,1,0)),
-        }, Colors::None, Quad(), Quad(), DoubleBoxStyle);
+            Widget<TChar>(std::basic_string<TChar>("  project homepage : https://github.com/enaix/SuperCFG"), Colors::Secondary, Quad(1,0,1,0)),
+            Widget<TChar>(std::basic_string<TChar>("  ui library       : https://github.com/enaix/simply-curse"), Colors::Secondary, Quad(1,0,1,0)),
+        }, Colors::None, Quad(), Quad(), &_cur_box_style);
 
         Widget<TChar> close_btn(std::basic_string<TChar>("<back to debugger>"), Colors::Primary, Quad(1,1,1,1));
         close_btn.set_selectable(true);

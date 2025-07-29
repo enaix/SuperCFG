@@ -1,5 +1,7 @@
 # SuperCFG
 
+<img src="docs/logo.png" width="600" alt="supercfg debugger" />
+
 A C++ header-only templated shift-reduce parser generator library. Original name stands for context-free-grammar superset generator.
 
 ## Features
