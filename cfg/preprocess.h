@@ -1065,6 +1065,11 @@ public:
         // do nothing
     }
 
+    template<class VStr, class TokenTSet, class TSymbol>
+    void update_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t parsed, bool found) {}
+
+    void set_empty_descend() {}
+
     template<class RRTree, class RulesDef>
     void init_windows(const RRTree& rr_tree, const RulesDef& rules) {}
 

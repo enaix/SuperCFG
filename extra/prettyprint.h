@@ -150,9 +150,11 @@ public:
         if (c == 10 || c == ' ')
         {
             // Enter or space
-            winstack.handle_event(IPEvent(EventType::Select));
-            if (winstack.selector_idx == 0 || winstack.selector_idx == 1) // Very crude check for current window
-                return true;
+            if (!winstack.handle_event(IPEvent(EventType::Select)))
+            {
+                if (winstack.selector_idx == 0 || winstack.selector_idx == 1) // Very crude check for current window
+                    return true;
+            }
         }
         if (c == 27)
         {
