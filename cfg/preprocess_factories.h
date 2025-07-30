@@ -745,6 +745,7 @@ constexpr auto make_reducibility_checker1(const RRTree& tree, const NTermsMap& n
 template<bool do_prettyprint, HeuristicFeatures features, class RRTree>
 constexpr auto make_heuristic_preprocessor(const RRTree& tree)
 {
+    // all related rules - we optimize out rules that do not contain any other elements
     const auto all_related_rules = tuple_unique(tuple_flatten_layer(tree.tree));
     if constexpr((std::uint64_t)features & (std::uint64_t)HeuristicFeatures::ContextManagement)
     {

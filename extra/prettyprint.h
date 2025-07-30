@@ -10,6 +10,7 @@
 #include <ctime>
 #include <unordered_map>
 #include <format>
+#include <csignal>
 
 using namespace curse;
 
@@ -146,10 +147,10 @@ public:
     }
 
 
-    template<class TMatches, class AllTerms, class NTermsPosPairs, class TermsPosPairs>
-    void init_ctx_classes(const TMatches& rules, const AllTerms& all_t, const NTermsPosPairs& nt_pairs, const TermsPosPairs& t_pairs)
+    template<class TMatches, class TRules, class AllTerms, class NTermsPosPairs, class TermsPosPairs>
+    void init_ctx_classes(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& nt_pairs, const TermsPosPairs& t_pairs)
     {
-        _fix = make_rules_fix(rules, all_t, nt_pairs, t_pairs);
+        _fix = make_rules_fix(rules, all_rr, all_t, nt_pairs, t_pairs);
     }
 
     bool process() // Returns true if the stack can progress further
@@ -486,32 +487,34 @@ protected:
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
 
-    template<class TMatches, class AllTerms, class NTermsPosPairs, class TermsPosPairs>
-    Widget<TChar> make_rules_fix(const TMatches& rules, const AllTerms& all_t, const NTermsPosPairs& nt_pairs, const TermsPosPairs& t_pairs)
+    template<class TMatches, class TRules, class AllTerms, class NTermsPosPairs, class TermsPosPairs>
+    Widget<TChar> make_rules_fix(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& nt_pairs, const TermsPosPairs& t_pairs)
     {
         // Each of these classes contains an element and its position in a rule
 
+        /*
+         *  HBox
+         * _______
+         * |V|V|V|
+         * | | | |
+         * |_|_|_|
+         */
         Widget<TChar> rr_grid(WidgetLayout::Horizontal, {
-            Widget<TChar>(WidgetLayout::Vertical, {}, Colors::None), // NTerm
-            Widget<TChar>(WidgetLayout::Vertical, {}, Colors::None), // ->
-            Widget<TChar>(WidgetLayout::Vertical, {}, Colors::None) // Symbols
+            Widget<TChar>(WidgetLayout::Vertical, {Widget<TChar>()}, Colors::None), // NTerm
+            Widget<TChar>(WidgetLayout::Vertical, {Widget<TChar>()}, Colors::None), // ->
+            Widget<TChar>(WidgetLayout::Vertical, {Widget<TChar>(std::basic_string<TChar>("PREFIX"), Colors::Secondary)}, Colors::None), // Prefix
+            Widget<TChar>(WidgetLayout::Vertical, {Widget<TChar>()}, Colors::None), // Sep
+            Widget<TChar>(WidgetLayout::Vertical, {Widget<TChar>(std::basic_string<TChar>("POSTFIX"), Colors::Secondary)}, Colors::None), // Postfix
         }, Colors::None, Quad(), Quad(1,0,1,0));
 
         // Initialize the grid with empty cells
-        tuple_each(rules, [&](std::size_t i, const auto& rule){
-            rr_grid.at(0).add_child(make_nterm(std::get<0>(rule.terms)));
-            rr_grid.at(1).add_child(Widget<TChar>(std::basic_string<TChar>(" -> PRE : ")));
-            rr_grid.at(2).add_child(Widget<TChar>(std::basic_string<TChar>("; POST : "))); // separator
+        tuple_each(all_rr, [&](std::size_t i, const auto& rule){
+            rr_grid.at(0).add_child(make_nterm(rule));//(std::get<0>(rule.terms)));
+            rr_grid.at(1).add_child(Widget<TChar>(std::basic_string<TChar>("->")));
+            rr_grid.at(2).add_child(Widget<TChar>(WidgetLayout::Horizontal, {}, Colors::None)); // pre (should be an hbox)
+            rr_grid.at(3).add_child(Widget<TChar>(std::basic_string<TChar>(":"))); // sep
+            rr_grid.at(4).add_child(Widget<TChar>(WidgetLayout::Horizontal, {}, Colors::None)); // post (should be an hbox)
         });
-
-        auto create_empty_col = [&](std::size_t col){
-            for (std::size_t row = 0; row < rr_grid.widgets_num(); row++)
-            {
-                rr_grid.at(row)._children.insert(rr_grid.at(row)._children.begin() + col, Widget<TChar>());
-            }
-        };
-
-        int prefix_start = 2, prefix_end = 2, postfix_start = 3;
 
         auto populate_grid = [&]<bool is_nt>(const auto& symbol_pairs){
             tuple_each_idx(symbol_pairs, [&]<std::size_t i>(const auto& elem){
@@ -526,25 +529,38 @@ protected:
 
                 const auto& [related_types, fix_limits] = elem;
                 tuple_each(related_types, [&,fix_limits](std::size_t j, const auto& pack){
+                    using max_t = std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>;
                     const auto& [rule, fix] = pack;
                     const auto [pre, post_dist] = fix;
                     const auto [max_pre, min_post] = fix_limits; // Get max prefix and min postfix in this rule
                     const auto post = min_post - post_dist; // Convert post from the distance to the end to an id
 
+                    constexpr std::size_t row = tuple_index_of<TRules, decltype(rule)>();
+                    if constexpr (row == std::numeric_limits<std::size_t>::max())
+                    {
+                        rr_grid.at(0).add_child(make_nterm(rule));
+                        rr_grid.at(1).add_child(Widget<TChar>(std::basic_string<TChar>("->"), Colors::Secondary));
+                        return;
+                    }
                     // find grid positions
-                    std::size_t prefix_pos = pre + prefix_start, postfix_pos = postfix_start + post;
-                    // initialize grid for the prefix
-                    for (int l = prefix_end; l <= prefix_pos + 1; l++)
-                        create_empty_col(l);
 
-                    prefix_end = prefix_pos + 1; // now this is the end
+                    if (pre != max_t())
+                    {
+                        // initialize grid for the prefix
+                        for (int l = rr_grid.at(row+1).at(2)._children.size(); l <= pre + 1; l++)
+                            rr_grid.at(row+1).at(2).add_child(Widget<TChar>());
+                        rr_grid.at(row+1).at(2).at(pre).refresh(make_symbol(symbol));
+                        //std::raise(SIGTRAP);
+                    }
 
-                    // initialize grid for the postfix
-                    for (int l = rr_grid._children.size(); l <= postfix_pos + 1; l++)
-                        create_empty_col(l);
-
-                    rr_grid.at(j).at(prefix_pos).refresh(make_symbol(symbol));
-                    rr_grid.at(j).at(postfix_pos).refresh(make_symbol(symbol));
+                    if (post != max_t())
+                    {
+                        // initialize grid for the postfix
+                        for (int l = rr_grid.at(row+1).at(4)._children.size(); l <= post + 1; l++)
+                            rr_grid.at(row+1).at(4).add_child(Widget<TChar>());
+                        rr_grid.at(row+1).at(4).at(post).refresh(make_symbol(symbol));
+                        //std::raise(SIGTRAP);
+                    }
                 });
             });
         };

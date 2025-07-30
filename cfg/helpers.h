@@ -451,6 +451,19 @@ namespace cfg_helpers
                 return do_tuple_pairwise_collapse(collapsed, std::tuple_cat(new_elems, tup_slice.template operator()<1, std::tuple_size_v<ToCollapse>>(rhs)), collapse, tup_slice);
         }
     }
+
+    template<std::size_t depth, class SrcTuple, class Elem>
+    constexpr std::size_t do_tuple_index_of()
+    {
+        if constexpr (std::is_same_v<std::decay_t<std::tuple_element_t<depth, SrcTuple>>, Elem>)
+            return depth;
+        else {
+            if constexpr (depth + 1 < std::tuple_size_v<SrcTuple>)
+                return do_tuple_index_of<depth+1, SrcTuple, Elem>();
+            else
+                return std::numeric_limits<std::size_t>::max();
+        }
+    }
 } // cfg_helpers
 
 
@@ -1001,6 +1014,18 @@ template<class SrcTuple>
 constexpr auto tuple_pairwise_collapse(const SrcTuple& src, auto collapse)
 {
     return cfg_helpers::do_tuple_pairwise_collapse(std::tuple<>(), src, collapse, []<std::size_t Start, std::size_t End>(const auto& tuple){ return tuple_slice<Start, End>(tuple); });
+}
+
+
+/**
+ * @brief Get index of an element in a tuple. Element should have a unique type
+ * @param src Tuple where to search
+ * @param elem Target element
+ */
+template<class SrcTuple, class Elem>
+constexpr std::size_t tuple_index_of()
+{
+    return cfg_helpers::do_tuple_index_of<0, std::decay_t<SrcTuple>, std::decay_t<Elem>>();
 }
 
 
