@@ -6,7 +6,9 @@
 #define PRETTYPRINT_H
 
 #include "curse.h"
+#include "extra/clang_formatter.h"
 
+#include <cstring>
 #include <ctime>
 #include <unordered_map>
 #include <format>
@@ -492,6 +494,9 @@ protected:
     {
         // Each of these classes contains an element and its position in a rule
 
+        #ifdef ENABLE_SUPERCFG_DIAG
+        SuperCFGDiagnostics::get().print_template_type(nt_pairs, "[NTerm cached class]");
+        #endif
         /*
          *  HBox
          * _______
