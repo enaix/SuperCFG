@@ -2,12 +2,6 @@
 #define CLANG_FORMATTER_H_
 
 
-
-#if defined(__clang__) && defined(SUPERCFG_DIAG)
-#define ENABLE_SUPERCFG_DIAG
-#endif
-
-
 #ifdef ENABLE_SUPERCFG_DIAG
 
 #include "clang/Basic/Diagnostic.h"

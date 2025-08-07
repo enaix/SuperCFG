@@ -494,6 +494,7 @@ protected:
     {
         // Each of these classes contains an element and its position in a rule
 
+        //static_assert(std::is_same_v<std::false_type, std::decay_t<NTermsPosPairs>>, "ok");
         #ifdef ENABLE_SUPERCFG_DIAG
         SuperCFGDiagnostics::get().print_template_type(nt_pairs, "[NTerm cached class]");
         #endif

@@ -6,9 +6,10 @@ set(CMAKE_CXX_STANDARD 20)
 # Make template messages more readable
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-show-template-tree -ftemplate-backtrace-limit=1")
 
+option(SUPERCFG_DIAG "Enable Clang diagnostics for better template type info" OFF)
 
 # SUPERCFG DIAG
-if (DEFINED SUPERCFG_DIAG)
+if (SUPERCFG_DIAG)
     find_package(LLVM 22.0 REQUIRED EXACT)
     find_package(Clang 22.0 REQUIRED EXACT)
     set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${LLVM_CMAKE_DIR}")
