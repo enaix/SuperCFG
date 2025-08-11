@@ -259,11 +259,12 @@ protected:
     clang::FileSystemOptions fs_opts;
     clang::FileManager file_mgr;
     clang::SourceManager source_mgr;
+    clang::CodeCompleteConsumer* cc_consumer;
     clang::CompilerInstance* ci;
     DecltypeQualTypeExtractor dt_extract;
     
 public:
-    SuperCFGDiagnostics() : diagOpts(), diagIDs(llvm::makeIntrusiveRefCnt<clang::DiagnosticIDs>()), printer(llvm::outs(), diagOpts, false), diagEngine(new clang::DiagnosticsEngine(diagIDs, diagOpts, &printer, false)), file_mgr(fs_opts), source_mgr(*diagEngine, file_mgr), ci(new clang::CompilerInstance()), dt_extract(*ci)
+    SuperCFGDiagnostics() : diagOpts(), diagIDs(new clang::DiagnosticIDs()), printer(llvm::outs(), diagOpts, false), diagEngine(new clang::DiagnosticsEngine(diagIDs, diagOpts, &printer, false)), file_mgr(fs_opts), source_mgr(*diagEngine, file_mgr), ci(init_ci()), dt_extract(*ci)
     {}
 
     // Helper methods for common parser generator diagnostics
@@ -341,6 +342,16 @@ protected:
     {
         auto file_id = source_mgr.getOrCreateFileID(file_mgr.getVirtualFileRef("generated.cpp", 0, 0), clang::SrcMgr::C_User);
         return source_mgr.getLocForStartOfFile(file_id);
+    }
+
+    clang::CompilerInstance* init_ci()
+    {
+        ci = new clang::CompilerInstance();
+        //ci->createASTContext();
+        cc_consumer = nullptr; //new clang::CodeCompleteConsumer(clang::CodeCompleteOptions{});
+
+        ci->createSema(clang::TU_Complete, cc_consumer);
+        return ci;
     }
 };
 
