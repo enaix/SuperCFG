@@ -13,11 +13,11 @@
 
 
 
-template<class TRules>
+template<class TMatches>
 class CtxTODO
 {
 protected:
-    std::array<std::size_t, std::tuple_size_v<TRules>> todo;
+    std::array<std::size_t, std::tuple_size_v<TMatches>> todo;
     std::size_t n; // size of _todo
     std::vector<std::size_t> cached_idx; // last added rule index
 
@@ -84,10 +84,10 @@ template<class TMatches, class NTermsPosPairs, class TermsPosPairs, class TRules
 class ContextManager
 {
 public:
-    std::array<std::size_t, std::tuple_size_v<TRules>> context;
-    std::array<std::vector<std::size_t>, std::tuple_size_v<TRules>> ctx_pos; // Positions of context start at each ctx level
-    CtxTODO<TRules> prefix_todo;
-    CtxTODO<TRules> postfix_todo;
+    std::array<std::size_t, std::tuple_size_v<TMatches>> context;
+    std::array<std::vector<std::size_t>, std::tuple_size_v<TMatches>> ctx_pos; // Positions of context start at each ctx level
+    CtxTODO<TMatches> prefix_todo;
+    CtxTODO<TMatches> postfix_todo;
 
     CtxMeta prefix; // non-ambiguous prefix match (we do not need the whole array)
     CtxMeta postfix; // ditto
@@ -134,6 +134,7 @@ public:
                 const auto [pre, post_dist] = fix;
                 const auto [max_pre, min_post] = fix_limits; // Get max prefix and min postfix in this rule
                 // Max pre/postfix -> ok, we successfully resolved the rule
+                // TODO fix fix_limits - they are calculated differently for nterms and terms
                 const auto post = min_post - post_dist; // Convert post from the distance to the end to an id
                 // If there are no more matches even though we haven't reached the end of the fix, we apply context
 
@@ -234,7 +235,7 @@ public:
                 }
 
                 // Is in postfix
-                if constexpr (!std::is_same_v<std::decay_t<decltype(post)>, max_t>)
+                if constexpr (!std::is_same_v<std::decay_t<decltype(post_dist)>, max_t>)
                 {
                     // we can also perform additional end-of-stack check (does the prefix+postfix fit?)
                     // also we should check that the prefix rule matches (link prefixes and postfixes together)
@@ -379,11 +380,11 @@ protected:
     template<std::size_t depth, class TSymbol>
     [[nodiscard]] static constexpr std::size_t get_ctx_index()
     {
-        if constexpr (depth >= std::tuple_size_v<TRules>)
+        if constexpr (depth >= std::tuple_size_v<TMatches>)
             return std::numeric_limits<std::size_t>::max(); // No such symbol
         else
         {
-            if constexpr (std::is_same_v<std::decay_t<std::tuple_element_t<depth, TRules>>, std::decay_t<TSymbol>>)
+            if constexpr (std::is_same_v<std::decay_t<std::tuple_element_t<depth, TMatches>>, std::decay_t<TSymbol>>)
                 return depth;
             else
                 return get_ctx_index<depth+1, TSymbol>();
@@ -395,7 +396,7 @@ protected:
     {
         static_assert(depth < std::tuple_size_v<TMatches>, "NTerm type not found");
         // Get the corresponding NTermsPosPairs element
-        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<std::tuple_element_t<0, typename std::tuple_element_t<depth, TMatches>::term_types_tuple>>>)
+        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<std::tuple_element_t<depth, TMatches>>>)
         {
             return std::get<depth>(pos_nterm);
         } else {
@@ -426,7 +427,7 @@ protected:
     constexpr auto do_get_rr_all(const TSymbol& symbol) const
     {
         static_assert(depth < std::tuple_size_v<TMatches>, "NTerm type not found");
-        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<std::tuple_element_t<0, typename std::tuple_element_t<depth, TMatches>::term_types_tuple>>>)
+        if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::decay_t<typename std::tuple_element_t<depth, TMatches>>>)
         {
             return std::get<depth>(rr_all);
         } else {
@@ -444,7 +445,7 @@ constexpr auto make_ctx_manager(const RulesDef& rules, const RRTree& tree, const
     const auto defs_flatten = tuple_morph([&]<std::size_t i>(const auto& src){ return std::get<0>(std::get<i>(tree.defs).terms); }, tree.defs);
     //static_assert(std::tuple_size_v<std::decay_t<decltype(tree.defs)>> == std::tuple_size_v<std::decay_t<decltype(pairs_nt)>>, "bad pairs_nt");
     prettyprinter.init_ctx_classes(defs_flatten, h_pre.unique_rr, terms_tmap.terms, pairs_nt, pairs_t);
-    return ContextManager<decltype(tree.defs), decltype(pairs_nt), decltype(pairs_t), decltype(h_pre.unique_rr), decltype(terms_tmap.terms), decltype(h_pre.full_rr)>(tree.defs, pairs_nt, pairs_t, h_pre.unique_rr, terms_tmap.terms, h_pre.full_rr);
+    return ContextManager<decltype(defs_flatten), decltype(pairs_nt), decltype(pairs_t), decltype(h_pre.unique_rr), decltype(terms_tmap.terms), decltype(h_pre.full_rr)>(defs_flatten, pairs_nt, pairs_t, h_pre.unique_rr, terms_tmap.terms, h_pre.full_rr);
 }
 
 
