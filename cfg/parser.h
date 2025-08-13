@@ -850,6 +850,9 @@ protected:
 
                 stack.erase(stack.begin() + i, stack.end()); // May be inefficient
                 stack.push_back(GSymbolV(TokenTSet(intersect[k]))); // insert the matched nterm
+
+                if constexpr (enabled<SRConfEnum::PrettyPrint>())
+                    printer.update_ast(*root);
                 return true; // Performed reduce, return to shift
             }
         }

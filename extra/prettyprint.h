@@ -14,6 +14,7 @@
 #include <format>
 #include <algorithm>
 #include <csignal>
+#include <functional>
 
 using namespace curse;
 
@@ -95,7 +96,8 @@ enum class PrinterMode : std::size_t
 enum class PrinterWindows
 {
     Stack,
-    Descend
+    Descend,
+    AST
 };
 
 
@@ -140,6 +142,9 @@ public:
         winstack.push(Widget<TChar>()); // STACK
         window_id.insert({PrinterWindows::Descend, 1});
         winstack.push(Widget<TChar>()); // DESCEND
+        window_id.insert({PrinterWindows::AST, 2});
+        winstack.push(make_ast(TreeNode<std::basic_string<TChar>>())); // AST
+
         winstack.push_overlay(make_bottom_overlay());
         set_bottom_overlay_pos();
         winstack.selector_idx = 0;
@@ -224,6 +229,14 @@ public:
         const auto& id = window_id.find(PrinterWindows::Descend);
         if (id != window_id.end())
             winstack.stack[id->second].refresh(make_descend(stack, rule, idx, candidate, total, parsed, found));
+    }
+
+    template<class Tree>
+    void update_ast(const Tree& tree)
+    {
+        const auto& id = window_id.find(PrinterWindows::AST);
+        if (id != window_id.end())
+            winstack.stack[id->second].refresh(make_ast(tree));
     }
 
     void set_empty_descend()
@@ -746,6 +759,70 @@ protected:
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
 
+    template<class Tree>
+    Widget<TChar> make_ast(const Tree& ast_root)
+    {
+        // Create the main container for the AST
+        Widget<TChar> ast_container(WidgetLayout::Vertical, {
+                Widget<TChar>(std::basic_string<TChar>("ABS SYNTAX TREE"), Colors::Primary, Quad(1,0,1,0))
+            }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
+
+        // Helper function to recursively build the tree representation
+        std::function<Widget<TChar>(const Tree&, std::size_t, bool, const std::string&)> build_tree_node =
+            [&](const Tree& node, std::size_t depth, bool is_last, const std::string& prefix) -> Widget<TChar> {
+
+            Widget<TChar> node_widget(WidgetLayout::Vertical, {}, Colors::None);
+
+            // Create the tree structure prefix
+            std::string tree_prefix = prefix;
+            if (depth > 0) {
+                tree_prefix += is_last ? "+-- " : "|-- ";
+            }
+
+            // Create the node display
+            Widget<TChar> node_line(WidgetLayout::Horizontal, {}, Colors::None);
+
+            // Add tree structure
+            if (!tree_prefix.empty()) {
+                node_line.add_child(Widget<TChar>(std::basic_string<TChar>(tree_prefix), Colors::Accent));
+            }
+
+            // Add node name
+            if (!node.name.empty()) {
+                node_line.add_child(Widget<TChar>(std::basic_string<TChar>(node.name.c_str()), Colors::Secondary));
+            }
+
+            // Add node value if present (for terminal nodes)
+            if (!node.value.empty()) {
+                node_line.add_child(Widget<TChar>(std::basic_string<TChar>(" : \""), Colors::Primary));
+                node_line.add_child(Widget<TChar>(std::basic_string<TChar>(node.value.c_str()), Colors::Accent2));
+                node_line.add_child(Widget<TChar>(std::basic_string<TChar>("\""), Colors::Primary));
+            }
+
+            node_widget.add_child(node_line);
+
+            // Process children
+            for (std::size_t i = 0; i < node.nodes.size(); ++i) {
+                bool child_is_last = (i == node.nodes.size() - 1);
+                std::string child_prefix = prefix;
+                if (depth > 0) {
+                    child_prefix += is_last ? "    " : "|   ";
+                }
+
+                Widget<TChar> child_widget = build_tree_node(node.nodes[i], depth + 1, child_is_last, child_prefix);
+                node_widget.add_child(child_widget);
+            }
+
+            return node_widget;
+        };
+
+        // Build the tree starting from root
+        Widget<TChar> tree_content = build_tree_node(ast_root, 0, true, "");
+        ast_container.add_child(tree_content);
+
+        return ast_container;
+    }
+
 
 
     // ==========
@@ -756,234 +833,234 @@ protected:
     bool handle_mode(const char input, int last_char) // handled = true means that we shouldn't handle the event further
     {
         if (_mode == PrinterMode::Normal && last_char == 17) [[unlikely]]
-        {
-            if (input == 10 || input == 'y' || input == 'Y')
             {
-                close();
-                exit(0);
+                if (input == 10 || input == 'y' || input == 'Y')
+                    {
+                        close();
+                        exit(0);
+                    }
+                winstack.overlays[0] = make_bottom_overlay();
+                return true;
             }
-            winstack.overlays[0] = make_bottom_overlay();
-            return true;
-        }
 
         switch (_mode)
-        {
-        case PrinterMode::Normal:
-            switch (input)
             {
-                case 15: // ^O
-                    _mode = PrinterMode::Open;
-                    winstack.overlays[0] = make_bottom_overlay();
-                    return true; // continue
-                case 17: // ^Q
-                {
-                    if (std::rand() % 50 == 42)
-                        winstack.overlays[0] = make_bottom_overlay_custom("I wouldn\'t leave if I were you. DOS is much worse. [Y/n]");
-                    else
-                        winstack.overlays[0] = make_bottom_overlay_custom("Really quit? [Y/n]");
-                    return true; // read next input
-                }
-                case 20: // ^T
-                    _mode = PrinterMode::Theme;
-                    winstack.overlays[0] = make_bottom_overlay_theme();
-                    return true; // continue
-                case 1: // ^A
-                    show_about();
-                    return true;
-                case 23: // ^W
-                    _mode = PrinterMode::Move;
-                    winstack.overlays[0] = make_bottom_overlay_move();
-                    return true;
-                case 5:
-                {
-                    if (std::erase_if(window_id, [&](const auto& idx){
-                        if (idx.second == winstack.selector_idx)
-                        {
-                            winstack.pop(idx.second);
-                            return true; // erase
-                        }
-                        return false; // keep
-                    }) == 0) // window without an id
-                        winstack.pop(winstack.selector_idx);
-                    return true;
-                }
-                default: // we don't have to print err & handle anything
-                    winstack.overlays[0] = make_bottom_overlay();
-                    return false; // the ONLY case when we release handle
-            }
-            break;
-        case PrinterMode::Open:
-            switch (input)
-            {
-                case 'e':
-                    winstack.push(_ebnf); // EBNF
-                    _mode = PrinterMode::Normal;
-                    winstack.overlays[0] = make_bottom_overlay();
-                    return true;
-                case 'r':
-                    winstack.push(_rr_tree); // RR TREE
-                    _mode = PrinterMode::Normal;
-                    winstack.overlays[0] = make_bottom_overlay();
-                    return true;
-                case 'f':
-                    winstack.push(_fix); // FIX
-                    _mode = PrinterMode::Normal;
-                    winstack.overlays[0] = make_bottom_overlay();
-                    return true;
-                case 27: // esc, ignore the sequence
-                    _mode = PrinterMode::Normal;
-                    winstack.overlays[0] = make_bottom_overlay();
-                    return true;
-                default:
-                    _mode = PrinterMode::Normal;
-                    winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("Unknown key: ") + std::basic_string<TChar>(input, 1)); // bad key
-                    return true;
-            }
-            break;
-        case PrinterMode::Theme:
-            switch (input)
-            {
-            case 10: // enter
-                _mode = PrinterMode::Normal;
-                _style_name.clear();
-                if (_style_select == PrinterThemes::Panic)
-                    winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("No such theme"));
-                else
-                {
-                    apply_theme(_style_select);
-                    _mode = PrinterMode::Normal;
-                    _style_select = PrinterThemes::Panic;
-                    winstack.overlays[0] = make_bottom_overlay();
-                }
-                return true;
-            case 27: // esc sequence
-                if (last_char != 27) // no prior
-                    return true; // continue - wait for the second key
-                else if (last_char == 27)
-                {
-                    // ESC-ESC - exit mode
-                    _style_select = PrinterThemes::Panic;
-                    _style_name.clear();
-                    _mode = PrinterMode::Normal;
-                    winstack.overlays[0] = make_bottom_overlay();
-                    return true;
-                }
-            case '[': // Arrows
-                {
-                    // Escape sequence
-                    if (last_char == 27)
+            case PrinterMode::Normal:
+                switch (input)
                     {
-                        int c3 = terminal.getch();
-                        switch (c3)
+                    case 15: // ^O
+                        _mode = PrinterMode::Open;
+                        winstack.overlays[0] = make_bottom_overlay();
+                        return true; // continue
+                    case 17: // ^Q
                         {
-                        case 'A':
-                            // Move up
-                            if (_style_select == PrinterThemes::Panic) _style_select = (PrinterThemes)0;
-                            _style_select = (PrinterThemes)(((std::size_t)_style_select + 1) % (std::size_t)PrinterThemes::Panic);
-                            _style_name = printer_theme_names[(std::size_t)_style_select];
-                            winstack.overlays[0] = make_bottom_overlay_theme(true);
-                            return true;
-                        case 'B':
-                            // Move down
-                            _style_select = (PrinterThemes)(((std::size_t)_style_select - 1) % (std::size_t)PrinterThemes::Panic);
-                            _style_name = printer_theme_names[(std::size_t)_style_select];
-                            winstack.overlays[0] = make_bottom_overlay_theme(true);
-                            return true;
+                            if (std::rand() % 50 == 42)
+                                winstack.overlays[0] = make_bottom_overlay_custom("I wouldn\'t leave if I were you. DOS is much worse. [Y/n]");
+                            else
+                                winstack.overlays[0] = make_bottom_overlay_custom("Really quit? [Y/n]");
+                            return true; // read next input
                         }
-                        return true; // don't do anything
-                    } // else skip
-                }
-            case 8: // backspace
-                if (_style_name.size() > 0) _style_name.pop_back();
-                winstack.overlays[0] = make_bottom_overlay_theme();
-                return true;
-            case 127: // delete
-                if (_style_name.size() > 0) _style_name.pop_back();
-                winstack.overlays[0] = make_bottom_overlay_theme();
-                return true;
-            default:
-                // Append chars to the string
-                if (input >= 32 && input <= 126)
-                    _style_name += input;
-                winstack.overlays[0] = make_bottom_overlay_theme();
-                return true; // continue
-            }
-        case PrinterMode::Move:
-            switch (input)
-            {
-            case 27: // esc sequence
-                if (last_char != 27) // no prior
-                    return true; // continue - wait for the second key
-                else if (last_char == 27)
-                {
-                    // ESC-ESC - exit mode
-                    _mode = PrinterMode::Normal;
-                    winstack.overlays[0] = make_bottom_overlay();
-                    return true;
-                }
-            case '[':
-                {
-                    if (last_char == 27)
-                    {
-                        int c3 = terminal.getch();
-                        if (winstack.selector_idx == -1)
-                            return true;
-                        switch (c3)
-                        {
-                        case 'A':
-                            winstack.stack[winstack.selector_idx]._xy.y() -= 1;
-                            break;
-                        case 'B':
-                            winstack.stack[winstack.selector_idx]._xy.y() += 1;
-                            break;
-                        case 'C':
-                            winstack.stack[winstack.selector_idx]._xy.x() += 1;
-                            break;
-                        case 'D':
-                            winstack.stack[winstack.selector_idx]._xy.x() -= 1;
-                            break;
-                        }
+                    case 20: // ^T
+                        _mode = PrinterMode::Theme;
+                        winstack.overlays[0] = make_bottom_overlay_theme();
+                        return true; // continue
+                    case 1: // ^A
+                        show_about();
+                        return true;
+                    case 23: // ^W
+                        _mode = PrinterMode::Move;
                         winstack.overlays[0] = make_bottom_overlay_move();
                         return true;
+                    case 5:
+                        {
+                            if (std::erase_if(window_id, [&](const auto& idx){
+                                if (idx.second == winstack.selector_idx)
+                                    {
+                                        winstack.pop(idx.second);
+                                        return true; // erase
+                                    }
+                                return false; // keep
+                            }) == 0) // window without an id
+                                winstack.pop(winstack.selector_idx);
+                            return true;
+                        }
+                    default: // we don't have to print err & handle anything
+                        winstack.overlays[0] = make_bottom_overlay();
+                        return false; // the ONLY case when we release handle
                     }
-                }
-            case 9:
-                winstack.move_selector_tab(1);
-                winstack.overlays[0] = make_bottom_overlay_move();
-                return true;
+                break;
+            case PrinterMode::Open:
+                switch (input)
+                    {
+                    case 'e':
+                        winstack.push(_ebnf); // EBNF
+                        _mode = PrinterMode::Normal;
+                        winstack.overlays[0] = make_bottom_overlay();
+                        return true;
+                    case 'r':
+                        winstack.push(_rr_tree); // RR TREE
+                        _mode = PrinterMode::Normal;
+                        winstack.overlays[0] = make_bottom_overlay();
+                        return true;
+                    case 'f':
+                        winstack.push(_fix); // FIX
+                        _mode = PrinterMode::Normal;
+                        winstack.overlays[0] = make_bottom_overlay();
+                        return true;
+                    case 27: // esc, ignore the sequence
+                        _mode = PrinterMode::Normal;
+                        winstack.overlays[0] = make_bottom_overlay();
+                        return true;
+                    default:
+                        _mode = PrinterMode::Normal;
+                        winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("Unknown key: ") + std::basic_string<TChar>(input, 1)); // bad key
+                        return true;
+                    }
+                break;
+            case PrinterMode::Theme:
+                switch (input)
+                    {
+                    case 10: // enter
+                        _mode = PrinterMode::Normal;
+                        _style_name.clear();
+                        if (_style_select == PrinterThemes::Panic)
+                            winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("No such theme"));
+                        else
+                            {
+                                apply_theme(_style_select);
+                                _mode = PrinterMode::Normal;
+                                _style_select = PrinterThemes::Panic;
+                                winstack.overlays[0] = make_bottom_overlay();
+                            }
+                        return true;
+                    case 27: // esc sequence
+                        if (last_char != 27) // no prior
+                            return true; // continue - wait for the second key
+                        else if (last_char == 27)
+                            {
+                                // ESC-ESC - exit mode
+                                _style_select = PrinterThemes::Panic;
+                                _style_name.clear();
+                                _mode = PrinterMode::Normal;
+                                winstack.overlays[0] = make_bottom_overlay();
+                                return true;
+                            }
+                    case '[': // Arrows
+                        {
+                            // Escape sequence
+                            if (last_char == 27)
+                                {
+                                    int c3 = terminal.getch();
+                                    switch (c3)
+                                        {
+                                        case 'A':
+                                            // Move up
+                                            if (_style_select == PrinterThemes::Panic) _style_select = (PrinterThemes)0;
+                                            _style_select = (PrinterThemes)(((std::size_t)_style_select + 1) % (std::size_t)PrinterThemes::Panic);
+                                            _style_name = printer_theme_names[(std::size_t)_style_select];
+                                            winstack.overlays[0] = make_bottom_overlay_theme(true);
+                                            return true;
+                                        case 'B':
+                                            // Move down
+                                            _style_select = (PrinterThemes)(((std::size_t)_style_select - 1) % (std::size_t)PrinterThemes::Panic);
+                                            _style_name = printer_theme_names[(std::size_t)_style_select];
+                                            winstack.overlays[0] = make_bottom_overlay_theme(true);
+                                            return true;
+                                        }
+                                    return true; // don't do anything
+                                } // else skip
+                        }
+                    case 8: // backspace
+                        if (_style_name.size() > 0) _style_name.pop_back();
+                        winstack.overlays[0] = make_bottom_overlay_theme();
+                        return true;
+                    case 127: // delete
+                        if (_style_name.size() > 0) _style_name.pop_back();
+                        winstack.overlays[0] = make_bottom_overlay_theme();
+                        return true;
+                    default:
+                        // Append chars to the string
+                        if (input >= 32 && input <= 126)
+                            _style_name += input;
+                        winstack.overlays[0] = make_bottom_overlay_theme();
+                        return true; // continue
+                    }
+            case PrinterMode::Move:
+                switch (input)
+                    {
+                    case 27: // esc sequence
+                        if (last_char != 27) // no prior
+                            return true; // continue - wait for the second key
+                        else if (last_char == 27)
+                            {
+                                // ESC-ESC - exit mode
+                                _mode = PrinterMode::Normal;
+                                winstack.overlays[0] = make_bottom_overlay();
+                                return true;
+                            }
+                    case '[':
+                        {
+                            if (last_char == 27)
+                                {
+                                    int c3 = terminal.getch();
+                                    if (winstack.selector_idx == -1)
+                                        return true;
+                                    switch (c3)
+                                        {
+                                        case 'A':
+                                            winstack.stack[winstack.selector_idx]._xy.y() -= 1;
+                                            break;
+                                        case 'B':
+                                            winstack.stack[winstack.selector_idx]._xy.y() += 1;
+                                            break;
+                                        case 'C':
+                                            winstack.stack[winstack.selector_idx]._xy.x() += 1;
+                                            break;
+                                        case 'D':
+                                            winstack.stack[winstack.selector_idx]._xy.x() -= 1;
+                                            break;
+                                        }
+                                    winstack.overlays[0] = make_bottom_overlay_move();
+                                    return true;
+                                }
+                        }
+                    case 9:
+                        winstack.move_selector_tab(1);
+                        winstack.overlays[0] = make_bottom_overlay_move();
+                        return true;
 
-            default:
-                _mode = PrinterMode::Normal;
-                winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("Unknown key: ") + std::basic_string<TChar>(input, 1)); // bad key
-                return true;
+                    default:
+                        _mode = PrinterMode::Normal;
+                        winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("Unknown key: ") + std::basic_string<TChar>(input, 1)); // bad key
+                        return true;
+                    }
             }
-        }
         return true;
     }
 
     void show_about()
     {
         Widget<TChar> about(WidgetLayout::Vertical, {
-Widget<TChar>(std::basic_string<TChar>("   ____                  ______________"), Colors::Primary),
-Widget<TChar>(std::basic_string<TChar>("  / __/_ _____  ___ ____/ ___/ __/ ___/"), Colors::Primary),
-Widget<TChar>(std::basic_string<TChar>(" _\\ \\/ // / _ \\/ -_) __/ /__/ _// (_ / "), Colors::Primary),
-Widget<TChar>(std::basic_string<TChar>("/___/\\_,_/ .__/\\__/_/  \\___/_/  \\___/  "), Colors::Primary),
-Widget<TChar>(std::basic_string<TChar>("        /_/                            "), Colors::Primary),
-            Widget<TChar>(std::basic_string<TChar>("Dynamic shift-reduce parser library"), Colors::Primary, Quad(1,0,1,0)),
-            Widget<TChar>(std::basic_string<TChar>("  project homepage : https://github.com/enaix/SuperCFG"), Colors::Secondary, Quad(1,0,1,0)),
-            Widget<TChar>(std::basic_string<TChar>("  ui library       : https://github.com/enaix/simply-curse"), Colors::Secondary, Quad(1,0,1,0)),
-        }, Colors::None, Quad(), Quad(), &_cur_box_style);
+                Widget<TChar>(std::basic_string<TChar>("   ____                  ______________"), Colors::Primary),
+                Widget<TChar>(std::basic_string<TChar>("  / __/_ _____  ___ ____/ ___/ __/ ___/"), Colors::Primary),
+                Widget<TChar>(std::basic_string<TChar>(" _\\ \\/ // / _ \\/ -_) __/ /__/ _// (_ / "), Colors::Primary),
+                Widget<TChar>(std::basic_string<TChar>("/___/\\_,_/ .__/\\__/_/  \\___/_/  \\___/  "), Colors::Primary),
+                Widget<TChar>(std::basic_string<TChar>("        /_/                            "), Colors::Primary),
+                Widget<TChar>(std::basic_string<TChar>("Dynamic shift-reduce parser library"), Colors::Primary, Quad(1,0,1,0)),
+                Widget<TChar>(std::basic_string<TChar>("  project homepage : https://github.com/enaix/SuperCFG"), Colors::Secondary, Quad(1,0,1,0)),
+                Widget<TChar>(std::basic_string<TChar>("  ui library       : https://github.com/enaix/simply-curse"), Colors::Secondary, Quad(1,0,1,0)),
+            }, Colors::None, Quad(), Quad(), &_cur_box_style);
 
         Widget<TChar> close_btn(std::basic_string<TChar>("<back to debugger>"), Colors::Primary, Quad(1,1,1,1));
         close_btn.set_selectable(true);
         close_btn.on_event = [](Widget<TChar>* self, WindowStack<TChar>* window, const IPEvent& ev,
-                                         const std::vector<int>& path) -> bool
+                                const std::vector<int>& path) -> bool
         {
             if (ev.type == EventType::Select || ev.type == EventType::Click)
-            {
-                window->pop(window->selector_idx);
-                return true;
-            }
+                {
+                    window->pop(window->selector_idx);
+                    return true;
+                }
             return false;
         };
         about.add_child(close_btn);
@@ -993,57 +1070,57 @@ Widget<TChar>(std::basic_string<TChar>("        /_/                            "
     Widget<TChar> make_bottom_overlay_move()
     {
         return Widget<TChar>(WidgetLayout::Horizontal, {
-            Widget<TChar>(std::basic_string<TChar>("ARROW"), Colors::Accent3),
-            Widget<TChar>(std::basic_string<TChar>("Move Cur Win"), Colors::Primary),
-            Widget<TChar>(std::basic_string<TChar>("TAB"), Colors::Accent3),
-            Widget<TChar>(std::basic_string<TChar>("Next Win"), Colors::Primary),
-            Widget<TChar>(std::basic_string<TChar>("ESC-ESC"), Colors::Accent3),
-            Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
-        }, Colors::None, Quad(), Quad(1,0,1,0));
+                Widget<TChar>(std::basic_string<TChar>("ARROW"), Colors::Accent3),
+                Widget<TChar>(std::basic_string<TChar>("Move Cur Win"), Colors::Primary),
+                Widget<TChar>(std::basic_string<TChar>("TAB"), Colors::Accent3),
+                Widget<TChar>(std::basic_string<TChar>("Next Win"), Colors::Primary),
+                Widget<TChar>(std::basic_string<TChar>("ESC-ESC"), Colors::Accent3),
+                Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
+            }, Colors::None, Quad(), Quad(1,0,1,0));
     }
 
     Widget<TChar> make_bottom_overlay_theme(bool autocomplete = false)
     {
         if (_style_name.size() == 0)
-        {
-            return Widget<TChar>(WidgetLayout::Horizontal, {
-                Widget<TChar>(std::basic_string<TChar>("App theme: "), Colors::Accent),
-                Widget<TChar>(std::basic_string<TChar>("UP/DOWN to choose theme, ESC-ESC to exit"), Colors::Secondary)
-            }, Colors::None);
-        }
+            {
+                return Widget<TChar>(WidgetLayout::Horizontal, {
+                        Widget<TChar>(std::basic_string<TChar>("App theme: "), Colors::Accent),
+                        Widget<TChar>(std::basic_string<TChar>("UP/DOWN to choose theme, ESC-ESC to exit"), Colors::Secondary)
+                    }, Colors::None);
+            }
 
         if (autocomplete)
-        {
-            return Widget<TChar>(WidgetLayout::Horizontal, {
-                Widget<TChar>(std::basic_string<TChar>("App theme: "), Colors::Accent),
-                Widget<TChar>(_style_name, Colors::Secondary)
-            }, Colors::None);
-        }
+            {
+                return Widget<TChar>(WidgetLayout::Horizontal, {
+                        Widget<TChar>(std::basic_string<TChar>("App theme: "), Colors::Accent),
+                        Widget<TChar>(_style_name, Colors::Secondary)
+                    }, Colors::None);
+            }
         _style_select = PrinterThemes::Panic;
         for (std::size_t i = 0; i < printer_theme_names.size(); i++)
-        {
-            if (printer_theme_names[i].starts_with(_style_name))
             {
-                _style_select = (PrinterThemes)i;
-                break;
+                if (printer_theme_names[i].starts_with(_style_name))
+                    {
+                        _style_select = (PrinterThemes)i;
+                        break;
+                    }
             }
-        }
 
         // autocomplete
         std::string postfix;
         if (_style_select != PrinterThemes::Panic)
-        {
-            const auto start = printer_theme_names[(std::size_t)_style_select].begin() + _style_name.size();
-            const auto end = printer_theme_names[(std::size_t)_style_select].end();
-            if (start < end)
-                postfix = std::string(start, end);
-        }
+            {
+                const auto start = printer_theme_names[(std::size_t)_style_select].begin() + _style_name.size();
+                const auto end = printer_theme_names[(std::size_t)_style_select].end();
+                if (start < end)
+                    postfix = std::string(start, end);
+            }
 
         return Widget<TChar>(WidgetLayout::Horizontal, {
-            Widget<TChar>(std::basic_string<TChar>("App theme: "), Colors::Accent),
-            Widget<TChar>(_style_name, Colors::Primary),
-            Widget<TChar>(postfix, Colors::Secondary)
-        }, Colors::None);
+                Widget<TChar>(std::basic_string<TChar>("App theme: "), Colors::Accent),
+                Widget<TChar>(_style_name, Colors::Primary),
+                Widget<TChar>(postfix, Colors::Secondary)
+            }, Colors::None);
     }
 
     Widget<TChar> make_bottom_overlay_custom(const std::basic_string<TChar>& text)
@@ -1060,38 +1137,38 @@ Widget<TChar>(std::basic_string<TChar>("        /_/                            "
     Widget<TChar> make_bottom_overlay()
     {
         switch (_mode)
-        {
-        case PrinterMode::Normal:
-            return Widget<TChar>(WidgetLayout::Horizontal, {
-                    Widget<TChar>(std::basic_string<TChar>("TAB"), Colors::Accent3),
-                    Widget<TChar>(std::basic_string<TChar>("Next Win"), Colors::Primary),
-                    Widget<TChar>(std::basic_string<TChar>("^O"), Colors::Accent3),
-                    Widget<TChar>(std::basic_string<TChar>("Open Win"), Colors::Primary),
-                    Widget<TChar>(std::basic_string<TChar>("^Q"), Colors::Accent3),
-                    Widget<TChar>(std::basic_string<TChar>("Quit"), Colors::Primary),
-                    Widget<TChar>(std::basic_string<TChar>("^W"), Colors::Accent3),
-                    Widget<TChar>(std::basic_string<TChar>("Move Win"), Colors::Primary),
-                    Widget<TChar>(std::basic_string<TChar>("^E"), Colors::Accent3),
-                    Widget<TChar>(std::basic_string<TChar>("Destroy Win"), Colors::Primary),
-                    Widget<TChar>(std::basic_string<TChar>("^T"), Colors::Accent3),
-                    Widget<TChar>(std::basic_string<TChar>("Theme"), Colors::Primary),
-                    Widget<TChar>(std::basic_string<TChar>("^A"), Colors::Accent3),
-                    Widget<TChar>(std::basic_string<TChar>("About"), Colors::Primary),
-            }, Colors::None, Quad(), Quad(1,0,1,0));
-        case PrinterMode::Open:
-            return Widget<TChar>(WidgetLayout::Horizontal, {
-                    Widget<TChar>(std::basic_string<TChar>("E"), Colors::Accent3),
-                    Widget<TChar>(std::basic_string<TChar>("EBNF Repr"), Colors::Primary),
-                    Widget<TChar>(std::basic_string<TChar>("R"), Colors::Accent3),
-                    Widget<TChar>(std::basic_string<TChar>("Rev Rules"), Colors::Primary),
-                    Widget<TChar>(std::basic_string<TChar>("F"), Colors::Accent3),
-                    Widget<TChar>(std::basic_string<TChar>("Fix Heur"), Colors::Primary),
-                    Widget<TChar>(std::basic_string<TChar>("ESC"), Colors::Accent3),
-                    Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
-            }, Colors::None, Quad(), Quad(1,0,1,0));
-        default:
-            break;
-        }
+            {
+            case PrinterMode::Normal:
+                return Widget<TChar>(WidgetLayout::Horizontal, {
+                        Widget<TChar>(std::basic_string<TChar>("TAB"), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Next Win"), Colors::Primary),
+                        Widget<TChar>(std::basic_string<TChar>("^O"), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Open Win"), Colors::Primary),
+                        Widget<TChar>(std::basic_string<TChar>("^Q"), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Quit"), Colors::Primary),
+                        Widget<TChar>(std::basic_string<TChar>("^W"), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Move Win"), Colors::Primary),
+                        Widget<TChar>(std::basic_string<TChar>("^E"), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Destroy Win"), Colors::Primary),
+                        Widget<TChar>(std::basic_string<TChar>("^T"), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Theme"), Colors::Primary),
+                        Widget<TChar>(std::basic_string<TChar>("^A"), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("About"), Colors::Primary),
+                    }, Colors::None, Quad(), Quad(1,0,1,0));
+            case PrinterMode::Open:
+                return Widget<TChar>(WidgetLayout::Horizontal, {
+                        Widget<TChar>(std::basic_string<TChar>("E"), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("EBNF Repr"), Colors::Primary),
+                        Widget<TChar>(std::basic_string<TChar>("R"), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Rev Rules"), Colors::Primary),
+                        Widget<TChar>(std::basic_string<TChar>("F"), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Fix Heur"), Colors::Primary),
+                        Widget<TChar>(std::basic_string<TChar>("ESC"), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
+                    }, Colors::None, Quad(), Quad(1,0,1,0));
+            default:
+                break;
+            }
         assert((_mode == PrinterMode::Normal || _mode == PrinterMode::Open) && "make_bottom_overlay() can only work in normal and open modes");
         return Widget<TChar>(); // unreachable
     }
