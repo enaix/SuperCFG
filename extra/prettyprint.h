@@ -12,6 +12,7 @@
 #include <ctime>
 #include <unordered_map>
 #include <format>
+#include <algorithm>
 #include <csignal>
 
 using namespace curse;
@@ -494,7 +495,7 @@ protected:
     {
         // Each of these classes contains an element and its position in a rule
 
-        //static_assert(std::is_same_v<std::false_type, std::decay_t<NTermsPosPairs>>, "ok");
+        //static_assert(std::is_same_v<std::false_type, std::decay_t<TRules>>, "ok");
         #ifdef ENABLE_SUPERCFG_DIAG
         SuperCFGDiagnostics::get().print_template_type(nt_pairs, "[NTerm cached class]");
         #endif
@@ -514,12 +515,12 @@ protected:
         }, Colors::None, Quad(), Quad(1,0,1,0));
 
         // Initialize the grid with empty cells
-        tuple_each(all_rr, [&](std::size_t i, const auto& rule){
+        tuple_each(rules, [&](std::size_t i, const auto& rule){
             rr_grid.at(0).add_child(make_nterm(rule));//(std::get<0>(rule.terms)));
             rr_grid.at(1).add_child(Widget<TChar>(std::basic_string<TChar>("->")));
-            rr_grid.at(2).add_child(Widget<TChar>(WidgetLayout::Horizontal, {}, Colors::None)); // pre (should be an hbox)
+            rr_grid.at(2).add_child(Widget<TChar>(WidgetLayout::Horizontal, { Widget<TChar>("-") }, Colors::None)); // pre (should be an hbox)
             rr_grid.at(3).add_child(Widget<TChar>(std::basic_string<TChar>(":"))); // sep
-            rr_grid.at(4).add_child(Widget<TChar>(WidgetLayout::Horizontal, {}, Colors::None)); // post (should be an hbox)
+            rr_grid.at(4).add_child(Widget<TChar>(WidgetLayout::Horizontal, { Widget<TChar>("-") }, Colors::None)); // post (should be an hbox)
         });
 
         auto populate_grid = [&]<bool is_nt>(const auto& symbol_pairs){
@@ -528,7 +529,7 @@ protected:
                 const auto& symbol = [&](){
                     if constexpr (is_nt)
                         // fetch from rules
-                        return std::get<0>(std::get<i>(rules).terms);
+                        return std::get<i>(rules);
                     else
                         return std::get<i>(all_t);
                 }();
@@ -539,9 +540,9 @@ protected:
                     const auto& [rule, fix] = pack;
                     const auto [pre, post_dist] = fix;
                     const auto [max_pre, min_post] = fix_limits; // Get max prefix and min postfix in this rule
-                    const auto post = min_post - post_dist; // Convert post from the distance to the end to an id
+                    const auto post = post_dist; // Convert post from the distance to the end to an id
 
-                    constexpr std::size_t row = tuple_index_of<TRules, decltype(rule)>();
+                    constexpr std::size_t row = tuple_index_of<TMatches, decltype(rule)>();
                     if constexpr (row == std::numeric_limits<std::size_t>::max())
                     {
                         rr_grid.at(0).add_child(make_nterm(rule));
@@ -552,20 +553,20 @@ protected:
 
                     if (pre != max_t())
                     {
+                        //std::cout << "prefix : at " << row + 1 << " : symbol " << make_symbol(symbol)._content << " at " << pre << std::endl;
                         // initialize grid for the prefix
-                        for (int l = rr_grid.at(row+1).at(2)._children.size(); l <= pre + 1; l++)
-                            rr_grid.at(row+1).at(2).add_child(Widget<TChar>());
-                        rr_grid.at(row+1).at(2).at(pre).refresh(make_symbol(symbol));
-                        //std::raise(SIGTRAP);
+                        for (int l = rr_grid.at(2).at(row+1)._children.size(); l <= pre + 1; l++)
+                            rr_grid.at(2).at(row+1).add_child(Widget<TChar>());
+                        rr_grid.at(2).at(row+1).at(pre).refresh(make_symbol(symbol));
                     }
 
-                    if (post != max_t())
+                    if (post_dist != max_t())
                     {
+                        //std::cout << "postfix : at " << row + 1 << " : symbol " << make_symbol(symbol)._content << " at " << post << "(min_post : " << min_post << ")" << std::endl;
                         // initialize grid for the postfix
-                        for (int l = rr_grid.at(row+1).at(4)._children.size(); l <= post + 1; l++)
-                            rr_grid.at(row+1).at(4).add_child(Widget<TChar>());
-                        rr_grid.at(row+1).at(4).at(post).refresh(make_symbol(symbol));
-                        //std::raise(SIGTRAP);
+                        for (int l = rr_grid.at(4).at(row+1)._children.size(); l <= post + 1; l++)
+                            rr_grid.at(4).at(row+1).add_child(Widget<TChar>());
+                        rr_grid.at(4).at(row+1).at(post).refresh(make_symbol(symbol));
                     }
                 });
             });
@@ -573,6 +574,12 @@ protected:
         populate_grid.template operator()<true>(nt_pairs);
         populate_grid.template operator()<false>(t_pairs);
 
+        // quick fix: reverse postfixes
+        for (std::size_t i = 0; i < rr_grid.at(4)._children.size(); i++)
+        {
+            std::reverse(rr_grid.at(4).at(i)._children.begin(), rr_grid.at(4).at(i)._children.end());
+        }
+        //std::cin.ignore();
         // Create wrapper
         return Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("-FIX Heuristic"), Colors::Primary, Quad(1,0,1,0)),

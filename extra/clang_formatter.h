@@ -346,7 +346,32 @@ protected:
 
     clang::CompilerInstance* init_ci()
     {
-        ci = new clang::CompilerInstance();
+        auto Invocation = std::make_shared<clang::CompilerInvocation>();
+        ci = new clang::CompilerInstance(Invocation);
+        clang::LangOptions &LangOpts = Invocation->getLangOpts();
+        clang::TargetOptions &TargetOpts = Invocation->getTargetOpts();
+        //TargetOpts.Triple = llvm::sys::getDefaultTargetTriple();
+        clang::HeaderSearchOptions &HeaderSearchOpts = Invocation->getHeaderSearchOpts();
+
+        //ci->createFileManager();
+        //ci->createSourceManager(ci->getFileManager());
+        ci->setFileManager(&file_mgr);
+        ci->setSourceManager(&source_mgr);
+        ci->setDiagnostics(diagEngine.get());
+
+        clang::TargetInfo *TI = clang::TargetInfo::CreateTargetInfo(
+        ci->getDiagnostics(), ci->getInvocation().getTargetOpts());
+        if (!TI) {
+            llvm::errs() << "Failed to create target info\n";
+            return nullptr;
+        }
+        ci->setTarget(TI);
+        ci->createPreprocessor(clang::TU_Complete);
+        ci->getPreprocessor().getBuiltinInfo().initializeBuiltins(
+            ci->getPreprocessor().getIdentifierTable(),
+            ci->getLangOpts());
+        ci->createASTContext();
+
         //ci->createASTContext();
         cc_consumer = nullptr; //new clang::CodeCompleteConsumer(clang::CodeCompleteOptions{});
 

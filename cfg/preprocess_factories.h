@@ -376,7 +376,7 @@ namespace cfg_helpers
     template<class TSymbol, class RRulesTuple, class NTermsMap>
     constexpr auto ctx_get_match_step(const TSymbol& def, const RRulesTuple& r_rules, const NTermsMap& nterms2defs)
     {
-        auto fix_minmax = std::pair<std::size_t, std::size_t>(0, std::numeric_limits<std::size_t>::max());
+        auto fix_minmax = std::pair<std::size_t, std::size_t>(0, 0);
 
         const auto res = concat_each<std::tuple_size_v<std::decay_t<decltype(r_rules)>>, true>([&]<std::size_t i>(){
             const auto& rule_nterm = std::get<i>(r_rules);
@@ -396,7 +396,7 @@ namespace cfg_helpers
             const auto prefix = null_to_max(rc1_rule_get_fix<true, 0, 0>(def, rule_def),
                 [&](const auto pre){ fix_minmax.first = (pre > fix_minmax.first ? pre : fix_minmax.first); });
             const auto postfix = null_to_max(rc1_rule_get_fix<false, 0, std::tuple_size_v<std::decay_t<decltype(rule_def.terms)>> - 1>(def, rule_def),
-                [&](const auto post){ fix_minmax.second = (post < fix_minmax.second ? post : fix_minmax.second); });
+                [&](const auto post){ fix_minmax.second = (post > fix_minmax.second ? post : fix_minmax.second); });
 
             return std::make_tuple(std::make_pair(rule_nterm, std::make_pair(prefix, postfix)));
         });
