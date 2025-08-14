@@ -776,7 +776,7 @@ protected:
             // Create the tree structure prefix
             std::string tree_prefix = prefix;
             if (depth > 0) {
-                tree_prefix += is_last ? "+-- " : "|-- ";
+                tree_prefix += is_last ? "+--" : "|--";
             }
 
             // Create the node display
@@ -784,7 +784,7 @@ protected:
 
             // Add tree structure
             if (!tree_prefix.empty()) {
-                node_line.add_child(Widget<TChar>(std::basic_string<TChar>(tree_prefix), Colors::Accent));
+                node_line.add_child(Widget<TChar>(std::basic_string<TChar>(tree_prefix), Colors::Primary));
             }
 
             // Add node name
@@ -794,9 +794,8 @@ protected:
 
             // Add node value if present (for terminal nodes)
             if (!node.value.empty()) {
-                node_line.add_child(Widget<TChar>(std::basic_string<TChar>(" : \""), Colors::Primary));
-                node_line.add_child(Widget<TChar>(std::basic_string<TChar>(node.value.c_str()), Colors::Accent2));
-                node_line.add_child(Widget<TChar>(std::basic_string<TChar>("\""), Colors::Primary));
+                node_line.add_child(Widget<TChar>(std::basic_string<TChar>(" : "), Colors::Accent));
+                node_line.add_child(Widget<TChar>(std::basic_string<TChar>(std::basic_string<TChar>("\"") + std::basic_string<TChar>(node.value.c_str()) + "\""), Colors::Accent2));
             }
 
             node_widget.add_child(node_line);
@@ -1028,7 +1027,12 @@ protected:
                         winstack.move_selector_tab(1);
                         winstack.overlays[0] = make_bottom_overlay_move();
                         return true;
-
+                    case 'e':
+                        if (winstack.selector_idx == -1)
+                            return true;
+                        winstack.flags[winstack.selector_idx] ^= (std::size_t)IPWindowFlags::AlwaysActive;
+                        winstack.overlays[0] = make_bottom_overlay_move();
+                        return true;
                     default:
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("Unknown key: ") + std::basic_string<TChar>(input, 1)); // bad key
@@ -1069,11 +1073,16 @@ protected:
 
     Widget<TChar> make_bottom_overlay_move()
     {
+        std::basic_string<TChar> toggle_vis = ((winstack.selector_idx != -1 ?
+                                                winstack.flags[winstack.selector_idx] & (std::size_t)IPWindowFlags::AlwaysActive :
+                                                1) ? "Always Vis" : "Default Vis");
         return Widget<TChar>(WidgetLayout::Horizontal, {
                 Widget<TChar>(std::basic_string<TChar>("ARROW"), Colors::Accent3),
                 Widget<TChar>(std::basic_string<TChar>("Move Cur Win"), Colors::Primary),
                 Widget<TChar>(std::basic_string<TChar>("TAB"), Colors::Accent3),
                 Widget<TChar>(std::basic_string<TChar>("Next Win"), Colors::Primary),
+                Widget<TChar>(std::basic_string<TChar>("E"), Colors::Accent3),
+                Widget<TChar>(std::basic_string<TChar>(toggle_vis), Colors::Primary),
                 Widget<TChar>(std::basic_string<TChar>("ESC-ESC"), Colors::Accent3),
                 Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
             }, Colors::None, Quad(), Quad(1,0,1,0));
