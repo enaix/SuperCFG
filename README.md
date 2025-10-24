@@ -12,7 +12,7 @@ A C++ header-only templated shift-reduce parser generator library. Original name
 - Legacy recursive-descent parser (WIP)
 - Compile-time rules serialization in custom \*EBNF-like notation
 
-**[Preprint v2](preprint/Preprint_v2.pdf)** is available
+### [Preprints and other materials](preprint/) are available
 
 ## Getting Started
 
