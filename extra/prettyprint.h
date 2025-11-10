@@ -525,6 +525,8 @@ protected:
             Widget<TChar>(WidgetLayout::Vertical, {Widget<TChar>(std::basic_string<TChar>("PREFIX"), Colors::Secondary)}, Colors::None), // Prefix
             Widget<TChar>(WidgetLayout::Vertical, {Widget<TChar>()}, Colors::None), // Sep
             Widget<TChar>(WidgetLayout::Vertical, {Widget<TChar>(std::basic_string<TChar>("POSTFIX"), Colors::Secondary)}, Colors::None), // Postfix
+            Widget<TChar>(WidgetLayout::Vertical, {Widget<TChar>(std::basic_string<TChar>("MAX PRE"), Colors::Secondary)}, Colors::None), // Postfix
+            Widget<TChar>(WidgetLayout::Vertical, {Widget<TChar>(std::basic_string<TChar>("MIN POST"), Colors::Secondary)}, Colors::None), // Postfix
         }, Colors::None, Quad(), Quad(1,0,1,0));
 
         // Initialize the grid with empty cells
@@ -534,6 +536,8 @@ protected:
             rr_grid.at(2).add_child(Widget<TChar>(WidgetLayout::Horizontal, { Widget<TChar>("-") }, Colors::None)); // pre (should be an hbox)
             rr_grid.at(3).add_child(Widget<TChar>(std::basic_string<TChar>(":"))); // sep
             rr_grid.at(4).add_child(Widget<TChar>(WidgetLayout::Horizontal, { Widget<TChar>("-") }, Colors::None)); // post (should be an hbox)
+            rr_grid.at(5).add_child(Widget<TChar>(WidgetLayout::Horizontal, { Widget<TChar>("-") }, Colors::None)); // max pre (should be an hbox)
+            rr_grid.at(6).add_child(Widget<TChar>(WidgetLayout::Horizontal, { Widget<TChar>("-") }, Colors::None)); // min post (should be an hbox)
         });
 
         auto populate_grid = [&]<bool is_nt>(const auto& symbol_pairs){
@@ -568,19 +572,33 @@ protected:
                     {
                         //std::cout << "prefix : at " << row + 1 << " : symbol " << make_symbol(symbol)._content << " at " << pre << std::endl;
                         // initialize grid for the prefix
-                        for (int l = rr_grid.at(2).at(row+1)._children.size(); l <= pre + 1; l++)
-                            rr_grid.at(2).at(row+1).add_child(Widget<TChar>());
+                        for (int l = rr_grid.at(2).at(row+1)._children.size(); l <= pre; l++)
+                            rr_grid.at(2).at(row+1).add_child(Widget<TChar>(std::basic_string<TChar>(" ")));
                         rr_grid.at(2).at(row+1).at(pre).refresh(make_symbol(symbol));
+
+                        // Repeating pattern
+                        if (is_nt && pre % 2 != 0)
+                            rr_grid.at(2).at(row+1).at(pre)._color = Colors::Primary;
                     }
 
                     if (post_dist != max_t())
                     {
                         //std::cout << "postfix : at " << row + 1 << " : symbol " << make_symbol(symbol)._content << " at " << post << "(min_post : " << min_post << ")" << std::endl;
                         // initialize grid for the postfix
-                        for (int l = rr_grid.at(4).at(row+1)._children.size(); l <= post + 1; l++)
-                            rr_grid.at(4).at(row+1).add_child(Widget<TChar>());
+                        for (int l = rr_grid.at(4).at(row+1)._children.size(); l <= post; l++)
+                            rr_grid.at(4).at(row+1).add_child(Widget<TChar>(std::basic_string<TChar>(" ")));
                         rr_grid.at(4).at(row+1).at(post).refresh(make_symbol(symbol));
+
+                        // Repeating pattern
+                        if (is_nt && post % 2 != 0)
+                            rr_grid.at(4).at(row+1).at(post)._color = Colors::Primary;
                     }
+
+                    // add limits
+                    if (max_pre != 0)
+                        rr_grid.at(5).at(row+1).at(0).set_text(std::basic_string<TChar>(std::to_string(max_pre)));
+                    if (min_post != 0)
+                        rr_grid.at(6).at(row+1).at(0).set_text(std::basic_string<TChar>(std::to_string(min_post)));
                 });
             });
         };

@@ -171,6 +171,9 @@ public:
 
 
 
+                // TODO add end of input marker to ONLY consider full postfixes
+                // Also if we reduce some ambiguity and some CtxTODOs are resolved, we should re-run the previous checks
+                // TODO Do we actually handle CtxTODOs checks correctly with sequential next() calls?
                 // Is in prefix
                 if constexpr (!std::is_same_v<std::decay_t<decltype(pre)>, max_t>)
                 {
@@ -251,6 +254,8 @@ public:
                             {
                                 // we have already applied the ctx, unexpected behavior
                                 // ASSERT
+                                prettyprinter.guru_meditation("expected static postfix to match with runtime, got a mismatch", __FILE__, __LINE__);
+                                assert(postfix.fix + post != stack_size - 1 && "next() : guru meditation : expected static postfix to match with runtime, got a mismatch");
                             }
                             if (post_dist == 0)
                             {
