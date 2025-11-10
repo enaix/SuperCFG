@@ -232,6 +232,7 @@ namespace cfg_helpers
     template<bool dir_up, std::size_t pos, std::size_t i, class TDef, class TSymbol>
     constexpr auto rc1_rule_get_fix(const TDef& target, const TSymbol& symbol)
     {
+        // TODO check the assumption that only the first inclusion of the element should be returned
         if constexpr (is_operator<TSymbol>())
         {
             // Can we move to the next symbol?
@@ -243,6 +244,12 @@ namespace cfg_helpers
                 // At each step increase the pos and return if we find one encounter
                 // Descend into symbol
                 const auto res = rc1_rule_get_fix<dir_up, pos, 0>(target, std::get<i>(symbol.terms));
+                if constexpr (std::is_same_v<std::decay_t<decltype(res)>, std::false_type>)
+                {
+                    // AMBIGUOUS
+                    return res;
+                }
+
                 if constexpr (next && std::is_same_v<std::decay_t<decltype(res)>, std::tuple<>>)
                 {
                     // Target not found, check the next term in symbol
@@ -253,9 +260,12 @@ namespace cfg_helpers
             else if constexpr (get_operator<TSymbol>() == OpType::RepeatExact || get_operator<TSymbol>() == OpType::RepeatRange || get_operator<TSymbol>() == OpType::RepeatGE)
             {
                 if constexpr (get_range_from<TSymbol>() > 0)
+                {
                     // Get the FIRST entry
+                    return std::false_type{}; // disable this condition until the following is implemented
+                    // TODO JIC we need to repeat the element M times AND THEN quit
                     return rc1_rule_get_fix<dir_up, pos, 0>(target, std::get<0>(symbol.terms));
-                else return std::tuple<>();
+                } else return std::false_type{}; // AMBIGUOUS
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Group)
             {
@@ -266,7 +276,7 @@ namespace cfg_helpers
                     return rc1_rule_get_fix<dir_up, pos, 0>(target, std::get<0>(symbol.terms));
             }
             // Other symbols are not deterministic
-            else return std::tuple<>();
+            else return std::false_type{};
         }
         else if constexpr (is_nterm<TSymbol>())
         {
@@ -376,6 +386,7 @@ namespace cfg_helpers
     template<class TSymbol, class RRulesTuple, class NTermsMap>
     constexpr auto ctx_get_match_step(const TSymbol& def, const RRulesTuple& r_rules, const NTermsMap& nterms2defs)
     {
+        using max_t = std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>;
         auto fix_minmax = std::pair<std::size_t, std::size_t>(0, 0);
 
         const auto res = concat_each<std::tuple_size_v<std::decay_t<decltype(r_rules)>>, true>([&]<std::size_t i>(){
@@ -383,8 +394,8 @@ namespace cfg_helpers
             const auto& rule_def = std::get<1>(nterms2defs.get(rule_nterm)->terms);
 
             auto null_to_max = []<class TRes>(const TRes& res, auto found){
-                if constexpr (std::is_same_v<std::decay_t<TRes>, std::tuple<>>)
-                    return std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>{};
+                if constexpr (std::is_same_v<std::decay_t<TRes>, std::tuple<>> || std::is_same_v<std::decay_t<TRes>, std::false_type>) // Not found or ambiguous
+                    return max_t{};
                 else
                 {
                     found(res); // Update min/max prefix
@@ -392,7 +403,15 @@ namespace cfg_helpers
                 }
             };
 
+            auto max_to_0 = []<class Num>(Num num){
+                if constexpr (std::is_same_v<std::decay_t<Num>, max_t>)
+                    return std::integral_constant<std::size_t, 0>{};
+                else return num;
+            };
+
             // Warning: due to TermsRange symbol pos is still kind of ambiguous!
+            // fix limits calculation is also done here
+            // TODO fix limits calculations here
             const auto prefix = null_to_max(rc1_rule_get_fix<true, 0, 0>(def, rule_def),
                 [&](const auto pre){ fix_minmax.first = (pre > fix_minmax.first ? pre : fix_minmax.first); });
             const auto postfix = null_to_max(rc1_rule_get_fix<false, 0, std::tuple_size_v<std::decay_t<decltype(rule_def.terms)>> - 1>(def, rule_def),

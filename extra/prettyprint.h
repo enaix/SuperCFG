@@ -573,7 +573,7 @@ protected:
                         //std::cout << "prefix : at " << row + 1 << " : symbol " << make_symbol(symbol)._content << " at " << pre << std::endl;
                         // initialize grid for the prefix
                         for (int l = rr_grid.at(2).at(row+1)._children.size(); l <= pre; l++)
-                            rr_grid.at(2).at(row+1).add_child(Widget<TChar>(std::basic_string<TChar>(" ")));
+                            rr_grid.at(2).at(row+1).add_child(Widget<TChar>(std::basic_string<TChar>("?"), Colors::Accent3));
                         rr_grid.at(2).at(row+1).at(pre).refresh(make_symbol(symbol));
 
                         // Repeating pattern
@@ -586,7 +586,7 @@ protected:
                         //std::cout << "postfix : at " << row + 1 << " : symbol " << make_symbol(symbol)._content << " at " << post << "(min_post : " << min_post << ")" << std::endl;
                         // initialize grid for the postfix
                         for (int l = rr_grid.at(4).at(row+1)._children.size(); l <= post; l++)
-                            rr_grid.at(4).at(row+1).add_child(Widget<TChar>(std::basic_string<TChar>(" ")));
+                            rr_grid.at(4).at(row+1).add_child(Widget<TChar>(std::basic_string<TChar>("?"), Colors::Accent3));
                         rr_grid.at(4).at(row+1).at(post).refresh(make_symbol(symbol));
 
                         // Repeating pattern
