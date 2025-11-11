@@ -135,7 +135,7 @@ public:
                 const auto [max_pre, min_post] = fix_limits; // Get max prefix and min postfix in this rule
                 // Max pre/postfix -> ok, we successfully resolved the rule
                 // TODO fix fix_limits - they are calculated differently for nterms and terms
-                const auto post = min_post - post_dist; // Convert post from the distance to the end to an id
+                const auto post = (min_post - 1) - post_dist; // Convert post from the distance to the end to an id
                 // If there are no more matches even though we haven't reached the end of the fix, we apply context
 
                 // Get index of rule
@@ -197,7 +197,7 @@ public:
                                 }
 
                             }
-                            if (stack_size - 1 - prefix.fix == max_pre)
+                            if (stack_size - 1 - prefix.fix == (max_pre - 1))
                             {
                                 // we reached the end
                                 prefix.reset();
@@ -207,7 +207,7 @@ public:
                     else if (prefix_todo[rule_id] != max_t())
                     {
                         // use _todo as the starting pos
-                        // TODO add optional (if pre == max_pre -> apply)
+                        // TODO add optional (if pre == max_pre - 1 -> apply)
                         if (stack_size - 1 - prefix_todo[rule_id] == pre)
                         {
                             // FOUND
@@ -445,6 +445,8 @@ protected:
 template<class RulesDef, class RRTree, class NTermsMap, class TTermsTypeMap, class THeuristicsPre>
 constexpr auto make_ctx_manager(const RulesDef& rules, const RRTree& tree, const NTermsMap& nterms2defs, const TTermsTypeMap& terms_tmap, const THeuristicsPre& h_pre, auto& prettyprinter)
 {
+    const auto pairs = cfg_helpers::ctx_get_matches<0>(tree.defs, terms_tmap.nterms, terms_tmap.terms, tree.tree, nterms2defs);
+    //const auto pairs_nt = tuple_take_along_axis<0>()
     const auto pairs_nt = cfg_helpers::ctx_get_nterm_match<0>(tree.defs, tree.tree, nterms2defs);
     const auto pairs_t = cfg_helpers::ctx_get_term_match<0>(terms_tmap.terms, terms_tmap.nterms, nterms2defs);
     const auto defs_flatten = tuple_morph([&]<std::size_t i>(const auto& src){ return std::get<0>(std::get<i>(tree.defs).terms); }, tree.defs);
