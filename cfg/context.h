@@ -449,10 +449,12 @@ constexpr auto make_ctx_manager(const RulesDef& rules, const RRTree& tree, const
     //const auto pairs_nt = tuple_take_along_axis<0>()
     const auto pairs_nt = cfg_helpers::ctx_get_nterm_match<0>(tree.defs, tree.tree, nterms2defs);
     const auto pairs_t = cfg_helpers::ctx_get_term_match<0>(terms_tmap.terms, terms_tmap.nterms, nterms2defs);
+    const auto fix_limits = cfg_helpers::ctx_get_fix_limits<0>(tree.defs, pairs_nt, pairs_t);
 
     #if defined(DBG_PRINT_FIX_POS) && !defined(NO_DBG_PRINT_FIX_POS)
     static_assert(std::is_same_v<std::false_type, std::decay_t<decltype(pairs_nt)>>, "NTerms pairs; run the format_template_inst.py script with this template");
     static_assert(std::is_same_v<std::false_type, std::decay_t<decltype(pairs_t)>>, "Terms pairs; run the format_template_inst.py script with this template");
+    static_assert(std::is_same_v<std::false_type, std::decay_t<decltype(fix_limits)>>, "Fix limits; run the format_template_inst.py script with this template");
     #endif
 
     const auto defs_flatten = tuple_morph([&]<std::size_t i>(const auto& src){ return std::get<0>(std::get<i>(tree.defs).terms); }, tree.defs);

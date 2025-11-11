@@ -403,12 +403,6 @@ namespace cfg_helpers
                 }
             };
 
-            auto max_to_0 = []<class Num>(Num num){
-                if constexpr (std::is_same_v<std::decay_t<Num>, max_t>)
-                    return std::integral_constant<std::size_t, 0>{};
-                else return num;
-            };
-
             // Warning: due to TermsRange symbol pos is still kind of ambiguous!
             // fix limits calculation is also done here
             // TODO fix limits calculations here
@@ -465,10 +459,93 @@ namespace cfg_helpers
             return std::make_tuple(res_pair);
     }
 
+    /**
+     * @brief (Intermediate function) A helper function which finds the max prefix and postfix positions for a particular rule
+     * @param symbol The target rule (nterm)
+     * @param pre Initial max prefix (should be 0)
+     * @param post Initial max postfix (should be 0)
+     * @param pos NTermsPosPairs/TermsPosPairs tuple
+     */
+    template<std::size_t depth, class TRule, class MaxPre, class MaxPost, class Positions>
+    constexpr auto do_ctx_find_max_fix_in_rule(const TRule& symbol, const MaxPre& pre, const MaxPost& post, const Positions& pos)
+    {
+        const auto& pos_i = std::get<depth>(pos);
+
+        using CurElem = std::tuple_element_t<0, std::decay_t<decltype(pos_i)>>;
+        if constexpr (std::is_same_v<std::decay_t<TRule>, CurElem>)
+        {
+            const auto& cur_pre = std::get<0>(std::get<1>(pos_i));
+            const auto& cur_post = std::get<1>(std::get<1>(pos_i));
+
+            auto get_max_v = []<class Cur, class Old>(const Cur& cur, const Old& old){
+                constexpr auto CurV = std::decay_t<Cur>();
+                constexpr auto OldV = std::decay_t<Old>();
+                if constexpr (CurV != std::numeric_limits<std::size_t>::max() && OldV != std::numeric_limits<std::size_t>::max())
+                {
+                    if constexpr (CurV > OldV)
+                        return cur;
+                    else return old;
+                } else {
+                    if constexpr (CurV != std::numeric_limits<std::size_t>::max())
+                        return cur;
+                    else return old;
+                }
+            };
+
+            if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<Positions>>)
+                return do_ctx_find_max_fix_in_rule<depth+1>(symbol, get_max_v(cur_pre, pre), get_max_v(cur_post, post), pos);
+            else
+                return std::make_pair(get_max_v(cur_pre, pre), get_max_v(cur_post, post));
+
+        } else {
+            if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<Positions>>)
+                return do_ctx_find_max_fix_in_rule<depth+1>(symbol, pre, post, pos);
+            else
+                return std::make_pair(pre, post);
+        }
+    }
+
+
+    /**
+     * @brief A helper function which finds the max prefix and postfix positions for a particular rule
+     * @param symbol The target rule (nterm)
+     * @param pre Initial max prefix (should be 0)
+     * @param post Initial max postfix (should be 0)
+     * @param pos NTermsPosPairs/TermsPosPairs tuple
+     */
+    template<std::size_t depth, class TRule, class MaxPre, class MaxPost, class Positions>
+    constexpr auto ctx_find_max_fix_in_rule(const TRule& symbol, const MaxPre& pre, const MaxPost& post, const Positions& pos)
+    {
+        const auto fix_max = do_ctx_find_max_fix_in_rule<0>(symbol, pre, post, std::get<0>(std::get<depth>(pos)));
+        if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<Positions>>)
+        {
+            return ctx_find_max_fix_in_rule<depth+1>(symbol, std::get<0>(fix_max), std::get<1>(fix_max), pos);
+        } else {
+            return fix_max;
+        }
+    }
+
+    /**
+     * @brief Find max prefix and postfix positions for each rule
+     * @param defs Rule definitions
+     * @param pairs_nt Result from ctx_get_nterm_match
+     * @param pairs_t Result from ctx_get_term_match
+     */
     template<std::size_t depth, class TDefsTuple, class NTermsPosPairs, class TermsPosPairs>
     constexpr auto ctx_get_fix_limits(const TDefsTuple& defs, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t)
     {
         // Find all inclusions for a particular rule
+        const auto& def = std::get<0>(std::get<depth>(defs).terms);
+
+        // Get max fix for terms and nterms
+        using Null = std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>;
+        const auto& fix_max_nt = ctx_find_max_fix_in_rule<0>(def, Null{}, Null{}, pairs_nt);
+        const auto& fix_max = ctx_find_max_fix_in_rule<0>(def, std::get<0>(fix_max_nt), std::get<1>(fix_max_nt), pairs_t);
+
+        if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<TDefsTuple>>)
+            return std::tuple_cat(std::make_tuple(fix_max), ctx_get_fix_limits<depth+1>(defs, pairs_nt, pairs_t));
+        else
+            return std::make_tuple(fix_max);
     }
 
     template<class TSymbol, class TVisitedTuple, class TRuleTree>
