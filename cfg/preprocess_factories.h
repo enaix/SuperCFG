@@ -393,28 +393,21 @@ namespace cfg_helpers
             const auto& rule_nterm = std::get<i>(r_rules);
             const auto& rule_def = std::get<1>(nterms2defs.get(rule_nterm)->terms);
 
-            auto null_to_max = []<class TRes>(const TRes& res, auto found){
+            auto null_to_max = []<class TRes>(const TRes& res){
                 if constexpr (std::is_same_v<std::decay_t<TRes>, std::tuple<>> || std::is_same_v<std::decay_t<TRes>, std::false_type>) // Not found or ambiguous
                     return max_t{};
                 else
-                {
-                    found(res); // Update min/max prefix
                     return res;
-                }
             };
 
             // Warning: due to TermsRange symbol pos is still kind of ambiguous!
-            // fix limits calculation is also done here
-            // TODO fix limits calculations here
-            const auto prefix = null_to_max(rc1_rule_get_fix<true, 0, 0>(def, rule_def),
-                [&](const auto pre){ fix_minmax.first = (pre + 1 > fix_minmax.first ? pre + 1 : fix_minmax.first); });
-            const auto postfix = null_to_max(rc1_rule_get_fix<false, 0, std::tuple_size_v<std::decay_t<decltype(rule_def.terms)>> - 1>(def, rule_def),
-                [&](const auto post){ fix_minmax.second = (post + 1 > fix_minmax.second ? post + 1 : fix_minmax.second); });
+            const auto prefix = null_to_max(rc1_rule_get_fix<true, 0, 0>(def, rule_def));
+            const auto postfix = null_to_max(rc1_rule_get_fix<false, 0, std::tuple_size_v<std::decay_t<decltype(rule_def.terms)>> - 1>(def, rule_def));
 
             return std::make_tuple(std::make_pair(rule_nterm, std::make_pair(prefix, postfix)));
         });
 
-        return std::make_pair(res, fix_minmax);
+        return res;
     }
 
 
@@ -516,7 +509,7 @@ namespace cfg_helpers
     template<std::size_t depth, class TRule, class MaxPre, class MaxPost, class Positions>
     constexpr auto ctx_find_max_fix_in_rule(const TRule& symbol, const MaxPre& pre, const MaxPost& post, const Positions& pos)
     {
-        const auto fix_max = do_ctx_find_max_fix_in_rule<0>(symbol, pre, post, std::get<0>(std::get<depth>(pos)));
+        const auto fix_max = do_ctx_find_max_fix_in_rule<0>(symbol, pre, post, std::get<depth>(pos));
         if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<Positions>>)
         {
             return ctx_find_max_fix_in_rule<depth+1>(symbol, std::get<0>(fix_max), std::get<1>(fix_max), pos);

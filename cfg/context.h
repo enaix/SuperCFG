@@ -80,7 +80,7 @@ public:
 };
 
 
-template<class TMatches, class NTermsPosPairs, class TermsPosPairs, class TRules, class TTerms, class FullRRTree>
+template<class TMatches, class NTermsPosPairs, class TermsPosPairs, class TRules, class TTerms, class FullRRTree, class FixLimits>
 class ContextManager
 {
 public:
@@ -98,8 +98,9 @@ public:
     TRules rules; // all rules
     TTerms t_terms; // all terms
     FullRRTree rr_all;
+    FixLimits limits;
 
-    constexpr ContextManager(const TMatches& m, const NTermsPosPairs& p_nterm, const TermsPosPairs& p_term, const TRules& r, const TTerms& all_terms, const FullRRTree& rr_all) : matches(m), pos_nterm(p_nterm), pos_term(p_term), rules(r), t_terms(all_terms), rr_all(rr_all) {}
+    constexpr ContextManager(const TMatches& m, const NTermsPosPairs& p_nterm, const TermsPosPairs& p_term, const TRules& r, const TTerms& all_terms, const FullRRTree& rr_all, const FixLimits& limits) : matches(m), pos_nterm(p_nterm), pos_term(p_term), rules(r), t_terms(all_terms), rr_all(rr_all), limits(limits) {}
 
     /**
      * @brief Reset the context of the array. Should be performed at the start of parsing
@@ -123,23 +124,25 @@ public:
     {
         // Visit the explicit type. Note that it may return either an NTerm or
         g_symbol.with_types(symbols_ht, [&](const auto& symbol){
-            const auto& [related_types, fix_limits] = get_pos(symbol); /* fetch the value from *PosPairs */;
+            const auto& related_types = get_pos(symbol); /* fetch the value from *PosPairs */;
 
-            tuple_each(related_types, [&,fix_limits](std::size_t i, const auto& elem){
+            tuple_each(related_types, [&](std::size_t i, const auto& elem){
                 using max_t = std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>;
                 const auto& [rule, fix] = elem;
                 //const auto& fix = std::get<i>(fix_limits);
 
-                // Get the prefix and postfix positions
-                const auto [pre, post_dist] = fix;
-                const auto [max_pre, min_post] = fix_limits; // Get max prefix and min postfix in this rule
-                // Max pre/postfix -> ok, we successfully resolved the rule
-                // TODO fix fix_limits - they are calculated differently for nterms and terms
-                const auto post = (min_post - 1) - post_dist; // Convert post from the distance to the end to an id
-                // If there are no more matches even though we haven't reached the end of the fix, we apply context
-
                 // Get index of rule
                 constexpr std::size_t rule_id = get_ctx_index<0, std::decay_t<decltype(rule)>>();
+
+                // Get the prefix and postfix positions
+                const auto [pre, post_dist] = fix;
+                const auto [max_pre, min_post] = std::get<rule_id>(limits); // Get max prefix and min postfix in this rule
+                                                                            // MAY BE SIZE_T_MAX
+                // Max pre/postfix -> ok, we successfully resolved the rule
+                // TODO fix fix_limits - they are calculated differently for nterms and terms
+                const auto post = min_post - post_dist; // Convert post from the distance to the end to an id
+                // If there are no more matches even though we haven't reached the end of the fix, we apply context
+
                 // Get ctx for current rule
                 // const std::size_t ctx = context[rule_id];
 
@@ -197,7 +200,7 @@ public:
                                 }
 
                             }
-                            if (stack_size - 1 - prefix.fix == (max_pre - 1))
+                            if (stack_size - 1 - prefix.fix == max_pre)
                             {
                                 // we reached the end
                                 prefix.reset();
@@ -459,8 +462,8 @@ constexpr auto make_ctx_manager(const RulesDef& rules, const RRTree& tree, const
 
     const auto defs_flatten = tuple_morph([&]<std::size_t i>(const auto& src){ return std::get<0>(std::get<i>(tree.defs).terms); }, tree.defs);
     //static_assert(std::tuple_size_v<std::decay_t<decltype(tree.defs)>> == std::tuple_size_v<std::decay_t<decltype(pairs_nt)>>, "bad pairs_nt");
-    prettyprinter.init_ctx_classes(defs_flatten, h_pre.unique_rr, terms_tmap.terms, pairs_nt, pairs_t);
-    return ContextManager<decltype(defs_flatten), decltype(pairs_nt), decltype(pairs_t), decltype(h_pre.unique_rr), decltype(terms_tmap.terms), decltype(h_pre.full_rr)>(defs_flatten, pairs_nt, pairs_t, h_pre.unique_rr, terms_tmap.terms, h_pre.full_rr);
+    prettyprinter.init_ctx_classes(defs_flatten, h_pre.unique_rr, terms_tmap.terms, pairs_nt, pairs_t, fix_limits);
+    return ContextManager<decltype(defs_flatten), decltype(pairs_nt), decltype(pairs_t), decltype(h_pre.unique_rr), decltype(terms_tmap.terms), decltype(h_pre.full_rr), decltype(fix_limits)>(defs_flatten, pairs_nt, pairs_t, h_pre.unique_rr, terms_tmap.terms, h_pre.full_rr, fix_limits);
 }
 
 

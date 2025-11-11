@@ -122,12 +122,21 @@ This structure is used in heuristic context analyzer. Each term and nterm is map
 ```
 # for nterms, same structure for terms
 tuple<
-  tuple<  # <- NTERM 1
-    tuple<pair<RULE_i, pair<pre, post>>, ...>,  # <- several rules 
+  # NTERM/TERM 1
+  tuple<pair<RULE_i, pair<pre, post>>, ...>,  # <- several rules 
+
+  # NTERM/TERM 2
+  tuple<pair<RULE_i, pair<pre, post>>, ...>,  # <- several rules 
+  ...
+>
+
+# prefix/postfix limits
+tuple<
+  pair< # NTERM 1
+    IC<A>, # max prefix
+    IC<B>  # max postfix
   >,
-  tuple<  # <- NTERM 2
-    tuple<pair<RULE_i, pair<pre, post>>, ...>,  # <- several rules 
-  >,
+  ...
 >
 ```
 

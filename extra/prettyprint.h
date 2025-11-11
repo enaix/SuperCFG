@@ -155,10 +155,10 @@ public:
     }
 
 
-    template<class TMatches, class TRules, class AllTerms, class NTermsPosPairs, class TermsPosPairs>
-    void init_ctx_classes(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t)
+    template<class TMatches, class TRules, class AllTerms, class NTermsPosPairs, class TermsPosPairs, class FixLimits>
+    void init_ctx_classes(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t, const FixLimits& limits)
     {
-        _fix = make_rules_fix(rules, all_rr, all_t, pairs_nt, pairs_t);
+        _fix = make_rules_fix(rules, all_rr, all_t, pairs_nt, pairs_t, limits);
     }
 
     bool process() // Returns true if the stack can progress further
@@ -503,8 +503,8 @@ protected:
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
 
-    template<class TMatches, class TRules, class AllTerms, class NTermsPosPairs, class TermsPosPairs>
-    Widget<TChar> make_rules_fix(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t)
+    template<class TMatches, class TRules, class AllTerms, class NTermsPosPairs, class TermsPosPairs, class FixLimits>
+    Widget<TChar> make_rules_fix(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t, const FixLimits& limits)
     {
         // Each of these classes contains an element and its position in a rule
 
@@ -540,7 +540,7 @@ protected:
         });
 
         auto populate_grid = [&]<bool is_nt>(const auto& symbol_pairs){
-            tuple_each_idx(symbol_pairs, [&]<std::size_t i>(const auto& elem){
+            tuple_each_idx(symbol_pairs, [&]<std::size_t i>(const auto& related_types){
                 const auto& symbol = [&](){
                     if constexpr (is_nt)
                         // fetch from rules
@@ -549,16 +549,16 @@ protected:
                         return std::get<i>(all_t);
                 }();
 
-                const auto& [related_types, fix_limits] = elem;
 
-                auto process = [&,fix_limits](std::size_t j, const auto& pack){
+                auto process = [&](std::size_t j, const auto& pack){
                     using max_t = std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>;
                     const auto& [rule, fix] = pack;
                     const auto [pre, post_dist] = fix;
-                    const auto [max_pre, min_post] = fix_limits; // Get max prefix and min postfix in this rule
+                    //const auto [max_pre, min_post] = fix_limits; // Get max prefix and min postfix in this rule
                     const auto post = post_dist; // Convert post from the distance to the end to an id
 
                     constexpr std::size_t row = tuple_index_of<TMatches, decltype(rule)>();
+                    const auto [max_pre, min_post] = std::get<row>(limits); // Get max prefix and min postfix in this rule
                     if constexpr (row == std::numeric_limits<std::size_t>::max())
                     {
                         rr_grid.at(0).add_child(make_nterm(rule));
@@ -594,9 +594,9 @@ protected:
                     }
 
                     // add limits
-                    if (max_pre != 0)
+                    if (max_pre != max_t{})
                         rr_grid.at(5).at(row+1).at(0).set_text(std::basic_string<TChar>(std::to_string(max_pre)));
-                    if (min_post != 0)
+                    if (min_post != max_t{})
                         rr_grid.at(6).at(row+1).at(0).set_text(std::basic_string<TChar>(std::to_string(min_post)));
                 };
 
