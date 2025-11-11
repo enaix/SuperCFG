@@ -156,9 +156,9 @@ public:
 
 
     template<class TMatches, class TRules, class AllTerms, class NTermsPosPairs, class TermsPosPairs>
-    void init_ctx_classes(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& nt_pairs, const TermsPosPairs& t_pairs)
+    void init_ctx_classes(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t)
     {
-        _fix = make_rules_fix(rules, all_rr, all_t, nt_pairs, t_pairs);
+        _fix = make_rules_fix(rules, all_rr, all_t, pairs_nt, pairs_t);
     }
 
     bool process() // Returns true if the stack can progress further
@@ -504,11 +504,10 @@ protected:
     }
 
     template<class TMatches, class TRules, class AllTerms, class NTermsPosPairs, class TermsPosPairs>
-    Widget<TChar> make_rules_fix(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& nt_pairs, const TermsPosPairs& t_pairs)
+    Widget<TChar> make_rules_fix(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t)
     {
         // Each of these classes contains an element and its position in a rule
 
-        //static_assert(std::is_same_v<std::false_type, std::decay_t<TRules>>, "ok");
         #ifdef ENABLE_SUPERCFG_DIAG
         SuperCFGDiagnostics::get().print_template_type(nt_pairs, "[NTerm cached class]");
         #endif
@@ -542,7 +541,6 @@ protected:
 
         auto populate_grid = [&]<bool is_nt>(const auto& symbol_pairs){
             tuple_each_idx(symbol_pairs, [&]<std::size_t i>(const auto& elem){
-
                 const auto& symbol = [&](){
                     if constexpr (is_nt)
                         // fetch from rules
@@ -552,7 +550,8 @@ protected:
                 }();
 
                 const auto& [related_types, fix_limits] = elem;
-                tuple_each(related_types, [&,fix_limits](std::size_t j, const auto& pack){
+
+                auto process = [&,fix_limits](std::size_t j, const auto& pack){
                     using max_t = std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>;
                     const auto& [rule, fix] = pack;
                     const auto [pre, post_dist] = fix;
@@ -599,11 +598,13 @@ protected:
                         rr_grid.at(5).at(row+1).at(0).set_text(std::basic_string<TChar>(std::to_string(max_pre)));
                     if (min_post != 0)
                         rr_grid.at(6).at(row+1).at(0).set_text(std::basic_string<TChar>(std::to_string(min_post)));
-                });
+                };
+
+                tuple_each(related_types, process);
             });
         };
-        populate_grid.template operator()<true>(nt_pairs);
-        populate_grid.template operator()<false>(t_pairs);
+        populate_grid.template operator()<true>(pairs_nt);
+        populate_grid.template operator()<false>(pairs_t);
 
         // quick fix: reverse postfixes
         for (std::size_t i = 0; i < rr_grid.at(4)._children.size(); i++)

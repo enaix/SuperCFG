@@ -425,7 +425,7 @@ namespace cfg_helpers
 
 
     /**
-     * @brief Iterate over each nterm, get the related rules and find the starting position in prefix and postfix. Also includes max prefix and min postfix positions. NOTE: it should be called using ctx_get_matches to calculate fix_minmax
+     * @brief Iterate over each nterm, get the related rules and find the starting position in prefix and postfix. Also includes max prefix and min postfix positions
      * @param defs RRTree defs tuple
      * @param rules RRTree rules tuple
      * @param nterms2defs NTerms to definitions mapping
@@ -433,7 +433,6 @@ namespace cfg_helpers
     template<std::size_t depth, class TDefsTuple, class TRuleTree, class NTermsMap>
     constexpr auto ctx_get_nterm_match(const TDefsTuple& defs, const TRuleTree& rules, const NTermsMap& nterms2defs)
     {
-        // NOTE: use ctx_get_matches instead
         const auto& def = std::get<0>(std::get<depth>(defs).terms);
         const auto& r_rules = std::get<depth>(rules);
 
@@ -455,53 +454,22 @@ namespace cfg_helpers
     template<std::size_t depth, class TTermsTuple, class TDefsTuple, class NTermsMap>
     constexpr auto ctx_get_term_match(const TTermsTuple& terms, const TDefsTuple& nterms, const NTermsMap& nterms2defs)
     {
-        // NOTE: use ctx_get_matches instead
         const auto& def = std::get<depth>(terms);
         const auto& r_rules = std::get<depth>(nterms);
 
         const auto res_pair = ctx_get_match_step(def, r_rules, nterms2defs);
 
-        if constexpr (depth + 1 < std::tuple_size_v<TDefsTuple>)
+        if constexpr (depth + 1 < std::tuple_size_v<TTermsTuple>)
             return std::tuple_cat(std::make_tuple(res_pair), ctx_get_term_match<depth+1>(terms, nterms, nterms2defs));
         else
             return std::make_tuple(res_pair);
     }
 
-
-    /**
-     * @brief Same as ctx_get_*term_match, but calculates fix positions for both nterms and terms. Finds correct fix limits, unlike individual ctx_get_*term_match calls
-     * @param defs RRTree defs tuple
-     * @param nterms TermsTypeMap nterms (rules)
-     * @param terms TermsTypeMap terms
-     * @param rules RRTree rules tuple
-     * @param nterms2defs NTerms to definitions mapping
-     */
-    template<std::size_t depth, class TDefsTuple, class TNTermsTuple, class TTermsTuple, class TRuleTree, class NTermsMap>
-    constexpr auto ctx_get_matches(const TDefsTuple& defs, const TNTermsTuple& nterms, const TTermsTuple& terms, const TRuleTree& rules, const NTermsMap& nterms2defs)
+    template<std::size_t depth, class TDefsTuple, class NTermsPosPairs, class TermsPosPairs>
+    constexpr auto ctx_get_fix_limits(const TDefsTuple& defs, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t)
     {
-        /* ctx_get_nterm_match */
-        const auto& def_nt = std::get<0>(std::get<depth>(defs).terms);
-        const auto& r_rules_nt = std::get<depth>(rules);
-
-        const auto res_pair_nt = ctx_get_match_step(def_nt, r_rules_nt, nterms2defs);
-
-        /* ctx_get_term_match */
-        const auto& def_t = std::get<depth>(terms);
-        const auto& r_rules_t = std::get<depth>(nterms);
-
-        const auto res_pair_t = ctx_get_match_step(def_t, r_rules_t, nterms2defs);
-
-
-        const auto fix_max = std::make_pair(std::max(std::get<0>(std::get<1>(res_pair_nt)), std::get<0>(std::get<1>(res_pair_t))),
-                                            std::max(std::get<1>(std::get<1>(res_pair_nt)), std::get<1>(std::get<1>(res_pair_t))));
-        const auto res_pair = std::make_tuple(std::get<0>(res_pair_nt), std::get<0>(res_pair_t), fix_max);
-
-        if constexpr (depth + 1 < std::tuple_size_v<TDefsTuple>)
-            return std::tuple_cat(std::make_tuple(res_pair), ctx_get_matches<depth+1>(defs, nterms, terms, rules, nterms2defs));
-        else
-            return std::make_tuple(res_pair);
+        // Find all inclusions for a particular rule
     }
-
 
     template<class TSymbol, class TVisitedTuple, class TRuleTree>
     constexpr auto rc1_full_rrtree_recurse(const TSymbol& symbol, const TVisitedTuple& visited, const TRuleTree& rules)

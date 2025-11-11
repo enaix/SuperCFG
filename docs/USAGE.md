@@ -106,3 +106,29 @@ static_assert(cs<expected>() == root, "Grammar has changed!");
 ```
 
 The serialization also supports automatic operators grouping by analyzing their order.
+
+## Debugger
+
+**TODO describe how to use the debugger**
+
+## Troubleshooting
+
+You may use the following compilation flags in order to inspect the intermediate parser generator structures.
+
+### Prefix/postfix structure
+
+This structure is used in heuristic context analyzer. Each term and nterm is mapped to the list of prefix and postfix positions in rules:
+
+```
+# for nterms, same structure for terms
+tuple<
+  tuple<  # <- NTERM 1
+    tuple<pair<RULE_i, pair<pre, post>>, ...>,  # <- several rules 
+  >,
+  tuple<  # <- NTERM 2
+    tuple<pair<RULE_i, pair<pre, post>>, ...>,  # <- several rules 
+  >,
+>
+```
+
+The debug logging can be enabled with `-DCMAKE_CXX_FLAGS=-DDBG_PRINT_FIX_POS` and overriden with `-DCMAKE_CXX_FLAGS=-DNO_DBG_PRINT_FIX_POS`. Print the indented template using `python3 format_template_inst.py -k 3 PATH_TO_FILE_WITH_TEMPLATE`
