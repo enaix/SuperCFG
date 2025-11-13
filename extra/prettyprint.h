@@ -573,7 +573,10 @@ protected:
                             // initialize grid for the prefix
                             for (int l = rr_grid.at(2).at(row+1)._children.size(); l <= pre; l++)
                                 rr_grid.at(2).at(row+1).add_child(Widget<TChar>(std::basic_string<TChar>("?"), Colors::Accent3));
-                            rr_grid.at(2).at(row+1).at(pre).refresh(make_symbol(symbol));
+                            auto& elem = rr_grid.at(2).at(row+1).at(pre);
+                            if (!(elem._content == "?" || elem._content == "-"))
+                                guru_meditation("make_rules_fix() : overlapping fix rules found", __FILE__, __LINE__);
+                            elem.refresh(make_symbol(symbol));
 
                             // Repeating pattern
                             if (is_nt && pre % 2 != 0)
@@ -589,7 +592,10 @@ protected:
                             // initialize grid for the postfix
                             for (int l = rr_grid.at(4).at(row+1)._children.size(); l <= post; l++)
                                 rr_grid.at(4).at(row+1).add_child(Widget<TChar>(std::basic_string<TChar>("?"), Colors::Accent3));
-                            rr_grid.at(4).at(row+1).at(post).refresh(make_symbol(symbol));
+                            auto& elem = rr_grid.at(4).at(row+1).at(post);
+                            if (!(elem._content == "?" || elem._content == "-"))
+                                guru_meditation("make_rules_fix() : overlapping fix rules found", __FILE__, __LINE__);
+                            elem.refresh(make_symbol(symbol));
 
                             // Repeating pattern
                             if (is_nt && post % 2 != 0)
@@ -715,6 +721,7 @@ protected:
             Widget<TChar>(std::basic_string<TChar>("GURU MEDITATION"), Colors::Primary, Quad(1,0,1,0)),
             Widget<TChar>(std::basic_string<TChar>(message), Colors::Primary, Quad(1,0,1,0)),
             Widget<TChar>(std::basic_string<TChar>("at ") + std::basic_string<TChar>(file) + ':' + std::basic_string<TChar>(std::to_string(line)), Colors::Primary, Quad(1,0,1,0)),
+            Widget<TChar>(std::basic_string<TChar>("Please submit the issue to https://github.com/enaix/SuperCFG with the grammar and parser input"), Colors::Primary, Quad(1,0,1,0)),
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
 
         Widget<TChar> abort_btn(std::basic_string<TChar>("<ABORT>"), Colors::Primary, Quad(1,1,1,1));
@@ -854,6 +861,7 @@ protected:
 
     bool handle_mode(const char input, int last_char) // handled = true means that we shouldn't handle the event further
     {
+        // TODO move the keybinds to defines
         if (_mode == PrinterMode::Normal && last_char == 17) [[unlikely]]
             {
                 if (input == 10 || input == 'y' || input == 'Y')

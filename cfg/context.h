@@ -140,11 +140,6 @@ public:
                                                                             // MAY BE SIZE_T_MAX
                 // Max pre/postfix -> ok, we successfully resolved the rule
 
-                // TODO implement the algorithm for multiple possible positions
-                const auto& pre = std::get<0>(pre_elems);
-                const auto& post_dist = std::get<0>(post_dist_elems);
-
-                const auto post = min_post - post_dist; // Convert post from the distance to the end to an id
                 // If there are no more matches even though we haven't reached the end of the fix, we apply context
 
                 // Get ctx for current rule
@@ -181,6 +176,7 @@ public:
                 // TODO add end of input marker to ONLY consider full postfixes
                 // Also if we reduce some ambiguity and some CtxTODOs are resolved, we should re-run the previous checks
                 // TODO Do we actually handle CtxTODOs checks correctly with sequential next() calls?
+                tuple_each(pre_elems, [&](std::size_t k, const auto& pre){
                 // Is in prefix
                 if constexpr (!std::is_same_v<std::decay_t<decltype(pre)>, max_t>)
                 {
@@ -243,8 +239,12 @@ public:
                         }
                     }
                 }
+                }); // each prefix position
 
                 // Is in postfix
+                tuple_each(post_dist_elems, [&](std::size_t k, const auto& post_dist){
+                const auto post = min_post - post_dist; // Convert post from the distance to the end to an id
+
                 if constexpr (!std::is_same_v<std::decay_t<decltype(post_dist)>, max_t>)
                 {
                     // we can also perform additional end-of-stack check (does the prefix+postfix fit?)
@@ -298,6 +298,7 @@ public:
                         }
                     }
                 }
+                }); // each postfix position
             }); // each possible position
         }); // each type candidate
 
