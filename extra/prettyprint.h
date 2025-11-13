@@ -553,9 +553,8 @@ protected:
                 auto process = [&](std::size_t j, const auto& pack){
                     using max_t = std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>;
                     const auto& [rule, fix] = pack;
-                    const auto [pre, post_dist] = fix;
+                    const auto [pre_elems, post_dist_elems] = fix;
                     //const auto [max_pre, min_post] = fix_limits; // Get max prefix and min postfix in this rule
-                    const auto post = post_dist; // Convert post from the distance to the end to an id
 
                     constexpr std::size_t row = tuple_index_of<TMatches, decltype(rule)>();
                     const auto [max_pre, min_post] = std::get<row>(limits); // Get max prefix and min postfix in this rule
@@ -567,31 +566,36 @@ protected:
                     }
                     // find grid positions
 
-                    if (pre != max_t())
-                    {
-                        //std::cout << "prefix : at " << row + 1 << " : symbol " << make_symbol(symbol)._content << " at " << pre << std::endl;
-                        // initialize grid for the prefix
-                        for (int l = rr_grid.at(2).at(row+1)._children.size(); l <= pre; l++)
-                            rr_grid.at(2).at(row+1).add_child(Widget<TChar>(std::basic_string<TChar>("?"), Colors::Accent3));
-                        rr_grid.at(2).at(row+1).at(pre).refresh(make_symbol(symbol));
+                    tuple_each(pre_elems, [&](std::size_t k, const auto& pre){
+                        if (pre != max_t())
+                        {
+                            //std::cout << "prefix : at " << row + 1 << " : symbol " << make_symbol(symbol)._content << " at " << pre << std::endl;
+                            // initialize grid for the prefix
+                            for (int l = rr_grid.at(2).at(row+1)._children.size(); l <= pre; l++)
+                                rr_grid.at(2).at(row+1).add_child(Widget<TChar>(std::basic_string<TChar>("?"), Colors::Accent3));
+                            rr_grid.at(2).at(row+1).at(pre).refresh(make_symbol(symbol));
 
-                        // Repeating pattern
-                        if (is_nt && pre % 2 != 0)
-                            rr_grid.at(2).at(row+1).at(pre)._color = Colors::Primary;
-                    }
+                            // Repeating pattern
+                            if (is_nt && pre % 2 != 0)
+                                rr_grid.at(2).at(row+1).at(pre)._color = Colors::Primary;
+                        }
+                    });
 
-                    if (post_dist != max_t())
-                    {
-                        //std::cout << "postfix : at " << row + 1 << " : symbol " << make_symbol(symbol)._content << " at " << post << "(min_post : " << min_post << ")" << std::endl;
-                        // initialize grid for the postfix
-                        for (int l = rr_grid.at(4).at(row+1)._children.size(); l <= post; l++)
-                            rr_grid.at(4).at(row+1).add_child(Widget<TChar>(std::basic_string<TChar>("?"), Colors::Accent3));
-                        rr_grid.at(4).at(row+1).at(post).refresh(make_symbol(symbol));
+                    tuple_each(post_dist_elems, [&](std::size_t k, const auto& post_dist){
+                        const auto post = post_dist; // Convert post from the distance to the end to an id
+                        if (post_dist != max_t())
+                        {
+                            //std::cout << "postfix : at " << row + 1 << " : symbol " << make_symbol(symbol)._content << " at " << post << "(min_post : " << min_post << ")" << std::endl;
+                            // initialize grid for the postfix
+                            for (int l = rr_grid.at(4).at(row+1)._children.size(); l <= post; l++)
+                                rr_grid.at(4).at(row+1).add_child(Widget<TChar>(std::basic_string<TChar>("?"), Colors::Accent3));
+                            rr_grid.at(4).at(row+1).at(post).refresh(make_symbol(symbol));
 
-                        // Repeating pattern
-                        if (is_nt && post % 2 != 0)
-                            rr_grid.at(4).at(row+1).at(post)._color = Colors::Primary;
-                    }
+                            // Repeating pattern
+                            if (is_nt && post % 2 != 0)
+                                rr_grid.at(4).at(row+1).at(post)._color = Colors::Primary;
+                        }
+                    });
 
                     // add limits
                     if (max_pre != max_t{})

@@ -224,15 +224,15 @@ namespace cfg_helpers
     // reducibility checker
 
     /**
-     * @brief Get position of a symbol in the prefix or postfix of a given rule. (Pre/Post)fix is a sequence of symbols which is always present at a particular position. If a symbol always occurs more than once, only the first match is resolved
+     * @brief Get all positions of a symbol in the prefix or postfix of a given rule. (Pre/Post)fix is a sequence of symbols which is always present at a particular position.
      * @tparam dir_up Up (true) - prefix, down (false) - postfix
      * @param target Symbol to check
      * @param symbol Symbol to descend into
+     * @param poss Tuple containing positions (result)
      */
-    template<bool dir_up, std::size_t pos, std::size_t i, class TDef, class TSymbol>
-    constexpr auto rc1_rule_get_fix(const TDef& target, const TSymbol& symbol)
+    template<bool dir_up, std::size_t pos, std::size_t i, class TDef, class TSymbol, class Positions>
+    constexpr auto ctx_rule_get_fix(const TDef& target, const TSymbol& symbol, const Positions& poss)
     {
-        // TODO check the assumption that only the first inclusion of the element should be returned
         if constexpr (is_operator<TSymbol>())
         {
             // Can we move to the next symbol?
@@ -243,52 +243,83 @@ namespace cfg_helpers
             {
                 // At each step increase the pos and return if we find one encounter
                 // Descend into symbol
-                const auto res = rc1_rule_get_fix<dir_up, pos, 0>(target, std::get<i>(symbol.terms));
-                if constexpr (std::is_same_v<std::decay_t<decltype(res)>, std::false_type>)
+                const auto res = ctx_rule_get_fix<dir_up, pos, 0>(target, std::get<i>(symbol.terms), poss);
+                if constexpr (std::is_same_v<std::decay_t<decltype(std::get<1>(res))>, std::false_type>)
                 {
                     // AMBIGUOUS
                     return res;
+                } else {
+                    if constexpr (next)
+                    {
+                        // Check the next term in symbol
+                        constexpr std::size_t new_pos = std::decay_t<decltype(std::get<2>(res))>::value;
+                        return ctx_rule_get_fix<dir_up, new_pos, i_next>(target, symbol, std::get<0>(res));
+                    } else return res;
                 }
-
-                if constexpr (next && std::is_same_v<std::decay_t<decltype(res)>, std::tuple<>>)
-                {
-                    // Target not found, check the next term in symbol
-                    return rc1_rule_get_fix<dir_up, pos+1, i_next>(target, symbol);
-                } else return res;
             }
             // Only deterministic prefix or postfix is Concat and repeat with M >= 1
             else if constexpr (get_operator<TSymbol>() == OpType::RepeatExact || get_operator<TSymbol>() == OpType::RepeatRange || get_operator<TSymbol>() == OpType::RepeatGE)
             {
-                if constexpr (get_range_from<TSymbol>() > 0)
+                // Doesn't handle the case when RepeatRange <N,N>
+                // Check if it's non-ambiguous from the prefix OR it's non-ambiguous from both ends (RepeatExact)
+                if constexpr ((dir_up || get_operator<TSymbol>() == OpType::RepeatExact) && get_range_from<TSymbol>() > 0)
                 {
                     // Get the FIRST entry
-                    return std::false_type{}; // disable this condition until the following is implemented
-                    // TODO JIC we need to repeat the element M times AND THEN quit
-                    return rc1_rule_get_fix<dir_up, pos, 0>(target, std::get<0>(symbol.terms));
-                } else return std::false_type{}; // AMBIGUOUS
+                    //return std::false_type{}; // disable this condition until the following is implemented
+                    const auto res = ctx_rule_get_fix<dir_up, pos, 0>(target, std::get<0>(symbol.terms), poss);
+                    if constexpr (std::is_same_v<std::decay_t<decltype(std::get<1>(res))>, std::false_type>)
+                    {
+                        // AMBIGUOUS
+                        return res;
+                    } else {
+                        // The symbol is fully determenistic, so we can repeat the sequence
+                        // Inefficient method, but it's an edge case
+                        if constexpr (i + 1 <= get_range_from<TSymbol>()) // TODO check that <= is correct
+                        {
+                            // Still less than M
+                            constexpr std::size_t new_pos = std::decay_t<decltype(std::get<2>(res))>::value;
+                            return ctx_rule_get_fix<dir_up, new_pos, i+1>(target, symbol, std::get<0>(res));
+                        } else {
+                            if constexpr (get_operator<TSymbol>() == OpType::RepeatExact)
+                                return std::make_tuple(poss, std::true_type{}, pos); // Not ambiguous, since it's exactly N times
+                            else
+                                return std::make_tuple(poss, std::false_type{}, pos); // AMBIGUOUS
+                        }
+                    }
+                } else return std::make_pair(poss, std::false_type{}); // AMBIGUOUS
             }
             else if constexpr (get_operator<TSymbol>() == OpType::Group)
             {
                 // Check only the first symbol
                 if constexpr (std::tuple_size_v<std::decay_t<decltype(symbol.terms)>> == 0)
-                    return std::tuple<>();
+                    return std::make_tuple(poss, std::true_type{}, pos);
                 else
-                    return rc1_rule_get_fix<dir_up, pos, 0>(target, std::get<0>(symbol.terms));
+                    return ctx_rule_get_fix<dir_up, pos, 0>(target, std::get<0>(symbol.terms));
             }
             // Other symbols are not deterministic
-            else return std::false_type{};
+            else return std::make_tuple(poss, std::false_type{}, pos);
         }
         else if constexpr (is_nterm<TSymbol>())
         {
+            const auto next_elem = std::integral_constant<std::size_t, pos + 1>{};
             if constexpr (std::is_same_v<std::decay_t<TDef>, std::decay_t<TSymbol>>)
-                return std::integral_constant<std::size_t, pos>{}; // We do not need to wrap it into a tuple
-            else
-                return std::tuple<>();
+            {
+                const auto new_elem = std::integral_constant<std::size_t, pos>{};
+                return std::make_tuple(std::tuple_cat(poss, std::make_tuple(new_elem)), std::true_type{}, next_elem);
+            } else {
+                return std::make_tuple(poss, std::true_type{}, next_elem);
+            }
         } else {
+            const auto next_elem = std::integral_constant<std::size_t, pos + 1>{};
             // We need to handle cases when target is a range
             if constexpr (terms_intersect_v<std::decay_t<TDef>, std::decay_t<TSymbol>>)
-                return std::integral_constant<std::size_t, pos>{};
-            else return std::tuple<>(); // No intersection or target is an nterm
+            {
+                const auto new_elem = std::integral_constant<std::size_t, pos>{};
+                return std::make_tuple(std::tuple_cat(poss, std::make_tuple(new_elem)), std::true_type{}, next_elem);
+            } else {
+                // No intersection or target is an nterm
+                return std::make_tuple(poss, std::true_type{}, next_elem);
+            }
         }
     }
 
@@ -395,14 +426,14 @@ namespace cfg_helpers
 
             auto null_to_max = []<class TRes>(const TRes& res){
                 if constexpr (std::is_same_v<std::decay_t<TRes>, std::tuple<>> || std::is_same_v<std::decay_t<TRes>, std::false_type>) // Not found or ambiguous
-                    return max_t{};
+                    return std::make_tuple(max_t{});
                 else
                     return res;
             };
 
             // Warning: due to TermsRange symbol pos is still kind of ambiguous!
-            const auto prefix = null_to_max(rc1_rule_get_fix<true, 0, 0>(def, rule_def));
-            const auto postfix = null_to_max(rc1_rule_get_fix<false, 0, std::tuple_size_v<std::decay_t<decltype(rule_def.terms)>> - 1>(def, rule_def));
+            const auto prefix = null_to_max(std::get<0>(ctx_rule_get_fix<true, 0, 0>(def, rule_def, std::make_tuple())));
+            const auto postfix = null_to_max(std::get<0>(ctx_rule_get_fix<false, 0, std::tuple_size_v<std::decay_t<decltype(rule_def.terms)>> - 1>(def, rule_def, std::make_tuple())));
 
             return std::make_tuple(std::make_pair(rule_nterm, std::make_pair(prefix, postfix)));
         });
@@ -467,9 +498,6 @@ namespace cfg_helpers
         using CurElem = std::tuple_element_t<0, std::decay_t<decltype(pos_i)>>;
         if constexpr (std::is_same_v<std::decay_t<TRule>, CurElem>)
         {
-            const auto& cur_pre = std::get<0>(std::get<1>(pos_i));
-            const auto& cur_post = std::get<1>(std::get<1>(pos_i));
-
             auto get_max_v = []<class Cur, class Old>(const Cur& cur, const Old& old){
                 constexpr auto CurV = std::decay_t<Cur>();
                 constexpr auto OldV = std::decay_t<Old>();
@@ -484,6 +512,14 @@ namespace cfg_helpers
                     else return old;
                 }
             };
+
+            auto tuple_max = [&]<std::size_t i, class Cur, class Old>(const Cur& cur, const Old& old){
+                return get_max_v(cur, old);
+            };
+
+            using max_t = std::integral_constant<std::size_t, std::numeric_limits<std::size_t>::max()>;
+            const auto cur_pre = tuple_pairwise(std::get<0>(std::get<1>(pos_i)), max_t{}, tuple_max);
+            const auto cur_post = tuple_pairwise(std::get<1>(std::get<1>(pos_i)), max_t{}, tuple_max);
 
             if constexpr (depth + 1 < std::tuple_size_v<std::decay_t<Positions>>)
                 return do_ctx_find_max_fix_in_rule<depth+1>(symbol, get_max_v(cur_pre, pre), get_max_v(cur_post, post), pos);

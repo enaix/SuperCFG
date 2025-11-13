@@ -123,10 +123,11 @@ This structure is used in heuristic context analyzer. Each term and nterm is map
 # for nterms, same structure for terms
 tuple<
   # NTERM/TERM 1
-  tuple<pair<RULE_i, pair<pre, post>>, ...>,  # <- several rules 
+  tuple<pair<RULE_i, pair<tuple<pre1, ...>, tuple<post1, ...>>>, # RULE, {{prefix1, prefix2, ...}, {postfix1, postfix2, ...}} - can be multiple positions
+    pair<RULE_j, pair<tuple<pre1, ...>, tuple<post1, ...>>>>,  # <- several rules 
 
   # NTERM/TERM 2
-  tuple<pair<RULE_i, pair<pre, post>>, ...>,  # <- several rules 
+  tuple<pair<RULE_i, pair<tuple<...>, tuple<...>>>, ...>,  # <- several rules 
   ...
 >
 

@@ -84,6 +84,19 @@ namespace cfg_helpers
         return std::make_tuple(gen_func.template operator()<Ints>()...);
     }
 
+    template<class T, T Step, T Start, T I, T End, T... integers>
+    struct range_helper
+    {
+
+        using type = typename range_helper<T, Step, Start, I + 1, End, integers..., Start + I * Step>::type;
+    };
+
+    template<class T, T Step, T Start, T End, T... integers>
+    struct range_helper<T, Step, Start, End, End, integers...>
+    {
+        using type = std::integer_sequence<T, integers...>;
+    };
+
     template<std::size_t depth, class Tuple>
     constexpr void do_tuple_each(const Tuple& tuple, auto each_elem)
     {
@@ -449,6 +462,16 @@ namespace cfg_helpers
                 return do_tuple_pairwise_collapse(std::tuple_cat(collapsed, std::make_tuple(next)), tup_slice.template operator()<1, std::tuple_size_v<ToCollapse>>(rhs), collapse, tup_slice);
             else
                 return do_tuple_pairwise_collapse(collapsed, std::tuple_cat(new_elems, tup_slice.template operator()<1, std::tuple_size_v<ToCollapse>>(rhs)), collapse, tup_slice);
+        }
+    }
+
+    template<std::size_t i, class SrcTuple, class Value>
+    constexpr auto do_tuple_pairwise(const SrcTuple& src, const Value& value, auto collapse)
+    {
+        if constexpr (i >= std::tuple_size_v<std::decay_t<SrcTuple>>)
+            return value;
+        else {
+            return do_tuple_pairwise<i+1>(src, collapse.template operator()<i>(value, std::get<i>(src)), collapse);
         }
     }
 
@@ -1014,6 +1037,19 @@ template<class SrcTuple>
 constexpr auto tuple_pairwise_collapse(const SrcTuple& src, auto collapse)
 {
     return cfg_helpers::do_tuple_pairwise_collapse(std::tuple<>(), src, collapse, []<std::size_t Start, std::size_t End>(const auto& tuple){ return tuple_slice<Start, End>(tuple); });
+}
+
+
+/**
+ * @brief Apply pairwise operation to a tuple
+ * @param src Tuple to collapse
+ * @param value Starting value which is passed to the lambda
+ * @param collapse Lambda which takes the previous call result, the element index as a template and the element itself
+ */
+template<class SrcTuple, class Value>
+constexpr auto tuple_pairwise(const SrcTuple& src, const Value& value, auto collapse)
+{
+    return cfg_helpers::do_tuple_pairwise<0>(src, value, collapse);
 }
 
 

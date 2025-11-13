@@ -135,11 +135,15 @@ public:
                 constexpr std::size_t rule_id = get_ctx_index<0, std::decay_t<decltype(rule)>>();
 
                 // Get the prefix and postfix positions
-                const auto [pre, post_dist] = fix;
+                const auto [pre_elems, post_dist_elems] = fix;
                 const auto [max_pre, min_post] = std::get<rule_id>(limits); // Get max prefix and min postfix in this rule
                                                                             // MAY BE SIZE_T_MAX
                 // Max pre/postfix -> ok, we successfully resolved the rule
-                // TODO fix fix_limits - they are calculated differently for nterms and terms
+
+                // TODO implement the algorithm for multiple possible positions
+                const auto& pre = std::get<0>(pre_elems);
+                const auto& post_dist = std::get<0>(post_dist_elems);
+
                 const auto post = min_post - post_dist; // Convert post from the distance to the end to an id
                 // If there are no more matches even though we haven't reached the end of the fix, we apply context
 
