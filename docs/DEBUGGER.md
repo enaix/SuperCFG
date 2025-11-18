@@ -10,7 +10,7 @@ The example of the UI is provided in `extra/dbg.cpp`, and the `PrettyPrinter` cl
 
 **TODO describe how to use the debugger**
 
-
+In order to change the keybinds, pass the keybind index from the `keybinds` map (0 - default) to `PrettyPrinter<KEYBIND_ID>`. You may delegate new keybinds in this map.
 
 ## Parser structures troubleshooting
 

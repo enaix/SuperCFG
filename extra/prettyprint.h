@@ -83,13 +83,71 @@ static constexpr BoxStyle printer_theme_box_style[] = {
 };
 
 
+// Press modifiers
+template<char key> static constexpr char PressCtrl() { if constexpr (key > 'Z') { return key - 'a' + 1; } else return key - 'A' + 1; }
+template<char key> static constexpr char PressShift() { if constexpr (key > 'Z') { return key; } else return key - 'A' + 'a'; }
+template<char key> static constexpr char PressRegular() { if constexpr (key <= 'Z') { return key - 'A' + 'a'; } else return key; }
+
+
+static constexpr char keybinds[2][11] = {
+    {   // DEFAULT
+        '\t', // Next Win
+        // Main menu
+        PressCtrl<'O'>(), // Open Win
+        PressCtrl<'Q'>(), // Quit
+        PressCtrl<'T'>(), // Theme
+        PressCtrl<'A'>(), // About
+        PressCtrl<'W'>(), // Move Win
+        PressCtrl<'E'>(), // Destroy Win
+        // Open Win
+        PressRegular<'E'>(), // EBNF Repr
+        PressRegular<'R'>(), // Reverse rules
+        PressRegular<'F'>(), // Fix Heur
+        // Move Win
+        PressRegular<'E'>(), // Change Vis
+    },
+    {   // NO CTRL
+        '\t', // Next Win
+        // Main menu
+        PressRegular<'O'>(), // Open Win
+        PressRegular<'Q'>(), // Quit
+        PressRegular<'T'>(), // Theme
+        PressRegular<'A'>(), // About
+        PressRegular<'W'>(), // Move Win
+        PressRegular<'E'>(), // Destroy Win
+        // Open Win
+        PressRegular<'E'>(), // EBNF Repr
+        PressRegular<'R'>(), // Reverse rules
+        PressRegular<'F'>(), // Fix Heur
+        // Move Win
+        PressRegular<'E'>(), // Change Vis
+    },
+};
+
+
+enum class KeyIdx : int
+{
+    NextWin,
+    OpenWin,
+    Quit,
+    Theme,
+    About,
+    MoveWin,
+    DestroyWin,
+    EBNFRepr,
+    ReverseRules,
+    FixHeur,
+    ChangeVis,
+};
+
 
 enum class PrinterMode : std::size_t
 {
     Normal,
     Open,
     Theme,
-    Move
+    Move,
+    Quit
 };
 
 
@@ -101,6 +159,7 @@ enum class PrinterWindows
 };
 
 
+template<int KeybindID = 0>
 class PrettyPrinter
 {
 protected:
@@ -110,6 +169,7 @@ protected:
     WindowStack<TChar> winstack;
     std::unordered_map<PrinterWindows, std::size_t> window_id;
     PrinterMode _mode;
+    std::size_t _keybind_idx;
 
     // pre-rendered widgets
     Widget<TChar> _ebnf;
@@ -121,7 +181,7 @@ protected:
     BoxStyle _cur_box_style; // depends on the current theme
 
 public:
-    PrettyPrinter() : terminal(std::cout), style(printer_themes[(std::size_t)default_printer_theme]), _mode(PrinterMode::Normal), _style_select(PrinterThemes::Panic), _cur_box_style(printer_theme_box_style[(std::size_t)default_printer_theme])
+    PrettyPrinter() : terminal(std::cout), style(printer_themes[(std::size_t)default_printer_theme]), _mode(PrinterMode::Normal), _keybind_idx(0), _style_select(PrinterThemes::Panic), _cur_box_style(printer_theme_box_style[(std::size_t)default_printer_theme])
     {
         terminal.init_renderer();
         std::srand(std::time({}));
@@ -210,7 +270,7 @@ public:
                 else if (c3 == 'D') winstack.handle_event(IPEvent(EventType::ArrowLeft));
             }
         }
-        if (c == '\t') winstack.move_selector_tab(1);
+        if (c == get_key<KeyIdx::NextWin>()) winstack.move_selector_tab(1);
         return false;
     }
 
@@ -861,47 +921,36 @@ protected:
 
     bool handle_mode(const char input, int last_char) // handled = true means that we shouldn't handle the event further
     {
-        // TODO move the keybinds to defines
-        if (_mode == PrinterMode::Normal && last_char == 17) [[unlikely]]
-            {
-                if (input == 10 || input == 'y' || input == 'Y')
-                    {
-                        close();
-                        exit(0);
-                    }
-                winstack.overlays[0] = make_bottom_overlay();
-                return true;
-            }
-
         switch (_mode)
             {
             case PrinterMode::Normal:
                 switch (input)
                     {
-                    case 15: // ^O
+                    case get_key<KeyIdx::OpenWin>(): // ^O
                         _mode = PrinterMode::Open;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true; // continue
-                    case 17: // ^Q
+                    case get_key<KeyIdx::Quit>(): // ^Q
                         {
                             if (std::rand() % 50 == 42)
                                 winstack.overlays[0] = make_bottom_overlay_custom("I wouldn\'t leave if I were you. DOS is much worse. [Y/n]");
                             else
                                 winstack.overlays[0] = make_bottom_overlay_custom("Really quit? [Y/n]");
+                            _mode = PrinterMode::Quit;
                             return true; // read next input
                         }
-                    case 20: // ^T
+                    case get_key<KeyIdx::Theme>(): // ^T
                         _mode = PrinterMode::Theme;
                         winstack.overlays[0] = make_bottom_overlay_theme();
                         return true; // continue
-                    case 1: // ^A
+                    case get_key<KeyIdx::About>(): // ^A
                         show_about();
                         return true;
-                    case 23: // ^W
+                    case get_key<KeyIdx::MoveWin>(): // ^W
                         _mode = PrinterMode::Move;
                         winstack.overlays[0] = make_bottom_overlay_move();
                         return true;
-                    case 5:
+                    case get_key<KeyIdx::DestroyWin>(): // ^E
                         {
                             if (std::erase_if(window_id, [&](const auto& idx){
                                 if (idx.second == winstack.selector_idx)
@@ -922,17 +971,17 @@ protected:
             case PrinterMode::Open:
                 switch (input)
                     {
-                    case 'e':
+                    case get_key<KeyIdx::EBNFRepr>():
                         winstack.push(_ebnf); // EBNF
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true;
-                    case 'r':
+                    case get_key<KeyIdx::ReverseRules>():
                         winstack.push(_rr_tree); // RR TREE
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true;
-                    case 'f':
+                    case get_key<KeyIdx::FixHeur>():
                         winstack.push(_fix); // FIX
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
@@ -1058,7 +1107,7 @@ protected:
                         winstack.move_selector_tab(1);
                         winstack.overlays[0] = make_bottom_overlay_move();
                         return true;
-                    case 'e':
+                    case get_key<KeyIdx::ChangeVis>():
                         if (winstack.selector_idx == -1)
                             return true;
                         winstack.flags[winstack.selector_idx] ^= (std::size_t)IPWindowFlags::AlwaysActive;
@@ -1069,8 +1118,33 @@ protected:
                         winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("Unknown key: ") + std::basic_string<TChar>(input, 1)); // bad key
                         return true;
                     }
+            case PrinterMode::Quit:
+                {
+                    if (input == 10 || input == 'y' || input == 'Y')
+                    {
+                        close();
+                        exit(0);
+                    }
+                    _mode = PrinterMode::Normal;
+                    winstack.overlays[0] = make_bottom_overlay();
+                    return true;
+                }
             }
         return true;
+    }
+
+    template<const KeyIdx idx>
+    static constexpr char get_key() { return keybinds[KeybindID][static_cast<int>(idx)]; }
+
+    template<const KeyIdx idx>
+    static constexpr std::basic_string<TChar> get_keybind_text()
+    {
+        constexpr char k = get_key<idx>();
+        if constexpr (k == '\t') return std::basic_string<TChar>("TAB"); // tab
+        else {
+            if constexpr (k <= 26) return std::basic_string<TChar>({'^', k + 'A' - 1}); // esc
+            else return std::basic_string<TChar>({k}); // regular/shift
+        }
     }
 
     void show_about()
@@ -1110,9 +1184,9 @@ protected:
         return Widget<TChar>(WidgetLayout::Horizontal, {
                 Widget<TChar>(std::basic_string<TChar>("ARROW"), Colors::Accent3),
                 Widget<TChar>(std::basic_string<TChar>("Move Cur Win"), Colors::Primary),
-                Widget<TChar>(std::basic_string<TChar>("TAB"), Colors::Accent3),
+                Widget<TChar>(get_keybind_text<KeyIdx::NextWin>(), Colors::Accent3),
                 Widget<TChar>(std::basic_string<TChar>("Next Win"), Colors::Primary),
-                Widget<TChar>(std::basic_string<TChar>("E"), Colors::Accent3),
+                Widget<TChar>(get_keybind_text<KeyIdx::ChangeVis>(), Colors::Accent3),
                 Widget<TChar>(std::basic_string<TChar>(toggle_vis), Colors::Primary),
                 Widget<TChar>(std::basic_string<TChar>("ESC-ESC"), Colors::Accent3),
                 Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
@@ -1180,28 +1254,28 @@ protected:
             {
             case PrinterMode::Normal:
                 return Widget<TChar>(WidgetLayout::Horizontal, {
-                        Widget<TChar>(std::basic_string<TChar>("TAB"), Colors::Accent3),
+                        Widget<TChar>(get_keybind_text<KeyIdx::NextWin>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Next Win"), Colors::Primary),
-                        Widget<TChar>(std::basic_string<TChar>("^O"), Colors::Accent3),
+                        Widget<TChar>(get_keybind_text<KeyIdx::OpenWin>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Open Win"), Colors::Primary),
-                        Widget<TChar>(std::basic_string<TChar>("^Q"), Colors::Accent3),
+                        Widget<TChar>(get_keybind_text<KeyIdx::Quit>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Quit"), Colors::Primary),
-                        Widget<TChar>(std::basic_string<TChar>("^W"), Colors::Accent3),
+                        Widget<TChar>(get_keybind_text<KeyIdx::MoveWin>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Move Win"), Colors::Primary),
-                        Widget<TChar>(std::basic_string<TChar>("^E"), Colors::Accent3),
+                        Widget<TChar>(get_keybind_text<KeyIdx::DestroyWin>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Destroy Win"), Colors::Primary),
-                        Widget<TChar>(std::basic_string<TChar>("^T"), Colors::Accent3),
+                        Widget<TChar>(get_keybind_text<KeyIdx::Theme>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Theme"), Colors::Primary),
-                        Widget<TChar>(std::basic_string<TChar>("^A"), Colors::Accent3),
+                        Widget<TChar>(get_keybind_text<KeyIdx::About>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("About"), Colors::Primary),
                     }, Colors::None, Quad(), Quad(1,0,1,0));
             case PrinterMode::Open:
                 return Widget<TChar>(WidgetLayout::Horizontal, {
-                        Widget<TChar>(std::basic_string<TChar>("E"), Colors::Accent3),
+                        Widget<TChar>(get_keybind_text<KeyIdx::EBNFRepr>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("EBNF Repr"), Colors::Primary),
-                        Widget<TChar>(std::basic_string<TChar>("R"), Colors::Accent3),
+                        Widget<TChar>(get_keybind_text<KeyIdx::ReverseRules>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Rev Rules"), Colors::Primary),
-                        Widget<TChar>(std::basic_string<TChar>("F"), Colors::Accent3),
+                        Widget<TChar>(get_keybind_text<KeyIdx::FixHeur>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Fix Heur"), Colors::Primary),
                         Widget<TChar>(std::basic_string<TChar>("ESC"), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
