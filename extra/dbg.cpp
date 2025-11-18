@@ -13,10 +13,26 @@
 #include "cfg/preprocess_factories.h"
 #include "extra/prettyprint.h"
 
+
+/*
+ * ============================
+ *    DEBUGGER USAGE EXAMPLE
+ * ============================
+ *
+ */
+
+
+
 // Test grammar
 bool test_heuristic_ctx_init()
 {
     std::cout << "test_heuristic_ctx_init() :" << std::endl;
+
+    /*
+     * ===================
+     * Define some grammar
+     * ===================
+     */
 
     //constexpr EBNFBakery rules;
     //    constexpr auto nozero = NTerm(cs("digit excluding zero"));
@@ -40,22 +56,25 @@ bool test_heuristic_ctx_init()
     using TokenType = StdStr<char>;
 
     //std::cout << ruleset.bake(rules) << std::endl;
-    // Parser classes init
-    // ===================
+
+
+
+    /*
+     * ===================
+     * Parser classes init
+     * ===================
+     */
 
     auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer, LexerConfEnum::HandleDuplicates>());
     //LexerLegacy<VStr, TokenType> lexer(ruleset); // Lexer init
 
-    // Init prettyprinter
+    // Init prettyprinter (default debugger)
     PrettyPrinter printer;
 
     // Parser init
     constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint, SRConfEnum::Lookahead, SRConfEnum::HeuristicCtx>();
     auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf, printer);
 
-    //while (printer.process()) {}
-
-    //
     StdStr<char> in("(abc,asdf,[a,(gfds,sdf)])");
     bool ok;
     auto tokens = lexer.run(in, ok);
@@ -71,10 +90,10 @@ bool test_heuristic_ctx_init()
     ok = parser.run(tree, op, tokens, printer);
 
     std::cout << "======" << std::endl << "parser output : " << std::endl;
-    tree.traverse([&](const auto& node, std::size_t depth){
-        for (std::size_t i = 0; i < depth; i++) std::cout << "|  ";
-        std::cout << node.name << " (" << node.nodes.size() << " elems) : " << node.value << std::endl;
-    });
+    //tree.traverse([&](const auto& node, std::size_t depth){
+    //    for (std::size_t i = 0; i < depth; i++) std::cout << "|  ";
+    //    std::cout << node.name << " (" << node.nodes.size() << " elems) : " << node.value << std::endl;
+    //});
 
     if (!ok)
     {

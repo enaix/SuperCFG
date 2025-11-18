@@ -3,6 +3,7 @@
 - [Usage](USAGE.md)
 - [Configuration](CONFIGURATION.md)
 - [Examples](EXAMPLES.md)
+- [Debugger](DEBUGGER.md)
 
 ## Feature progress
 

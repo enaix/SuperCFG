@@ -6,7 +6,7 @@ During parser initialization, configuration enum flags may be passed.
 
 ### `SRConfEnum::PrettyPrint`
 
-Enable dirty grammar info logging to stdout. Will be changed in the future
+Enable parser state prettyprinting using the generic TPrinter class. Right now only the TUI debugger is implemented (see [`DEBUGGER.md`](DEBUGGER.md)).
 
 ### `SRConfEnum::Lookahead`
 
@@ -16,11 +16,17 @@ Prevents the reduction if the next symbol is of the same type. May be useful in 
 
 ### `SRConfEnum::ReducibilityChecker`
 
+Note: HeuristicCtx should be preferred over RC(1)
+
 Generate a RC(1) component which checks if a symbol can be reduced on the next step. For some match `m`, it checks if at least one parent symbol can be reduced up to current stack position.
 
 RC(1) routine keeps track of the current context, which is the current recursion depth of each rule. The major limitation of this algorithm is that it cannot discriminate between rules with equal prefixes.
 
-Note: RC(1) performs additional descent for each related type of the match, which significantly increases the runtime cost.
+Note: RC(1) performs additional descent for each related type of the match, which increases the runtime cost.
+
+### `SRConfEnum::HeuristicCtx`
+
+Generate an advanced heuristic context analyzer, which checks fixed prefix and postfix positions for each rule and tries to estimate the current context during runtime. Much more powerful heuristic than RC(1). Right now is still in WIP.
 
 ## Lexer configuration
 

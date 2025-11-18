@@ -2,7 +2,7 @@
 
 ## Parser and lexer initialization
 
-Parser/lexer configuration flags are described [in `docs/CONFIGURATION.md`](docs/CONFIGURATION.md)
+Parser/lexer configuration flags are described [in `CONFIGURATION.md`](CONFIGURATION.md)
 
 Once you have defined your grammar, you can create and use the parser:
 
@@ -106,39 +106,3 @@ static_assert(cs<expected>() == root, "Grammar has changed!");
 ```
 
 The serialization also supports automatic operators grouping by analyzing their order.
-
-## Debugger
-
-**TODO describe how to use the debugger**
-
-## Troubleshooting
-
-You may use the following compilation flags in order to inspect the intermediate parser generator structures.
-
-### Prefix/postfix structure
-
-This structure is used in heuristic context analyzer. Each term and nterm is mapped to the list of prefix and postfix positions in rules:
-
-```
-# for nterms, same structure for terms
-tuple<
-  # NTERM/TERM 1
-  tuple<pair<RULE_i, pair<tuple<pre1, ...>, tuple<post1, ...>>>, # RULE, {{prefix1, prefix2, ...}, {postfix1, postfix2, ...}} - can be multiple positions
-    pair<RULE_j, pair<tuple<pre1, ...>, tuple<post1, ...>>>>,  # <- several rules 
-
-  # NTERM/TERM 2
-  tuple<pair<RULE_i, pair<tuple<...>, tuple<...>>>, ...>,  # <- several rules 
-  ...
->
-
-# prefix/postfix limits
-tuple<
-  pair< # NTERM 1
-    IC<A>, # max prefix
-    IC<B>  # max postfix
-  >,
-  ...
->
-```
-
-The debug logging can be enabled with `-DCMAKE_CXX_FLAGS=-DDBG_PRINT_FIX_POS` and overriden with `-DCMAKE_CXX_FLAGS=-DNO_DBG_PRINT_FIX_POS`. Print the indented template using `python3 format_template_inst.py -k 3 PATH_TO_FILE_WITH_TEMPLATE`

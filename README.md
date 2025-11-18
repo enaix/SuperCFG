@@ -8,9 +8,9 @@ A C++ header-only templated shift-reduce parser generator library. Original name
 
 - Grammar rules definition using templates
 - Fully templated parsing pipeline (lexer, parser and a user-defined AST class)
-- Shift-reduce parser with optional lookahead(1) algorithm
-- Legacy recursive-descent parser (WIP)
+- Dynamic shift-reduce parser with optional heuristic algorithms
 - Compile-time rules serialization in custom \*EBNF-like notation
+- TUI debugger with intermediate parser structures visualizations
 
 ### [Preprints and other materials](preprint/) are available
 
@@ -85,6 +85,12 @@ constexpr auto ruleset = RulesDef(d_digit, d_number);
 See [`docs/USAGE.md`](docs/USAGE.md)
 
 Parser/lexer configuration flags are described [in `docs/CONFIGURATION.md`](docs/CONFIGURATION.md)
+
+### TUI Debugger
+
+<img src="docs/dbg.jpg" width="600" alt="supercfg debugger screenshot" />
+
+See [`docs/DEBUGGER.md`](docs/DEBUGGER.md) for more information
 
 ## Symbols and operators
 
