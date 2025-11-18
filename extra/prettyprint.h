@@ -89,7 +89,7 @@ template<char key> static constexpr char PressShift() { if constexpr (key > 'Z')
 template<char key> static constexpr char PressRegular() { if constexpr (key <= 'Z') { return key - 'A' + 'a'; } else return key; }
 
 
-static constexpr char keybinds[2][11] = {
+static constexpr char keybinds[2][12] = {
     {   // DEFAULT
         '\t', // Next Win
         // Main menu
@@ -103,6 +103,7 @@ static constexpr char keybinds[2][11] = {
         PressRegular<'E'>(), // EBNF Repr
         PressRegular<'R'>(), // Reverse rules
         PressRegular<'F'>(), // Fix Heur
+        PressRegular<'C'>(), // Heur Ctx
         // Move Win
         PressRegular<'E'>(), // Change Vis
     },
@@ -119,6 +120,7 @@ static constexpr char keybinds[2][11] = {
         PressRegular<'E'>(), // EBNF Repr
         PressRegular<'R'>(), // Reverse rules
         PressRegular<'F'>(), // Fix Heur
+        PressRegular<'C'>(), // Heur Ctx
         // Move Win
         PressRegular<'E'>(), // Change Vis
     },
@@ -137,6 +139,7 @@ enum class KeyIdx : int
     EBNFRepr,
     ReverseRules,
     FixHeur,
+    HeurCtx,
     ChangeVis,
 };
 
@@ -151,11 +154,13 @@ enum class PrinterMode : std::size_t
 };
 
 
+// Windows which need to be updated
 enum class PrinterWindows
 {
     Stack,
     Descend,
-    AST
+    AST,
+    HeurCtx
 };
 
 
@@ -175,6 +180,7 @@ protected:
     Widget<TChar> _ebnf;
     Widget<TChar> _rr_tree;
     Widget<TChar> _fix;
+    Widget<TChar> _heur_ctx;
     // current selection
     PrinterThemes _style_select;
     std::basic_string<TChar> _style_name;
@@ -198,12 +204,9 @@ public:
         int term_h = terminal.get_terminal_height();
         terminal.init_matrix(term_h, term_w);
 
-        window_id.insert({PrinterWindows::Stack, 0});
-        winstack.push(Widget<TChar>()); // STACK
-        window_id.insert({PrinterWindows::Descend, 1});
-        winstack.push(Widget<TChar>()); // DESCEND
-        window_id.insert({PrinterWindows::AST, 2});
-        winstack.push(make_ast(TreeNode<std::basic_string<TChar>>())); // AST
+        winstack.push(Widget<TChar>(), 0, (int)PrinterWindows::Stack); // STACK
+        winstack.push(Widget<TChar>(), 0, (int)PrinterWindows::Descend); // DESCEND
+        winstack.push(make_ast(TreeNode<std::basic_string<TChar>>()), 0, (int)PrinterWindows::AST); // AST
 
         winstack.push_overlay(make_bottom_overlay());
         set_bottom_overlay_pos();
@@ -212,6 +215,7 @@ public:
         _ebnf = make_ebnf_preview(rules);
         _rr_tree = make_rr_tree(rr_tree);
         _fix = make_empty_fix();
+        _heur_ctx = make_empty_heur_ctx();
     }
 
 
@@ -278,36 +282,52 @@ public:
     template<class VStr, class TokenTSet, class TokenType>
     void update_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect, std::size_t idx)
     {
-        const auto& id = window_id.find(PrinterWindows::Stack);
-        if (id != window_id.end())
-            winstack.stack[id->second].refresh(make_stack(stack, related_types, intersect, idx));
+        const auto& id = winstack.find((int)PrinterWindows::Stack);
+        if (id != -1)
+            winstack.stack[id].refresh(make_stack(stack, related_types, intersect, idx));
     }
 
     template<class VStr, class TokenTSet, class TSymbol>
     void update_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t candidate, std::size_t total, std::size_t parsed, bool found)
     {
-        const auto& id = window_id.find(PrinterWindows::Descend);
-        if (id != window_id.end())
-            winstack.stack[id->second].refresh(make_descend(stack, rule, idx, candidate, total, parsed, found));
+        const auto& id = winstack.find((int)PrinterWindows::Descend);
+        if (id != -1)
+            winstack.stack[id].refresh(make_descend(stack, rule, idx, candidate, total, parsed, found));
     }
 
     template<class Tree>
     void update_ast(const Tree& tree)
     {
-        const auto& id = window_id.find(PrinterWindows::AST);
-        if (id != window_id.end())
-            winstack.stack[id->second].refresh(make_ast(tree));
+        const auto& id = winstack.find((int)PrinterWindows::AST);
+        if (id != -1)
+            winstack.stack[id].refresh(make_ast(tree));
+    }
+
+    template<std::size_t N, class TMatches, class CTODO>
+    void update_heur_ctx(const std::array<std::size_t, N>& context, const TMatches& nterms, const CTODO prefix, const CTODO postfix, std::size_t stack_size)
+    {
+        const auto& id = winstack.find((int)PrinterWindows::HeurCtx);
+        if (id != -1)
+            winstack.stack[id].refresh(make_context(context, nterms, prefix, postfix, stack_size));
     }
 
     void set_empty_descend()
     {
-        const auto& id = window_id.find(PrinterWindows::Descend);
-        if (id == window_id.end())
+        const auto& id = winstack.find((int)PrinterWindows::Descend);
+        if (id == -1)
             return;
-        winstack.stack[id->second].refresh(Widget<TChar>(WidgetLayout::Vertical, {
+        winstack.stack[id].refresh(Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("DESCEND"), Colors::Primary, Quad(1,0,1,0)),
             Widget<TChar>(std::basic_string<TChar>("<empty>"), Colors::Primary, Quad(1,0,1,0))
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style));
+    }
+
+    Widget<TChar> make_empty_heur_ctx()
+    {
+        return Widget<TChar>(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("HEUR CTX"), Colors::Primary, Quad(1,0,1,0)),
+            Widget<TChar>(std::basic_string<TChar>("<empty>"), Colors::Primary, Quad(1,0,1,0))
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
 
     // Blocking !!
@@ -913,11 +933,62 @@ protected:
     }
 
 
+    template<std::size_t N, class TMatches, class CTODO>
+    Widget<TChar> make_context(const std::array<std::size_t, N>& context, const TMatches& nterms, const CTODO pre_todo, const CTODO post_todo, std::size_t stack_size)
+    {
+        Widget<TChar> stack_box(WidgetLayout::Horizontal, {
+            Widget<TChar>(WidgetLayout::Vertical, {
+                Widget<TChar>(std::basic_string<TChar>("   -"), Colors::Accent),
+                Widget<TChar>(std::basic_string<TChar>("todo"), Colors::Accent),
+                // ...
+            }, Colors::None), // First row
+        }, Colors::None, Quad(), Quad(1,0,1,0));
 
-    // ==========
-    // MENU LOGIC
-    //   You may edit keybinds here
-    // ==========
+        // Populate left column and each potential todo
+        tuple_each(nterms, [&](std::size_t i, const auto& elem){
+            auto child = Widget<TChar>(WidgetLayout::Horizontal, { make_nterm(elem) }, Colors::None);
+            for (std::size_t j = 0; j < stack_size; j++)
+            {
+                std::size_t stack_width = 1;//stack_box.back().at(j)._content.size();
+                child.add_child(Widget<TChar>(std::basic_string<TChar>(stack_width, ' '), Colors::Primary));
+            }
+            stack_box.front().add_child(child);
+        });
+
+
+        // populate todos
+        for (std::size_t i = 0; i < N; i++)
+        {
+            if (pre_todo[i] != std::numeric_limits<std::size_t>::max())
+            {
+                auto& str = stack_box.front().at(i).at(pre_todo[i] + 1)._content;
+                if (str.size() > 0)
+                {
+                    if (str[0] != ' ')
+                        str[1] = '[';
+                    else
+                        str[0] = '[';
+                } else str = std::basic_string<TChar>("[");
+            }
+            if (post_todo[i] != std::numeric_limits<std::size_t>::max())
+            {
+                auto& str = stack_box.front().at(i).at(post_todo[i] + 1)._content;
+                if (str.size() > 0)
+                {
+                    if (str[0] != ' ')
+                        str[1] = ']';
+                    else
+                        str[0] = ']';
+                } else str = std::basic_string<TChar>("]");
+            }
+        }
+
+        // Create wrapper
+        return Widget<TChar>(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("HEURISTIC CTX"), Colors::Primary, Quad(1,0,1,0)),
+            stack_box
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
+    }
 
     bool handle_mode(const char input, int last_char) // handled = true means that we shouldn't handle the event further
     {
@@ -952,6 +1023,7 @@ protected:
                         return true;
                     case get_key<KeyIdx::DestroyWin>(): // ^E
                         {
+                            // TODO remove window_id
                             if (std::erase_if(window_id, [&](const auto& idx){
                                 if (idx.second == winstack.selector_idx)
                                     {
@@ -983,6 +1055,11 @@ protected:
                         return true;
                     case get_key<KeyIdx::FixHeur>():
                         winstack.push(_fix); // FIX
+                        _mode = PrinterMode::Normal;
+                        winstack.overlays[0] = make_bottom_overlay();
+                        return true;
+                    case get_key<KeyIdx::HeurCtx>():
+                        winstack.push(_heur_ctx, 0, (int)PrinterWindows::HeurCtx);
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true;
@@ -1277,6 +1354,8 @@ protected:
                         Widget<TChar>(std::basic_string<TChar>("Rev Rules"), Colors::Primary),
                         Widget<TChar>(get_keybind_text<KeyIdx::FixHeur>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Fix Heur"), Colors::Primary),
+                        Widget<TChar>(get_keybind_text<KeyIdx::HeurCtx>(), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Heur Ctx"), Colors::Primary),
                         Widget<TChar>(std::basic_string<TChar>("ESC"), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
                     }, Colors::None, Quad(), Quad(1,0,1,0));

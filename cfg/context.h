@@ -33,7 +33,7 @@ public:
         todo.fill(std::numeric_limits<std::size_t>::max());
     }
 
-    const std::size_t& operator[](const std::size_t i) { return todo[i]; }
+    const std::size_t& operator[](const std::size_t i) const { return todo[i]; }
 
     void remove(const std::size_t rule_id)
     {
@@ -85,6 +85,7 @@ class ContextManager
 {
 public:
     std::array<std::size_t, std::tuple_size_v<TMatches>> context;
+    // TODO either implement or remove this
     std::array<std::vector<std::size_t>, std::tuple_size_v<TMatches>> ctx_pos; // Positions of context start at each ctx level
     CtxTODO<TMatches> prefix_todo;
     CtxTODO<TMatches> postfix_todo;
@@ -324,6 +325,7 @@ public:
             // We exit ctx now!
             // context[postfix.rule_id]--;
         }*/
+        prettyprinter.update_heur_ctx(context, matches, prefix_todo, postfix_todo, stack_size);
         return prefix_todo.size() + postfix_todo.size() == 0;
     }
 
