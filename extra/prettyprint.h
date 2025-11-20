@@ -25,15 +25,15 @@ enum class PrinterThemes : std::size_t
     // user themes:
     BIOSLight, // default theme for white terminals (OSX)
     BIOSBlue, // default theme (dark terminals)
+    Forest, // greenish dark theme
     // system themes:
     Panic // critical error
 };
 
-static constexpr PrinterThemes default_printer_theme = PrinterThemes::BIOSBlue;
-
-static constexpr std::array<std::string, 2> printer_theme_names {
+static constexpr std::array<std::string, 3> printer_theme_names {
     std::string("bioslight"),
-    std::string("biosblue")
+    std::string("biosblue"),
+    std::string("forest"),
 };
 
 static constexpr AppStyle<ANSIColor> printer_themes[] = {
@@ -61,6 +61,18 @@ static constexpr AppStyle<ANSIColor> printer_themes[] = {
         ANSIColor(ANSIColor::FG::White, ANSIColor::BG::BrightRed), // BorderActive
         ANSIColor(ANSIColor::FG::Black, ANSIColor::BG::BrightBlue), // BorderInactive
         ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::Blue)), // BorderDisabled
+    // Forest
+    AppStyle<ANSIColor>(ANSIColor(ANSIColor::FG::Default, ANSIColor::BG::Default), // Primary (delimeters)
+        ANSIColor(ANSIColor::FG::BrightWhite, ANSIColor::BG::Black), // Secondary (NTerms)
+        ANSIColor(ANSIColor::FG::BrightGreen, ANSIColor::BG::Black), // Accent 1 (Operators)
+        ANSIColor(ANSIColor::FG::Green, ANSIColor::BG::Black), // Accent 2 (Terms)
+        ANSIColor(ANSIColor::FG::Green, ANSIColor::BG::BrightBlack), // Accent 3 (highlight)
+        ANSIColor(ANSIColor::FG::Black, ANSIColor::BG::BrightGreen), // Selected
+        ANSIColor(ANSIColor::FG::White, ANSIColor::BG::Black), // Inactive (Grouping)
+        ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::Green), // Disabled
+        ANSIColor(ANSIColor::FG::Black, ANSIColor::BG::BrightGreen), // BorderActive
+        ANSIColor(ANSIColor::FG::Black, ANSIColor::BG::BrightGreen), // BorderInactive
+        ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::Green)), // BorderDisabled
     // Panic
     AppStyle<ANSIColor>(ANSIColor(ANSIColor::FG::Default, ANSIColor::BG::Default), // Primary (delimeters)
         ANSIColor(ANSIColor::FG::BrightBlack, ANSIColor::BG::BrightWhite), // Secondary (NTerms)
@@ -79,6 +91,7 @@ static constexpr AppStyle<ANSIColor> printer_themes[] = {
 static constexpr BoxStyle printer_theme_box_style[] = {
     DoubleBoxStyle, // bioslight
     PlainBoxStyle,  // biosblue
+    PlainBoxStyle,  // forest
     PlainBoxStyle,  // panic
 };
 
@@ -172,7 +185,6 @@ protected:
     CurseTerminal<ANSIColor, TChar> terminal;
     AppStyle<ANSIColor> style;
     WindowStack<TChar> winstack;
-    std::unordered_map<PrinterWindows, std::size_t> window_id;
     PrinterMode _mode;
     std::size_t _keybind_idx;
 
@@ -187,7 +199,7 @@ protected:
     BoxStyle _cur_box_style; // depends on the current theme
 
 public:
-    PrettyPrinter() : terminal(std::cout), style(printer_themes[(std::size_t)default_printer_theme]), _mode(PrinterMode::Normal), _keybind_idx(0), _style_select(PrinterThemes::Panic), _cur_box_style(printer_theme_box_style[(std::size_t)default_printer_theme])
+    PrettyPrinter(PrinterThemes theme = PrinterThemes::BIOSBlue) : terminal(std::cout), style(printer_themes[(std::size_t)theme]), _mode(PrinterMode::Normal), _keybind_idx(0), _style_select(PrinterThemes::Panic), _cur_box_style(printer_theme_box_style[(std::size_t)theme])
     {
         terminal.init_renderer();
         std::srand(std::time({}));
@@ -1023,15 +1035,7 @@ protected:
                         return true;
                     case get_key<KeyIdx::DestroyWin>(): // ^E
                         {
-                            // TODO remove window_id
-                            if (std::erase_if(window_id, [&](const auto& idx){
-                                if (idx.second == winstack.selector_idx)
-                                    {
-                                        winstack.pop(idx.second);
-                                        return true; // erase
-                                    }
-                                return false; // keep
-                            }) == 0) // window without an id
+                            if (winstack.selector_idx < winstack.stack.size())
                                 winstack.pop(winstack.selector_idx);
                             return true;
                         }
