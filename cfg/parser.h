@@ -418,7 +418,7 @@ public:
 
                     auto tok = stack.back();
 
-                    for (std::size_t j = 0; !ctx_mgr.next(tok, stack.size(), symbols_ht, printer); j++)
+                    for (std::size_t j = 0; !ctx_mgr.next(tok, stack, symbols_ht, printer); j++)
                     {
                         // Ambiguity found, move tok
                         if (j >= tokens.size()) [[unlikely]]
@@ -760,7 +760,7 @@ protected:
                     // It is cheaper to perform context check now
                     if constexpr (enabled<SRConfEnum::HeuristicCtx>())
                     {
-                        if (!ctx_mgr.check_ctx(match))
+                        if (!ctx_mgr.check_ctx(match, printer))
                             return false; // not allowed in current ctx
                     }
 
@@ -824,7 +824,7 @@ protected:
                     if constexpr (enabled<SRConfEnum::ReducibilityChecker>())
                         r_checker.apply_reduce(match); // If the matched symbol has context, we need to decrement
                     if constexpr (enabled<SRConfEnum::HeuristicCtx>())
-                        ctx_mgr.apply_reduce(match, stack.size(), printer); // ditto
+                        ctx_mgr.apply_reduce(match, stack, printer); // ditto
                     return true;
                 });
 

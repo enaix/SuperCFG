@@ -1071,8 +1071,14 @@ public:
     template<class Tree>
     void update_ast(const Tree& tree) {}
 
-    template<std::size_t N, class TMatches, class CTODO>
-    void update_heur_ctx(const std::array<std::size_t, N>& context, const TMatches& nterms, const CTODO prefix, const CTODO postfix, std::size_t stack_size) {}
+    template<std::size_t N, class TMatches, class CTODO, class GSymbol>
+    void update_heur_ctx_at_next(const std::array<std::size_t, N>& context, const TMatches& nterms, const CTODO prefix, const CTODO postfix, const std::vector<GSymbol>& stack) {}
+
+    template<class TSymbol>
+    void update_heur_ctx_at_check(const TSymbol& match, bool accepted) {}
+
+    template<std::size_t N, class TMatches, class CTODO, class GSymbol, class TSymbol>
+    void update_heur_ctx_at_apply(const std::array<std::size_t, N>& context, const TMatches& nterms, const CTODO prefix, const CTODO postfix, const std::vector<GSymbol>& stack, const TSymbol& match) {}
 
     void set_empty_descend() {}
 

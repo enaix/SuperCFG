@@ -121,8 +121,9 @@ public:
      * @brief Consume the next token and perform context analysis. Returns false on ambiguity
      */
     template<class GSymbol, class SymbolsHT>
-    bool next(const GSymbol& g_symbol, std::size_t stack_size, const SymbolsHT& symbols_ht, auto& prettyprinter)
+    bool next(const GSymbol& g_symbol, const std::vector<GSymbol>& stack, const SymbolsHT& symbols_ht, auto& prettyprinter)
     {
+        std::size_t stack_size = stack.size();
         // Visit the explicit type. Note that it may return either an NTerm or
         g_symbol.with_types(symbols_ht, [&](const auto& symbol){
             const auto& related_types = get_pos(symbol); /* fetch the value from *PosPairs */;
@@ -225,7 +226,7 @@ public:
 
                         if (pre == 0)
                         {
-                            if (check_ctx(rule))
+                            if (do_check_ctx(rule))
                             {
                                 // rule can exist in current ctx
                                 // nothing else to check
@@ -325,7 +326,7 @@ public:
             // We exit ctx now!
             // context[postfix.rule_id]--;
         }*/
-        prettyprinter.update_heur_ctx(context, matches, prefix_todo, postfix_todo, stack_size);
+        prettyprinter.update_heur_ctx_at_next(context, matches, prefix_todo, postfix_todo, stack);
         return prefix_todo.size() + postfix_todo.size() == 0;
     }
 
@@ -334,18 +335,11 @@ public:
      * @param match Match candidate
      */
     template<class TSymbol>
-    constexpr bool check_ctx(const TSymbol& match)
+    constexpr bool check_ctx(const TSymbol& match, auto& prettyprinter = NoPrettyPrinter())
     {
-        if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
-        {
-            const auto& idx = get_rr_all(match);
-            for (const std::size_t pos : idx)  // rules where it cannot be present
-            {
-                if (context[pos] > 0)
-                    return false;
-            }
-        }
-        return true;
+        bool res = do_check_ctx(match);
+        prettyprinter.update_heur_ctx_at_check(match, res);
+        return res;
     }
 
     /**
@@ -353,9 +347,10 @@ public:
      * @param match Chosen match candidate
      * @param stack_size Size of the stack before the reduction
      */
-    template<class TSymbol>
-    constexpr bool apply_reduce(const TSymbol& match, std::size_t stack_size, auto& prettyprinter = NoPrettyPrinter())
+    template<class TSymbol, class GSymbol>
+    constexpr bool apply_reduce(const TSymbol& match, const std::vector<GSymbol>& stack, auto& prettyprinter = NoPrettyPrinter())
     {
+        std::size_t stack_size = stack.size();
         if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
         {
             constexpr std::size_t index = get_ctx_index<0, std::decay_t<TSymbol>>();
@@ -378,6 +373,7 @@ public:
                 postfix.reset();
             }
         }
+        prettyprinter.update_heur_ctx_at_apply(context, matches, prefix_todo, postfix_todo, stack, match);
         return true;
     }
 
@@ -448,6 +444,25 @@ protected:
         } else {
             return do_get_rr_all<depth + 1>(symbol);
         }
+    }
+
+    /**
+     * @brief Check if a match can exist in current ctx
+     * @param match Match candidate
+     */
+    template<class TSymbol>
+    constexpr bool do_check_ctx(const TSymbol& match)
+    {
+        if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
+        {
+            const auto& idx = get_rr_all(match);
+            for (const std::size_t pos : idx)  // rules where it cannot be present
+            {
+                if (context[pos] > 0)
+                    return false;
+            }
+        }
+        return true;
     }
 };
 
