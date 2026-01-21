@@ -1036,7 +1036,7 @@ protected:
         auto stack_box = make_context(context, nterms, pre_todo, post_todo, stack);
         // Render status
         stack_box.add_child(Widget<TChar>(WidgetLayout::Vertical, {
-            Widget<TChar>(std::basic_string<TChar>("NEXT"), Colors::Primary),
+            Widget<TChar>(std::basic_string<TChar>("[NEXT]"), Colors::Accent2),
             Widget<TChar>(std::basic_string<TChar>(""), Colors::Primary)
         }, Colors::None));
 
@@ -1051,9 +1051,9 @@ protected:
     void update_context_at_check(Widget<TChar>& old_widget, const TSymbol& match, bool accepted)
     {
         if (accepted)
-            old_widget.at(1).back().at(0).refresh(Widget<TChar>(std::basic_string<TChar>("MATCH OK"), Colors::Primary));
+            old_widget.at(1).back().at(0).refresh(Widget<TChar>(std::basic_string<TChar>("[MATCH OK]"), Colors::Accent2));
         else
-            old_widget.at(1).back().at(0).refresh(Widget<TChar>(std::basic_string<TChar>("MATCH REJ"), Colors::Primary));
+            old_widget.at(1).back().at(0).refresh(Widget<TChar>(std::basic_string<TChar>("[MATCH REJ]"), Colors::Accent2));
 
         old_widget.at(1).back().at(1).refresh(make_symbol(match));
     }
@@ -1064,7 +1064,7 @@ protected:
         auto stack_box = make_context(context, nterms, pre_todo, post_todo, stack);
         // Render status
         stack_box.add_child(Widget<TChar>(WidgetLayout::Vertical, {
-            Widget<TChar>(std::basic_string<TChar>("APPLY"), Colors::Primary),
+            Widget<TChar>(std::basic_string<TChar>("[APPLY]"), Colors::Accent2),
             make_symbol(match)
         }, Colors::None));
 
