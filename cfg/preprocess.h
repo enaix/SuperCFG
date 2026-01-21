@@ -1085,6 +1085,8 @@ public:
     bool process() { return true; }
 
     void guru_meditation(const char* msg, const char* file, int line) {}
+
+    static void init_signal_handler() {}
 };
 
 

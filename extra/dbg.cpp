@@ -70,6 +70,7 @@ bool test_heuristic_ctx_init()
 
     // Init prettyprinter (default debugger)
     PrettyPrinter printer;
+    printer.init_signal_handler();
 
     // Parser init
     constexpr auto conf = mk_sr_parser_conf<SRConfEnum::PrettyPrint, SRConfEnum::Lookahead, SRConfEnum::HeuristicCtx>();

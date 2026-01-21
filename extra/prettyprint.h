@@ -351,6 +351,7 @@ public:
         while (true) { process(); } // will shut down when user presses abort
     }
 
+    static void init_signal_handler() { std::decay_t<decltype(terminal)>::init_signal_handler(); }
 
 protected:
     void apply_theme(PrinterThemes theme)
@@ -951,13 +952,13 @@ protected:
         Widget<TChar> stack_box(WidgetLayout::Horizontal, {
             Widget<TChar>(WidgetLayout::Vertical, {
                 Widget<TChar>(std::basic_string<TChar>("   -"), Colors::Accent),
-                Widget<TChar>(std::basic_string<TChar>("todo"), Colors::Accent),
                 // ...
             }, Colors::None), // First row
         }, Colors::None, Quad(), Quad(1,0,1,0));
 
         // Populate left column and each potential todo
         tuple_each(nterms, [&](std::size_t i, const auto& elem){
+            // Row describing a rule
             auto child = Widget<TChar>(WidgetLayout::Horizontal, { make_nterm(elem) }, Colors::None);
             for (std::size_t j = 0; j < stack_size; j++)
             {
