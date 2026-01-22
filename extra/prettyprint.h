@@ -316,12 +316,12 @@ public:
     }
 
     // Process heuristic ctx during next()
-    template<std::size_t N, class TMatches, class CTODO, class GSymbol>
-    void update_heur_ctx_at_next(const std::array<std::size_t, N>& context, const TMatches& nterms, const CTODO prefix, const CTODO postfix, const std::vector<GSymbol>& stack)
+    template<std::size_t N, class TMatches, class TFix, class CTODO, class GSymbol>
+    void update_heur_ctx_at_next(const std::array<std::size_t, N>& context, const TMatches& nterms, const TFix& prefix, const TFix& postfix, const CTODO prefix_todo, const CTODO postfix_todo, const std::vector<GSymbol>& stack)
     {
         const auto& id = winstack.find((int)PrinterWindows::HeurCtx);
         if (id != -1)
-            winstack.stack[id].refresh(make_context_at_next(context, nterms, prefix, postfix, stack));
+            winstack.stack[id].refresh(make_context_at_next(context, nterms, prefix, postfix, prefix_todo, postfix_todo, stack));
     }
 
     // Process heuristic ctx during check_ctx()
@@ -334,12 +334,12 @@ public:
     }
 
     // Process heuristic ctx during apply_reduce()
-    template<std::size_t N, class TMatches, class CTODO, class GSymbol, class TSymbol>
-    void update_heur_ctx_at_apply(const std::array<std::size_t, N>& context, const TMatches& nterms, const CTODO prefix, const CTODO postfix, const std::vector<GSymbol>& stack, const TSymbol& match)
+    template<std::size_t N, class TMatches, class TFix, class CTODO, class GSymbol, class TSymbol>
+    void update_heur_ctx_at_apply(const std::array<std::size_t, N>& context, const TMatches& nterms, const TFix& prefix, const TFix& postfix, const CTODO prefix_todo, const CTODO postfix_todo, const std::vector<GSymbol>& stack, const TSymbol& match)
     {
         const auto& id = winstack.find((int)PrinterWindows::HeurCtx);
         if (id != -1)
-            winstack.stack[id].refresh(make_context_at_apply(context, nterms, prefix, postfix, stack, match));
+            winstack.stack[id].refresh(make_context_at_apply(context, nterms, prefix, postfix, prefix_todo, postfix_todo, stack, match));
     }
 
     void set_empty_descend()
@@ -965,13 +965,15 @@ protected:
     }
 
 
-    template<std::size_t N, class TMatches, class CTODO, class GSymbol>
-    Widget<TChar> make_context(const std::array<std::size_t, N>& context, const TMatches& nterms, const CTODO pre_todo, const CTODO post_todo, const std::vector<GSymbol>& stack)
+    template<std::size_t N, class TMatches, class TFix, class CTODO, class GSymbol>
+    Widget<TChar> make_context(const std::array<std::size_t, N>& context, const TMatches& nterms, const TFix& prefix, const TFix& postfix, const CTODO pre_todo, const CTODO post_todo, const std::vector<GSymbol>& stack)
     {
         std::size_t stack_size = stack.size();
 
         Widget<TChar> stack_box(WidgetLayout::Horizontal, {
             Widget<TChar>(WidgetLayout::Vertical, {
+                Widget<TChar>(std::basic_string<TChar>("prefix"), Colors::Accent), // cur prefix
+                Widget<TChar>(std::basic_string<TChar>("postfix"), Colors::Accent), // cur postfix
                 Widget<TChar>(std::basic_string<TChar>("stack"), Colors::Accent), // header
                 // Here we put nterms
             }, Colors::None), // First col
@@ -981,7 +983,9 @@ protected:
         for (std::size_t j = 0; j < stack_size; j++)
         {
             stack_box.add_child(Widget<TChar>(WidgetLayout::Vertical, {
-                //Widget<TChar>(std::basic_string<TChar>("*"), Colors::Accent), // header
+                // Add prefix and postfix
+                Widget<TChar>(std::basic_string<TChar>(""), Colors::Primary),
+                Widget<TChar>(std::basic_string<TChar>(""), Colors::Primary),
                 make_token(stack[j])
             }, Colors::None));
         }
@@ -989,12 +993,33 @@ protected:
         // Populate left column and each potential todo
         tuple_each(nterms, [&](std::size_t i, const auto& elem){
             // Row describing a rule
-            stack_box.front().add_child(make_nterm(elem));
+            Widget<TChar> nt = make_nterm(elem);
+            if (context[i] != 0)
+            {
+                nt._color = Colors::Accent;  // Currently in context
+                nt._content += " [" + std::to_string(context[i]) + ']';
+            }
+            stack_box.front().add_child(nt);
             for (std::size_t j = 0; j < stack_size; j++)
             {
                 stack_box.at(j + 1).add_child(Widget<TChar>(std::basic_string<TChar>("."), Colors::Primary));
             }
         });
+
+        // populate matched fix
+        if (prefix.rule_id != std::numeric_limits<std::size_t>::max())
+        {
+            tuple_at(nterms, prefix.rule_id, [&](const auto& elem){
+                stack_box.at(prefix.fix + 1).at(0) = make_nterm(elem);
+            });
+        }
+
+        if (postfix.rule_id != std::numeric_limits<std::size_t>::max())
+        {
+            tuple_at(nterms, postfix.rule_id, [&](const auto& elem){
+                stack_box.at(postfix.fix + 1).at(1) = make_nterm(elem);
+            });
+        }
 
 
         // populate todos
@@ -1003,24 +1028,24 @@ protected:
             if (pre_todo[i] != std::numeric_limits<std::size_t>::max())
             {
                 //auto& str = stack_box.front().at(i).at(pre_todo[i] + 1)._content;
-                std::size_t stack_box_pos = pre_todo[i] + 1; // Position of prefix in the stack_box
-                auto& str = stack_box.at(stack_box_pos).at(i + 1)._content;
+                std::size_t stack_box_pos = pre_todo[i] + 1; // Position of prefix todo in the stack_box
+                auto& str = stack_box.at(stack_box_pos).at(i + 3)._content;
                 if (str.size() > 0)
                 {
-                    if (str[0] != ' ')
-                        str[1] = '[';
+                    if (str != ".")  // If there is no todo
+                        str.push_back('[');
                     else
                         str[0] = '[';
                 } else str = std::basic_string<TChar>("[");
             }
             if (post_todo[i] != std::numeric_limits<std::size_t>::max())
             {
-                std::size_t stack_box_pos = post_todo[i] + 1; // Position of postfix in the stack_box
-                auto& str = stack_box.at(stack_box_pos).at(i + 1)._content;
+                std::size_t stack_box_pos = post_todo[i] + 1; // Position of postfix todo in the stack_box
+                auto& str = stack_box.at(stack_box_pos).at(i + 3)._content;
                 if (str.size() > 0)
                 {
-                    if (str[0] != ' ')
-                        str[1] = ']';
+                    if (str[0] != '.')
+                        str.push_back(']');
                     else
                         str[0] = ']';
                 } else str = std::basic_string<TChar>("]");
@@ -1030,10 +1055,10 @@ protected:
     }
 
 
-    template<std::size_t N, class TMatches, class CTODO, class GSymbol>
-    Widget<TChar> make_context_at_next(const std::array<std::size_t, N>& context, const TMatches& nterms, const CTODO pre_todo, const CTODO post_todo, const std::vector<GSymbol>& stack)
+    template<std::size_t N, class TMatches, class TFix, class CTODO, class GSymbol>
+    Widget<TChar> make_context_at_next(const std::array<std::size_t, N>& context, const TMatches& nterms, const TFix& prefix, const TFix& postfix, const CTODO pre_todo, const CTODO post_todo, const std::vector<GSymbol>& stack)
     {
-        auto stack_box = make_context(context, nterms, pre_todo, post_todo, stack);
+        auto stack_box = make_context(context, nterms, prefix, postfix, pre_todo, post_todo, stack);
         // Render status
         stack_box.add_child(Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("[NEXT]"), Colors::Accent2),
@@ -1058,10 +1083,10 @@ protected:
         old_widget.at(1).back().at(1).refresh(make_symbol(match));
     }
 
-    template<std::size_t N, class TMatches, class CTODO, class GSymbol, class TSymbol>
-    Widget<TChar> make_context_at_apply(const std::array<std::size_t, N>& context, const TMatches& nterms, const CTODO pre_todo, const CTODO post_todo, const std::vector<GSymbol>& stack, const TSymbol& match)
+    template<std::size_t N, class TMatches, class TFix, class CTODO, class GSymbol, class TSymbol>
+    Widget<TChar> make_context_at_apply(const std::array<std::size_t, N>& context, const TMatches& nterms, const TFix& prefix, const TFix& postfix, const CTODO pre_todo, const CTODO post_todo, const std::vector<GSymbol>& stack, const TSymbol& match)
     {
-        auto stack_box = make_context(context, nterms, pre_todo, post_todo, stack);
+        auto stack_box = make_context(context, nterms, prefix, postfix, pre_todo, post_todo, stack);
         // Render status
         stack_box.add_child(Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("[APPLY]"), Colors::Accent2),

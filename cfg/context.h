@@ -56,6 +56,7 @@ public:
 };
 
 
+
 class CtxMeta
 {
 public:
@@ -195,12 +196,8 @@ public:
                             if (stack_size - 1 - prefix.fix != pre) [[unlikely]] // same rule, different symbol - looks counterintuitive
                             {
                                 // we have already applied the ctx, unexpected behavior
-                                if (stack_size - 1 - prefix.fix == pre)
-                                {
-                                    prettyprinter.guru_meditation("expected static prefix to match with runtime, got a mismatch", __FILE__, __LINE__);
-                                    assert(stack_size - 1 - prefix.fix != pre && "next() : guru meditation : expected static prefix to match with runtime, got a mismatch");
-                                }
-
+                                prettyprinter.guru_meditation("expected static prefix to match with runtime, got a mismatch", __FILE__, __LINE__);
+                                assert(stack_size - 1 - prefix.fix == pre && "next() : guru meditation : expected static prefix to match with runtime, got a mismatch");
                             }
                             if (stack_size - 1 - prefix.fix == max_pre)
                             {
@@ -259,12 +256,12 @@ public:
                         if (postfix.rule_id == rule_id)
                         {
                             // use _fix as the starting pos
-                            if (postfix.fix + post != stack_size - 1)
+                            if (postfix.fix + post != stack_size - 1) [[unlikely]]
                             {
                                 // we have already applied the ctx, unexpected behavior
                                 // ASSERT
                                 prettyprinter.guru_meditation("expected static postfix to match with runtime, got a mismatch", __FILE__, __LINE__);
-                                assert(postfix.fix + post != stack_size - 1 && "next() : guru meditation : expected static postfix to match with runtime, got a mismatch");
+                                assert(postfix.fix + post == stack_size - 1 && "next() : guru meditation : expected static postfix to match with runtime, got a mismatch");
                             }
                             if (post_dist == 0)
                             {
@@ -326,7 +323,7 @@ public:
             // We exit ctx now!
             // context[postfix.rule_id]--;
         }*/
-        prettyprinter.update_heur_ctx_at_next(context, matches, prefix_todo, postfix_todo, stack);
+        prettyprinter.update_heur_ctx_at_next(context, matches, prefix, postfix, prefix_todo, postfix_todo, stack);
         return prefix_todo.size() + postfix_todo.size() == 0;
     }
 
@@ -373,7 +370,7 @@ public:
                 postfix.reset();
             }
         }
-        prettyprinter.update_heur_ctx_at_apply(context, matches, prefix_todo, postfix_todo, stack, match);
+        prettyprinter.update_heur_ctx_at_apply(context, matches, prefix, postfix, prefix_todo, postfix_todo, stack, match);
         return true;
     }
 

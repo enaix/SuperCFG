@@ -140,7 +140,7 @@ namespace cfg_helpers
     template<class Array, class Src, std::size_t... Ints>
     constexpr auto do_homogeneous_morph(const Src& src, const std::integer_sequence<std::size_t, Ints...>)
     {
-        return Array(std::get<Ints>(src)...);
+        return Array({std::get<Ints>(src)...});
     }
 
     template<class T_first, class T_second, class... T>
