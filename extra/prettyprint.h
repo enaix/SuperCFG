@@ -357,7 +357,7 @@ public:
     {
         return Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("HEUR CTX"), Colors::Primary, Quad(1,0,1,0)),
-            Widget<TChar>(std::basic_string<TChar>("<empty>"), Colors::Primary, Quad(1,0,1,0))
+            Widget<TChar>(std::basic_string<TChar>("Step over to generate data"), Colors::Secondary, Quad(1,0,1,0))
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
 
@@ -365,7 +365,7 @@ public:
     [[noreturn]] void guru_meditation(const char* message, const char* file, int line)
     {
         apply_theme(PrinterThemes::Panic);
-        winstack.push(make_guru(message, file, line), (std::size_t)IPWindowFlags::Modal);
+        winstack.push(make_guru(message, file, line)); //, (std::size_t)IPWindowFlags::Modal);
         // block input
         while (true) { process(); } // will shut down when user presses abort
     }
@@ -833,7 +833,8 @@ protected:
             Widget<TChar>(std::basic_string<TChar>("GURU MEDITATION"), Colors::Primary, Quad(1,0,1,0)),
             Widget<TChar>(std::basic_string<TChar>(message), Colors::Primary, Quad(1,0,1,0)),
             Widget<TChar>(std::basic_string<TChar>("at ") + std::basic_string<TChar>(file) + ':' + std::basic_string<TChar>(std::to_string(line)), Colors::Primary, Quad(1,0,1,0)),
-            Widget<TChar>(std::basic_string<TChar>("Please submit the issue to https://github.com/enaix/SuperCFG with the grammar and parser input"), Colors::Primary, Quad(1,0,1,0)),
+            Widget<TChar>(std::basic_string<TChar>("Please submit the issue to https://github.com/enaix/SuperCFG"), Colors::Primary, Quad(1,0,1,0)),
+            Widget<TChar>(std::basic_string<TChar>("with the grammar configuration and parser input"), Colors::Primary, Quad(1,0,1,0)),
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
 
         Widget<TChar> abort_btn(std::basic_string<TChar>("<ABORT>"), Colors::Primary, Quad(1,1,1,1));
@@ -972,8 +973,8 @@ protected:
 
         Widget<TChar> stack_box(WidgetLayout::Horizontal, {
             Widget<TChar>(WidgetLayout::Vertical, {
-                Widget<TChar>(std::basic_string<TChar>("prefix"), Colors::Accent), // cur prefix
-                Widget<TChar>(std::basic_string<TChar>("postfix"), Colors::Accent), // cur postfix
+                Widget<TChar>(std::basic_string<TChar>("prefix match"), Colors::Accent), // cur prefix
+                Widget<TChar>(std::basic_string<TChar>("postfix match"), Colors::Accent), // cur postfix
                 Widget<TChar>(std::basic_string<TChar>("stack"), Colors::Accent), // header
                 // Here we put nterms
             }, Colors::None), // First col

@@ -181,13 +181,13 @@ public:
                 // TODO Do we actually handle CtxTODOs checks correctly with sequential next() calls?
                 tuple_each(pre_elems, [&](std::size_t k, const auto& pre){
                 // Is in prefix
-                if constexpr (!std::is_same_v<std::decay_t<decltype(pre)>, max_t>)
+                if constexpr (!std::is_same_v<std::decay_t<decltype(pre)>, max_t>)  // check that prefix for the rule exists
                 {
                     // we can also perform additional end-of-stack check (does the prefix+postfix fit?)
 
-                    if (prefix.empty() || postfix.empty())
+                    if (!prefix.empty() || !postfix.empty())
                     {
-                        // we're currently matching non-ambiguous ctx
+                        // we're currently matching non-ambiguous ctx, this code handles the ongoing match
                         // applied prefix or postfix are blocking: no new matches can happen
                         if (prefix.rule_id == rule_id)
                         {
@@ -221,6 +221,7 @@ public:
                     } else {
                         // first match
 
+                        // do we need to check for anything else?
                         if (pre == 0)
                         {
                             if (do_check_ctx(rule))
@@ -229,7 +230,7 @@ public:
                                 // nothing else to check
                                 // FOUND
                                 prefix_todo.add(rule_id, stack_size - 1);
-                            }
+                            } // else discard this match
                         } else {
                             // we need different logic for handling cases when prefix != 0
                             // permissive handler:
@@ -249,7 +250,7 @@ public:
                     // we can also perform additional end-of-stack check (does the prefix+postfix fit?)
                     // also we should check that the prefix rule matches (link prefixes and postfixes together)
 
-                    if (prefix.empty() || postfix.empty())
+                    if (!prefix.empty() || !postfix.empty())
                     {
                         // we're currently matching non-ambiguous ctx
                         // applied prefix or postfix are blocking: no new matches can happen
@@ -342,12 +343,15 @@ public:
     /**
      * @brief Update the context for the reduced symbol. This function should be called on each successful reduce operation
      * @param match Chosen match candidate
-     * @param stack_size Size of the stack before the reduction
+     * @param def Match candidate rule definition
+     * @param stack Stack before the reduction
      */
-    template<class TSymbol, class GSymbol>
-    constexpr bool apply_reduce(const TSymbol& match, const std::vector<GSymbol>& stack, auto& prettyprinter = NoPrettyPrinter())
+    template<class TSymbol, class TRule, class GSymbol>
+    constexpr bool apply_reduce(const TSymbol& match, const TRule& def, const std::vector<GSymbol>& stack, auto& prettyprinter = NoPrettyPrinter())
     {
         std::size_t stack_size = stack.size();
+        std::size_t reduction_size = std::tuple_size_v<std::decay_t<TRule>>; // Size of the candidate rule, N symbols will be removed from the end of the stack
+        std::size_t new_stack_size = stack_size - reduction_size;
         if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
         {
             constexpr std::size_t index = get_ctx_index<0, std::decay_t<TSymbol>>();
@@ -366,11 +370,25 @@ public:
                     prettyprinter.guru_meditation("empty context with non-empty postfix", __FILE__, __LINE__);
                     assert(context[index] > 0 && "apply_reduce() : guru meditation : empty context with non-empty postfix");
                 }
+                // We only reduce context after context match, but we can theoretically use postfix as the end of context
                 context[index]--;
                 postfix.reset();
             }
         }
         prettyprinter.update_heur_ctx_at_apply(context, matches, prefix, postfix, prefix_todo, postfix_todo, stack, match);
+
+        // Check if positions are invalidated after this operation
+        if (prefix.fix != std::numeric_limits<std::size_t>::max())
+        {
+            // TODO Get max stack pos to check that the end of prefix is in the reduced symbol
+            if (prefix.fix >= new_stack_size)
+            {
+                // TODO partially reduced prefix technically shouldn't be in the reduced symbol, but we should check this
+                prettyprinter.guru_meditation("partially matched prefix found in the reduced symbol", __FILE__, __LINE__);
+                assert(prefix.fix < new_stack_size && "apply_reduce() : guru meditation : partially matched prefix found in the reduced symbol");
+            }
+        }
+        // TODO check postfix and todos
         return true;
     }
 
