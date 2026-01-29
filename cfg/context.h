@@ -64,6 +64,7 @@ public:
     std::size_t fix;
 
     constexpr CtxMeta() : rule_id(std::numeric_limits<std::size_t>::max()), fix(std::numeric_limits<std::size_t>::max()) {}
+    CtxMeta(std::size_t rule, std::size_t pos) : rule_id(rule), fix(pos) {}
 
     void reset()
     {
@@ -77,7 +78,7 @@ public:
         fix = pos;
     }
 
-    bool empty() { return rule_id == std::numeric_limits<std::size_t>::max(); }
+    bool empty() const { return rule_id == std::numeric_limits<std::size_t>::max(); }
 };
 
 
@@ -91,8 +92,8 @@ public:
     CtxTODO<TMatches> prefix_todo;
     CtxTODO<TMatches> postfix_todo;
 
-    CtxMeta prefix; // non-ambiguous prefix match (we do not need the whole array)
-    CtxMeta postfix; // ditto
+    std::vector<CtxMeta> prefix; // non-ambiguous prefix match (we may have multiple matches)
+    std::vector<CtxMeta> postfix; // ditto
 
     TMatches matches;
     NTermsPosPairs pos_nterm;
@@ -114,8 +115,8 @@ public:
             vec.assign(1, std::numeric_limits<std::size_t>::max()); // Set ctx pos to null at first ctx level
         prefix_todo.reset();
         postfix_todo.reset();
-        prefix.reset();
-        postfix.reset();
+        prefix.clear();
+        postfix.clear();
     }
 
     /**
@@ -185,28 +186,29 @@ public:
                 {
                     // we can also perform additional end-of-stack check (does the prefix+postfix fit?)
 
-                    if (!prefix.empty() || !postfix.empty())
+                    for (std::size_t j = 0; j < prefix.size(); )
                     {
                         // we're currently matching non-ambiguous ctx, this code handles the ongoing match
-                        // applied prefix or postfix are blocking: no new matches can happen
-                        if (prefix.rule_id == rule_id)
+                        // applied prefix or postfix are non-blocking: new matches can happen
+                        if (prefix[j].rule_id == rule_id)
                         {
                             // prefix is non-empty and is the same as the current rule
                             // use _fix as the starting pos
-                            if (stack_size - 1 - prefix.fix != pre) [[unlikely]] // same rule, different symbol - looks counterintuitive
+                            if (stack_size - 1 - prefix[j].fix != pre) [[unlikely]] // same rule, different symbol - looks counterintuitive
                             {
                                 // we have already applied the ctx, unexpected behavior
                                 prettyprinter.guru_meditation("expected static prefix to match with runtime, got a mismatch", __FILE__, __LINE__);
-                                assert(stack_size - 1 - prefix.fix == pre && "next() : guru meditation : expected static prefix to match with runtime, got a mismatch");
+                                assert(stack_size - 1 - prefix[j].fix == pre && "next() : guru meditation : expected static prefix to match with runtime, got a mismatch");
                             }
-                            if (stack_size - 1 - prefix.fix == max_pre)
+                            if (stack_size - 1 - prefix[j].fix == max_pre)
                             {
                                 // we reached the end
-                                prefix.reset();
-                            }
+                                prefix.erase(prefix.begin() + j); // no need to move j
+                            } else j++;
                         }
                     }
-                    else if (prefix_todo[rule_id] != max_t())
+
+                    if (prefix_todo[rule_id] != max_t())
                     {
                         // use _todo as the starting pos
                         // TODO add optional (if pre == max_pre - 1 -> apply)
@@ -250,29 +252,29 @@ public:
                     // we can also perform additional end-of-stack check (does the prefix+postfix fit?)
                     // also we should check that the prefix rule matches (link prefixes and postfixes together)
 
-                    if (!prefix.empty() || !postfix.empty())
+                    for (std::size_t j = 0; j < postfix.size(); )
                     {
                         // we're currently matching non-ambiguous ctx
                         // applied prefix or postfix are blocking: no new matches can happen
-                        if (postfix.rule_id == rule_id)
+                        if (postfix[j].rule_id == rule_id)
                         {
                             // use _fix as the starting pos
-                            if (postfix.fix + post != stack_size - 1) [[unlikely]]
+                            if (postfix[j].fix + post != stack_size - 1) [[unlikely]]
                             {
                                 // we have already applied the ctx, unexpected behavior
                                 // ASSERT
                                 prettyprinter.guru_meditation("expected static postfix to match with runtime, got a mismatch", __FILE__, __LINE__);
-                                assert(postfix.fix + post == stack_size - 1 && "next() : guru meditation : expected static postfix to match with runtime, got a mismatch");
+                                assert(postfix[j].fix + post == stack_size - 1 && "next() : guru meditation : expected static postfix to match with runtime, got a mismatch");
                             }
                             if (post_dist == 0)
                             {
                                 // we reached the end
                                 // FOUND
-                                postfix.reset();
-                            }
+                                postfix.erase(postfix.begin() + j); // no need to move j
+                            } else j++;
                         }
                     }
-                    else if (postfix_todo[rule_id] != max_t())
+                    if (postfix_todo[rule_id] != max_t())
                     {
                         // use _todo as the starting pos
                         if (postfix_todo[rule_id] + post == stack_size - 1)
@@ -311,11 +313,11 @@ public:
             {
                 std::size_t match_id = prefix_todo.last_added();
                 context[match_id]++;
-                prefix.set(match_id, prefix_todo[match_id]);
+                prefix.push_back(CtxMeta(match_id, prefix_todo[match_id]));
                 prefix_todo.remove(match_id);
             } else {
                 std::size_t match_id = postfix_todo.last_added();
-                postfix.set(match_id, postfix_todo[match_id]);
+                postfix.push_back(CtxMeta(match_id, postfix_todo[match_id]));
                 postfix_todo.remove(match_id);
             }
         }
@@ -355,24 +357,28 @@ public:
         if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
         {
             constexpr std::size_t index = get_ctx_index<0, std::decay_t<TSymbol>>();
-            if (postfix.rule_id == index)
+            for (std::size_t j = 0; j < postfix.size(); )
             {
-                // Context id matches
-                if (postfix.fix != stack_size - 1) [[unlikely]]
+                auto& post = postfix[j];
+                if (post.rule_id == index)
                 {
-                    // The symbol is reduced
-                    prettyprinter.guru_meditation("match candidate reduced in the illegal postfix position", __FILE__, __LINE__);
-                    assert(postfix.fix == stack_size - 1 && "apply_reduce() : guru meditation : match candidate reduced in the illegal postfix position");
-                }
+                    // Context id matches
+                    if (post.fix != stack_size - 1) [[unlikely]]
+                    {
+                        // The symbol is reduced
+                        prettyprinter.guru_meditation("match candidate reduced in the illegal postfix position", __FILE__, __LINE__);
+                        assert(postfix.fix == stack_size - 1 && "apply_reduce() : guru meditation : match candidate reduced in the illegal postfix position");
+                    }
 
-                if (context[index] == 0)
-                {
-                    prettyprinter.guru_meditation("empty context with non-empty postfix", __FILE__, __LINE__);
-                    assert(context[index] > 0 && "apply_reduce() : guru meditation : empty context with non-empty postfix");
-                }
-                // We only reduce context after context match, but we can theoretically use postfix as the end of context
-                context[index]--;
-                postfix.reset();
+                    if (context[index] == 0)
+                    {
+                        prettyprinter.guru_meditation("empty context with non-empty postfix", __FILE__, __LINE__);
+                        assert(context[index] > 0 && "apply_reduce() : guru meditation : empty context with non-empty postfix");
+                    }
+                    // We only reduce context after context match, but we can theoretically use postfix as the end of context
+                    context[index]--;
+                    postfix.erase(postfix.begin() + j); // don't need to increment j
+                } else j++;
             }
         }
         prettyprinter.update_heur_ctx_at_apply(context, matches, prefix, postfix, prefix_todo, postfix_todo, stack, match);
@@ -382,22 +388,22 @@ public:
         //const auto fix_rt = h_type_morph<std::array<std::pair<std::size_t, std::size_t>, std::tuple_size_v<std::decay_t<FixLimits>>>, true>([]<std::size_t i>(const auto& src){ const auto p = std::get<i>(src); return std::make_pair((std::size_t)p.first, (std::size_t)p.second); }, IntegralWrapper<std::tuple_size_v<std::decay_t<FixLimits>>>{}, limits);
 
         // Check if positions are invalidated after this operation
-        if (!prefix.empty())
+        for (const auto& pre : prefix)
         {
-            if (prefix.fix >= new_stack_size)
+            if (pre.fix >= new_stack_size)
             {
                 // TODO partially reduced prefix technically shouldn't be in the reduced symbol, but we should check this
                 prettyprinter.guru_meditation("partially matched prefix found in the reduced symbol", __FILE__, __LINE__);
-                assert(prefix.fix < new_stack_size && "apply_reduce() : guru meditation : partially matched prefix found in the reduced symbol");
+                assert(pre.fix < new_stack_size && "apply_reduce() : guru meditation : partially matched prefix found in the reduced symbol");
             }
         }
-        if (!postfix.empty())
+        for (const auto& post : postfix)
         {
             // postfix.fix is increasing (not post_dist)
-            if (postfix.fix >= new_stack_size)
+            if (post.fix >= new_stack_size)
             {
                 prettyprinter.guru_meditation("partially matched postfix found in the reduced symbol", __FILE__, __LINE__);
-                assert(postfix.fix < new_stack_size && "apply_reduce() : guru meditation : partially matched postfix found in the reduced symbol");
+                assert(post.fix < new_stack_size && "apply_reduce() : guru meditation : partially matched postfix found in the reduced symbol");
             }
         }
         // Do the same position invalidation check with todos
