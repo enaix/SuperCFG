@@ -350,7 +350,7 @@ public:
     constexpr bool apply_reduce(const TSymbol& match, const TRule& def, const std::vector<GSymbol>& stack, auto& prettyprinter = NoPrettyPrinter())
     {
         std::size_t stack_size = stack.size();
-        std::size_t reduction_size = std::tuple_size_v<std::decay_t<TRule>>; // Size of the candidate rule, N symbols will be removed from the end of the stack
+        std::size_t reduction_size = std::decay_t<TRule>::size(); // Size of the candidate rule, N symbols will be removed from the end of the stack
         std::size_t new_stack_size = stack_size - reduction_size;
         if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
         {
@@ -377,10 +377,13 @@ public:
         }
         prettyprinter.update_heur_ctx_at_apply(context, matches, prefix, postfix, prefix_todo, postfix_todo, stack, match);
 
+
+        // We can optimize this part by moving this to runtime
+        //const auto fix_rt = h_type_morph<std::array<std::pair<std::size_t, std::size_t>, std::tuple_size_v<std::decay_t<FixLimits>>>, true>([]<std::size_t i>(const auto& src){ const auto p = std::get<i>(src); return std::make_pair((std::size_t)p.first, (std::size_t)p.second); }, IntegralWrapper<std::tuple_size_v<std::decay_t<FixLimits>>>{}, limits);
+
         // Check if positions are invalidated after this operation
-        if (prefix.fix != std::numeric_limits<std::size_t>::max())
+        if (!prefix.empty())
         {
-            // TODO Get max stack pos to check that the end of prefix is in the reduced symbol
             if (prefix.fix >= new_stack_size)
             {
                 // TODO partially reduced prefix technically shouldn't be in the reduced symbol, but we should check this
@@ -388,7 +391,38 @@ public:
                 assert(prefix.fix < new_stack_size && "apply_reduce() : guru meditation : partially matched prefix found in the reduced symbol");
             }
         }
-        // TODO check postfix and todos
+        if (!postfix.empty())
+        {
+            // postfix.fix is increasing (not post_dist)
+            if (postfix.fix >= new_stack_size)
+            {
+                prettyprinter.guru_meditation("partially matched postfix found in the reduced symbol", __FILE__, __LINE__);
+                assert(postfix.fix < new_stack_size && "apply_reduce() : guru meditation : partially matched postfix found in the reduced symbol");
+            }
+        }
+        // Do the same position invalidation check with todos
+        for (std::size_t i = 0; i < std::tuple_size_v<std::decay_t<FixLimits>>; i++)
+        {
+            if (prefix_todo[i] != std::numeric_limits<std::size_t>::max())
+            {
+                if (prefix_todo[i] >= new_stack_size)
+                {
+                    // We possibly need to eliminate candidate, but for now we should crash
+                    prettyprinter.guru_meditation("prefix todo prefix found in the reduced symbol", __FILE__, __LINE__);
+                    assert(prefix_todo[i] < new_stack_size && "apply_reduce() : guru meditation : prefix todo found in the reduced symbol");
+                }
+            }
+            if (postfix_todo[i] != std::numeric_limits<std::size_t>::max())
+            {
+                // postfix_todo[i] is increasing (not post_dist)
+                if (postfix_todo[i] >= new_stack_size)
+                {
+                    prettyprinter.guru_meditation("postfix todo found in the reduced symbol", __FILE__, __LINE__);
+                    assert(postfix_todo[i] < new_stack_size && "apply_reduce() : guru meditation : postfix todo found in the reduced symbol");
+                }
+            }
+        }
+
         return true;
     }
 

@@ -824,7 +824,7 @@ protected:
                     if constexpr (enabled<SRConfEnum::ReducibilityChecker>())
                         r_checker.apply_reduce(match); // If the matched symbol has context, we need to decrement
                     if constexpr (enabled<SRConfEnum::HeuristicCtx>())
-                        ctx_mgr.apply_reduce(match, stack, printer); // ditto
+                        ctx_mgr.apply_reduce(match, def, stack, printer); // ditto
                     return true;
                 });
 
