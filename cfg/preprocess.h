@@ -1092,6 +1092,8 @@ public:
 
     void guru_meditation(const char* msg, const char* file, int line) {}
 
+    void debug_message(auto build_widget, const char* file, int line) {}
+
     static void init_signal_handler() {}
 };
 

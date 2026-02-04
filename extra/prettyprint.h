@@ -173,7 +173,8 @@ enum class PrinterWindows
     Stack,
     Descend,
     AST,
-    HeurCtx
+    HeurCtx,
+    DebugMsg    // Right now only a single debug window is supported
 };
 
 
@@ -368,6 +369,19 @@ public:
         winstack.push(make_guru(message, file, line)); //, (std::size_t)IPWindowFlags::Modal);
         // block input
         while (true) { process(); } // will shut down when user presses abort
+    }
+
+    // Blocking !!
+    void debug_message(auto build_widget, const char* file, int line)
+    {
+        // build_widget should take the add_text and add_symbol functions, which construct the final widget
+        winstack.push(make_debug_win(build_widget, file, line), 0, (int)PrinterWindows::DebugMsg); //, (std::size_t)IPWindowFlags::Modal);
+        // block input
+        // will wait for the user to close the message
+        while (winstack.find((int)PrinterWindows::DebugMsg) != -1)
+        {
+            while(!process()) {}
+        }
     }
 
     static void init_signal_handler() { std::decay_t<decltype(terminal)>::init_signal_handler(); }
@@ -851,6 +865,40 @@ protected:
         };
         alert.add_child(abort_btn);
         return alert;
+    }
+
+    Widget<TChar> make_debug_win(auto build_widget, const char* file, int line)
+    {
+        Widget<TChar> info(WidgetLayout::Horizontal, {}, Colors::None, Quad(1,0,1,0));
+
+        auto add_text = [&](const auto& text){
+            info.add_child(Widget<TChar>(std::basic_string<TChar>(text), Colors::Primary));
+        };
+        auto add_symbol = [&](const auto& symbol){
+            info.add_child(make_symbol(symbol));
+        };
+        build_widget(add_text, add_symbol);
+        Widget<TChar> debug(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("[?] DEBUG"), Colors::Primary, Quad(1,0,1,0)),
+            info,
+            Widget<TChar>(std::basic_string<TChar>("at ") + std::basic_string<TChar>(file) + ':' + std::basic_string<TChar>(std::to_string(line)), Colors::Primary, Quad(1,0,1,0)),
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
+
+        Widget<TChar> resume_btn(std::basic_string<TChar>("<resume>"), Colors::Primary, Quad(1,1,1,1));
+        resume_btn.set_selectable(true);
+        resume_btn.on_event = [](Widget<TChar>* self, WindowStack<TChar>* window, const IPEvent& ev,
+                                         const std::vector<int>& path) -> bool
+        {
+            if (ev.type == EventType::Select || ev.type == EventType::Click)
+            {
+                if (window->selector_idx < window->stack.size())
+                    window->pop(window->selector_idx);
+                return true;
+            }
+            return false;
+        };
+        debug.add_child(resume_btn);
+        return debug;
     }
 
     template<class VStr, class TokenTSet, class TSymbol>

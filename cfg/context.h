@@ -175,7 +175,44 @@ public:
                  */
 
 
-
+                // TODO check that the symbol matches
+                // Get the prefix/postfix symbol
+                auto check_symbol_match = [&](const std::size_t pos){
+                    if constexpr (is_nterm<decltype(symbol)>())
+                    {
+                        if (!tuple_at(matches, pos, [&](const auto& fix_symbol){
+                            if constexpr (!std::is_same_v<std::decay_t<decltype(fix_symbol)>, std::decay_t<decltype(symbol)>>)
+                            {
+                                prettyprinter.debug_message([&](auto add_text, auto add_symbol){
+                                    add_text("Prefix mismatch: ");
+                                    add_symbol(symbol);
+                                    add_text(" (stack) != ");
+                                    add_symbol(fix_symbol);
+                                    add_text(" (prefix)");
+                                }, __FILE__, __LINE__);
+                                return false;
+                            } else return true;
+                        }))
+                            return false;
+                        else return true;
+                    } else {
+                        if (!tuple_at(t_terms, pos, [&](const auto& fix_symbol){
+                            if constexpr (!std::is_same_v<std::decay_t<decltype(fix_symbol)>, std::decay_t<decltype(symbol)>>)
+                            {
+                                prettyprinter.debug_message([&](auto add_text, auto add_symbol){
+                                    add_text("Postfix mismatch: ");
+                                    add_symbol(symbol);
+                                    add_text(" (stack) != ");
+                                    add_symbol(fix_symbol);
+                                    add_text(" (postfix)");
+                                }, __FILE__, __LINE__);
+                                return false;
+                            } else return true;
+                        }))
+                            return false;
+                        else return true;
+                    }
+                };
 
                 // TODO add end of input marker to ONLY consider full postfixes
                 // Also if we reduce some ambiguity and some CtxTODOs are resolved, we should re-run the previous checks
@@ -192,6 +229,11 @@ public:
                         // applied prefix or postfix are non-blocking: new matches can happen
                         if (prefix[j].rule_id == rule_id)
                         {
+                            if (!check_symbol_match(prefix[j].fix))
+                            {
+                                //j++;
+                                //continue;
+                            }
                             // prefix is non-empty and is the same as the current rule
                             // use _fix as the starting pos
                             if (stack_size - 1 - prefix[j].fix != pre) [[unlikely]] // same rule, different symbol - looks counterintuitive
