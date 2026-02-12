@@ -175,45 +175,6 @@ public:
                  */
 
 
-                // TODO check that the symbol matches
-                // Get the prefix/postfix symbol
-                auto check_symbol_match = [&](const std::size_t pos){
-                    if constexpr (is_nterm<decltype(symbol)>())
-                    {
-                        if (!tuple_at(matches, pos, [&](const auto& fix_symbol){
-                            if constexpr (!std::is_same_v<std::decay_t<decltype(fix_symbol)>, std::decay_t<decltype(symbol)>>)
-                            {
-                                prettyprinter.debug_message([&](auto add_text, auto add_symbol){
-                                    add_text("Prefix mismatch: ");
-                                    add_symbol(symbol);
-                                    add_text(" (stack) != ");
-                                    add_symbol(fix_symbol);
-                                    add_text(" (prefix)");
-                                }, __FILE__, __LINE__);
-                                return false;
-                            } else return true;
-                        }))
-                            return false;
-                        else return true;
-                    } else {
-                        if (!tuple_at(t_terms, pos, [&](const auto& fix_symbol){
-                            if constexpr (!std::is_same_v<std::decay_t<decltype(fix_symbol)>, std::decay_t<decltype(symbol)>>)
-                            {
-                                prettyprinter.debug_message([&](auto add_text, auto add_symbol){
-                                    add_text("Postfix mismatch: ");
-                                    add_symbol(symbol);
-                                    add_text(" (stack) != ");
-                                    add_symbol(fix_symbol);
-                                    add_text(" (postfix)");
-                                }, __FILE__, __LINE__);
-                                return false;
-                            } else return true;
-                        }))
-                            return false;
-                        else return true;
-                    }
-                };
-
                 // TODO add end of input marker to ONLY consider full postfixes
                 // Also if we reduce some ambiguity and some CtxTODOs are resolved, we should re-run the previous checks
                 // TODO Do we actually handle CtxTODOs checks correctly with sequential next() calls?
@@ -226,14 +187,9 @@ public:
                     for (std::size_t j = 0; j < prefix.size(); )
                     {
                         // we're currently matching non-ambiguous ctx, this code handles the ongoing match
-                        // applied prefix or postfix are non-blocking: new matches can happen
+                        // applied prefix or postfix are non-blocking: new matches can happen (in case if we have nested symbols)
                         if (prefix[j].rule_id == rule_id)
                         {
-                            if (!check_symbol_match(prefix[j].fix))
-                            {
-                                //j++;
-                                //continue;
-                            }
                             // prefix is non-empty and is the same as the current rule
                             // use _fix as the starting pos
                             if (stack_size - 1 - prefix[j].fix != pre) [[unlikely]] // same rule, different symbol - looks counterintuitive
@@ -247,13 +203,14 @@ public:
                                 // we reached the end
                                 prefix.erase(prefix.begin() + j); // no need to move j
                             } else j++;
-                        }
+                        } else j++;
                     }
 
                     if (prefix_todo[rule_id] != max_t())
                     {
                         // use _todo as the starting pos
                         // TODO add optional (if pre == max_pre - 1 -> apply)
+                        // TODO check the case where pre == 0
                         if (stack_size - 1 - prefix_todo[rule_id] == pre)
                         {
                             // FOUND
@@ -277,9 +234,24 @@ public:
                             } // else discard this match
                         } else {
                             // we need different logic for handling cases when prefix != 0
+                            // TODO check partial descend() in order to filter out unwanted matches
                             // permissive handler:
-                            if (pre < stack_size)  // sanity check
-                                prefix_todo.add(rule_id, stack_size - 1 - pre);
+                            /*if (pre < stack_size)  // sanity check
+                            {
+                                // Right now we check if there is no partially reduced prefix
+                                if (std::none_of(prefix.begin(), prefix.end(), [&](const auto& p){ return p.rule_id == rule_id; }))
+                                {
+                                    prettyprinter.debug_message([&](auto add_text, auto add_symbol){
+                                        add_text("Permissive handler: adding nonzero prefix ");
+                                        add_symbol(symbol);
+                                        add_text(" for rule ");
+                                        add_symbol(rule);
+                                        add_text(" at pos ");
+                                        add_text(std::to_string(pre));
+                                    }, __FILE__, __LINE__);
+                                    prefix_todo.add(rule_id, stack_size - 1 - pre);
+                                }
+                            }*/
                         }
                     }
                 }
@@ -314,7 +286,7 @@ public:
                                 // FOUND
                                 postfix.erase(postfix.begin() + j); // no need to move j
                             } else j++;
-                        }
+                        } else j++;
                     }
                     if (postfix_todo[rule_id] != max_t())
                     {
@@ -337,8 +309,8 @@ public:
                         } else {
                             // we need different logic for handling cases when prefix != 0
                             // permissive handler:
-                            if (post < stack_size)  // sanity check (we need to account for prefix overlap)
-                                postfix_todo.add(rule_id, stack_size - 1 - post);
+                            /*if (post < stack_size)  // sanity check (we need to account for prefix overlap)
+                                postfix_todo.add(rule_id, stack_size - 1 - post);*/
                         }
                     }
                 }
@@ -391,11 +363,11 @@ public:
      * @param stack Stack before the reduction
      */
     template<class TSymbol, class TRule, class GSymbol>
-    constexpr bool apply_reduce(const TSymbol& match, const TRule& def, const std::vector<GSymbol>& stack, auto& prettyprinter = NoPrettyPrinter())
+    constexpr bool apply_reduce(const TSymbol& match, const TRule& def, const std::vector<GSymbol>& stack, const std::size_t new_stack_size, auto& prettyprinter = NoPrettyPrinter())
     {
         std::size_t stack_size = stack.size();
-        std::size_t reduction_size = std::decay_t<TRule>::size(); // Size of the candidate rule, N symbols will be removed from the end of the stack
-        std::size_t new_stack_size = stack_size - reduction_size;
+        //std::size_t reduction_size = std::decay_t<TRule>::size(); // Size of the candidate rule, N symbols will be removed from the end of the stack
+        //std::size_t new_stack_size = stack_size - reduction_size;
         if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
         {
             constexpr std::size_t index = get_ctx_index<0, std::decay_t<TSymbol>>();
@@ -425,7 +397,6 @@ public:
         }
         prettyprinter.update_heur_ctx_at_apply(context, matches, prefix, postfix, prefix_todo, postfix_todo, stack, match);
 
-
         // We can optimize this part by moving this to runtime
         //const auto fix_rt = h_type_morph<std::array<std::pair<std::size_t, std::size_t>, std::tuple_size_v<std::decay_t<FixLimits>>>, true>([]<std::size_t i>(const auto& src){ const auto p = std::get<i>(src); return std::make_pair((std::size_t)p.first, (std::size_t)p.second); }, IntegralWrapper<std::tuple_size_v<std::decay_t<FixLimits>>>{}, limits);
 
@@ -434,6 +405,11 @@ public:
         {
             if (pre.fix >= new_stack_size)
             {
+                prettyprinter.debug_message([&](auto add_text, auto add_symbol){
+                    add_text(std::to_string(pre.fix));
+                    add_text(" >= new stack size ");
+                    add_text(std::to_string(new_stack_size));
+                }, __FILE__, __LINE__);
                 // TODO partially reduced prefix technically shouldn't be in the reduced symbol, but we should check this
                 prettyprinter.guru_meditation("partially matched prefix found in the reduced symbol", __FILE__, __LINE__);
                 assert(pre.fix < new_stack_size && "apply_reduce() : guru meditation : partially matched prefix found in the reduced symbol");

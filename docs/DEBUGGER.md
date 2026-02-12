@@ -24,8 +24,9 @@ This structure is used in heuristic context analyzer. Each term and nterm is map
 # for nterms, same structure for terms
 tuple<
   # NTERM/TERM 1
-  tuple<pair<RULE_i, pair<tuple<pre1, ...>, tuple<post1, ...>>>, # RULE, {{prefix1, prefix2, ...}, {postfix1, postfix2, ...}} - can be multiple positions
-    pair<RULE_j, pair<tuple<pre1, ...>, tuple<post1, ...>>>>,  # <- several rules 
+  # Describes in which rules the NTERM/TERM 1 is present (based on RR tree), and at which prefix/postfix positions
+  tuple<pair<RULE_i, pair<tuple<IC<pre1>, ...>, tuple<IC<post1>, ...>>>, # RULE, {{prefix1, prefix2, ...}, {postfix1, postfix2, ...}} - can be multiple positions
+    pair<RULE_j, pair<tuple<IC<pre1>, ...>, tuple<IC<post1>, ...>>>>,  # <- several rules 
 
   # NTERM/TERM 2
   tuple<pair<RULE_i, pair<tuple<...>, tuple<...>>>, ...>,  # <- several rules 
