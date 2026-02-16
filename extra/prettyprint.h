@@ -102,16 +102,16 @@ template<char key> static constexpr char PressShift() { if constexpr (key > 'Z')
 template<char key> static constexpr char PressRegular() { if constexpr (key <= 'Z') { return key - 'A' + 'a'; } else return key; }
 
 
-static constexpr char keybinds[2][12] = {
+static constexpr char keybinds[2][13] = {
     {   // DEFAULT
         '\t', // Next Win
         // Main menu
         PressCtrl<'O'>(), // Open Win
         PressCtrl<'Q'>(), // Quit
-        PressCtrl<'T'>(), // Theme
         PressCtrl<'A'>(), // About
         PressCtrl<'W'>(), // Move Win
         PressCtrl<'E'>(), // Destroy Win
+        PressCtrl<'P'>(), // Prefs (Settings)
         // Open Win
         PressRegular<'E'>(), // EBNF Repr
         PressRegular<'R'>(), // Reverse rules
@@ -119,16 +119,18 @@ static constexpr char keybinds[2][12] = {
         PressRegular<'C'>(), // Heur Ctx
         // Move Win
         PressRegular<'E'>(), // Change Vis
+        // Settings
+        PressCtrl<'T'>(), // Theme
     },
     {   // NO CTRL
         '\t', // Next Win
         // Main menu
         PressRegular<'O'>(), // Open Win
         PressRegular<'Q'>(), // Quit
-        PressRegular<'T'>(), // Theme
         PressRegular<'A'>(), // About
         PressRegular<'W'>(), // Move Win
         PressRegular<'E'>(), // Destroy Win
+        PressRegular<'P'>(), // Prefs (Settings)
         // Open Win
         PressRegular<'E'>(), // EBNF Repr
         PressRegular<'R'>(), // Reverse rules
@@ -136,6 +138,8 @@ static constexpr char keybinds[2][12] = {
         PressRegular<'C'>(), // Heur Ctx
         // Move Win
         PressRegular<'E'>(), // Change Vis
+        // Settings
+        PressRegular<'T'>(), // Theme
     },
 };
 
@@ -145,15 +149,16 @@ enum class KeyIdx : int
     NextWin,
     OpenWin,
     Quit,
-    Theme,
     About,
     MoveWin,
     DestroyWin,
+    Settings,
     EBNFRepr,
     ReverseRules,
     FixHeur,
     HeurCtx,
     ChangeVis,
+    Theme,
 };
 
 
@@ -161,6 +166,7 @@ enum class PrinterMode : std::size_t
 {
     Normal,
     Open,
+    Settings,
     Theme,
     Move,
     Quit
@@ -221,7 +227,7 @@ public:
         winstack.push(Widget<TChar>(), 0, (int)PrinterWindows::Descend); // DESCEND
         winstack.push(make_ast(TreeNode<std::basic_string<TChar>>()), 0, (int)PrinterWindows::AST); // AST
 
-        winstack.push_overlay(make_bottom_overlay());
+        winstack.push_overlay(make_bottom_overlay());  // bottom overlay has idx 0
         set_bottom_overlay_pos();
         winstack.selector_idx = 0;
 
@@ -1151,6 +1157,11 @@ protected:
 
     bool handle_mode(const char input, int last_char) // handled = true means that we shouldn't handle the event further
     {
+        auto make_unknown_key_overlay = [&](){
+            // doesn't render properly with input
+            winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("Unknown key: ") /*+ std::basic_string<TChar>(input, 1)*/); // bad key
+        };
+
         switch (_mode)
             {
             case PrinterMode::Normal:
@@ -1169,10 +1180,11 @@ protected:
                             _mode = PrinterMode::Quit;
                             return true; // read next input
                         }
-                    case get_key<KeyIdx::Theme>(): // ^T
-                        _mode = PrinterMode::Theme;
-                        winstack.overlays[0] = make_bottom_overlay_theme();
-                        return true; // continue
+                    case get_key<KeyIdx::Settings>():
+                        _mode = PrinterMode::Settings;
+                        show_settings_win();
+                        winstack.overlays[0] = make_bottom_overlay();
+                        return true;
                     case get_key<KeyIdx::About>(): // ^A
                         show_about();
                         return true;
@@ -1220,10 +1232,29 @@ protected:
                         return true;
                     default:
                         _mode = PrinterMode::Normal;
-                        winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("Unknown key: ") + std::basic_string<TChar>(input, 1)); // bad key
+                        make_unknown_key_overlay();
                         return true;
                     }
                 break;
+            case PrinterMode::Settings:
+                switch (input)
+                    {
+                    case get_key<KeyIdx::Theme>(): // ^T
+                        kill_settings_win();
+                        _mode = PrinterMode::Theme;
+                        winstack.overlays[0] = make_bottom_overlay_theme();
+                        return true; // continue
+                    case 27:  // esc
+                        kill_settings_win();
+                        _mode = PrinterMode::Normal;
+                        winstack.overlays[0] = make_bottom_overlay();
+                        return true;
+                    default:
+                        kill_settings_win();
+                        _mode = PrinterMode::Normal;
+                        make_unknown_key_overlay();
+                        return true;
+                    }
             case PrinterMode::Theme:
                 switch (input)
                     {
@@ -1343,7 +1374,7 @@ protected:
                         return true;
                     default:
                         _mode = PrinterMode::Normal;
-                        winstack.overlays[0] = make_bottom_overlay_custom(std::basic_string<TChar>("Unknown key: ") + std::basic_string<TChar>(input, 1)); // bad key
+                        make_unknown_key_overlay();
                         return true;
                     }
             case PrinterMode::Quit:
@@ -1492,8 +1523,8 @@ protected:
                         Widget<TChar>(std::basic_string<TChar>("Move Win"), Colors::Primary),
                         Widget<TChar>(get_keybind_text<KeyIdx::DestroyWin>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Destroy Win"), Colors::Primary),
-                        Widget<TChar>(get_keybind_text<KeyIdx::Theme>(), Colors::Accent3),
-                        Widget<TChar>(std::basic_string<TChar>("Theme"), Colors::Primary),
+                        Widget<TChar>(get_keybind_text<KeyIdx::Settings>(), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Prefs"), Colors::Primary),
                         Widget<TChar>(get_keybind_text<KeyIdx::About>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("About"), Colors::Primary),
                     }, Colors::None, Quad(), Quad(1,0,1,0));
@@ -1510,11 +1541,37 @@ protected:
                         Widget<TChar>(std::basic_string<TChar>("ESC"), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
                     }, Colors::None, Quad(), Quad(1,0,1,0));
+            case PrinterMode::Settings:
+                return Widget<TChar>(WidgetLayout::Horizontal, {
+                        Widget<TChar>(get_keybind_text<KeyIdx::Theme>(), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Theme"), Colors::Primary),
+                        Widget<TChar>(std::basic_string<TChar>("ESC"), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
+                    }, Colors::None, Quad(), Quad(1,0,1,0));
             default:
                 break;
             }
         assert((_mode == PrinterMode::Normal || _mode == PrinterMode::Open) && "make_bottom_overlay() can only work in normal and open modes");
         return Widget<TChar>(); // unreachable
+    }
+
+    void show_settings_win()
+    {
+        Widget<TChar> settings(WidgetLayout::Vertical, {
+            Widget<TChar>(WidgetLayout::Horizontal, {
+                Widget<TChar>(std::basic_string<TChar>("[*]"), Colors::Selected),
+                Widget<TChar>(std::basic_string<TChar>("h"), Colors::Accent3),
+                Widget<TChar>(std::basic_string<TChar>("Pause at Heur Ctx match"), Colors::Primary),
+            }, Colors::None, Quad(), Quad(1,0,1,0)),
+        }, Colors::None, Quad(2,3,2,3), Quad(), &_cur_box_style);
+
+        winstack.push(settings, (std::size_t)IPWindowFlags::Modal);
+    }
+
+    void kill_settings_win()
+    {
+        // cannot create any more windows without exiting settings
+        winstack.pop(winstack.selector_idx);
     }
 };
 
