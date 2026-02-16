@@ -371,6 +371,7 @@ public:
         if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
         {
             constexpr std::size_t index = get_ctx_index<0, std::decay_t<TSymbol>>();
+            // We need to reduce current postfixes if they match
             for (std::size_t j = 0; j < postfix.size(); )
             {
                 auto& post = postfix[j];

@@ -405,32 +405,33 @@ public:
 
         while (true) //(i < tokens.size())
         {
+            if constexpr (enabled<SRConfEnum::HeuristicCtx>())
+            {
+                // CtxManager analyzes the symbols which cannot be reduced right away
+                // Take the last symbol and try resolving context
+
+                auto tok = stack.back();
+
+                for (std::size_t j = 0; !ctx_mgr.next(tok, stack, symbols_ht, printer); j++)
+                {
+                    // Ambiguity found, move tok
+                    if (j >= tokens.size()) [[unlikely]]
+                    {
+                        //if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "unresolved ambiguity encountered" << std::endl;
+                        return false;
+                    }
+                    // TODO replace Token class with GSymbol
+                    tok = GSymbolV(tokens[j].value, tokens[j].type); // take the next term from the tokens
+                }
+                // ambiguity resolved
+            }
+
             if (!reduce_lookahead_runtime(stack, &node, tokens, i, printer))
             {
                 // Shift operation
                 if (i == tokens.size()) [[unlikely]]
                     //return false;
                     break;
-                if constexpr (enabled<SRConfEnum::HeuristicCtx>())
-                {
-                    // CtxManager analyzes the symbols which cannot be reduced right away
-                    // Take the last symbol and try resolving context
-
-                    auto tok = stack.back();
-
-                    for (std::size_t j = 0; !ctx_mgr.next(tok, stack, symbols_ht, printer); j++)
-                    {
-                        // Ambiguity found, move tok
-                        if (j >= tokens.size()) [[unlikely]]
-                        {
-                            //if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "unresolved ambiguity encountered" << std::endl;
-                            return false;
-                        }
-                        // TODO replace Token class with GSymbol
-                        tok = GSymbolV(tokens[j].value, tokens[j].type); // take the next term from the tokens
-                    }
-                    // ambiguity resolved
-                }
 
                 stack.push_back(GSymbolV(tokens[i].value, tokens[i].type));
                 i++;
