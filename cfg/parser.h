@@ -414,6 +414,7 @@ public:
 
                 for (std::size_t j = 0; !ctx_mgr.next(tok, stack, symbols_ht, printer); j++)
                 {
+                    while (!printer.process_at_heur_ctx()) {}
                     // Ambiguity found, move tok
                     if (j >= tokens.size()) [[unlikely]]
                     {
@@ -423,6 +424,7 @@ public:
                     // TODO replace Token class with GSymbol
                     tok = GSymbolV(tokens[j].value, tokens[j].type); // take the next term from the tokens
                 }
+                while (!printer.process_at_heur_ctx()) {}
                 // ambiguity resolved
             }
 

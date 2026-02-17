@@ -11,7 +11,7 @@
 #include "cfg/parser.h"
 #include "cfg/str.h"
 #include "cfg/preprocess_factories.h"
-#include "extra/prettyprint.h"
+#include "extra/superdbg.h"
 
 
 /*
@@ -26,7 +26,7 @@
 // Test grammar
 bool test_heuristic_ctx_init()
 {
-    std::cout << "test_heuristic_ctx_init() :" << std::endl;
+    //std::cout << "test_heuristic_ctx_init() :" << std::endl;
 
     /*
      * ===================
@@ -69,7 +69,7 @@ bool test_heuristic_ctx_init()
     //LexerLegacy<VStr, TokenType> lexer(ruleset); // Lexer init
 
     // Init prettyprinter (default debugger)
-    PrettyPrinter printer;
+    DBGPrinter printer;
     printer.init_signal_handler();
 
     // Parser init

@@ -102,7 +102,7 @@ template<char key> static constexpr char PressShift() { if constexpr (key > 'Z')
 template<char key> static constexpr char PressRegular() { if constexpr (key <= 'Z') { return key - 'A' + 'a'; } else return key; }
 
 
-static constexpr char keybinds[2][13] = {
+static constexpr char keybinds[2][14] = {
     {   // DEFAULT
         '\t', // Next Win
         // Main menu
@@ -121,6 +121,7 @@ static constexpr char keybinds[2][13] = {
         PressRegular<'E'>(), // Change Vis
         // Settings
         PressCtrl<'T'>(), // Theme
+        PressRegular<'H'>(), // Pause at Heur Ctx match
     },
     {   // NO CTRL
         '\t', // Next Win
@@ -140,6 +141,7 @@ static constexpr char keybinds[2][13] = {
         PressRegular<'E'>(), // Change Vis
         // Settings
         PressRegular<'T'>(), // Theme
+        PressRegular<'H'>(), // Pause at Heur Ctx match
     },
 };
 
@@ -159,6 +161,7 @@ enum class KeyIdx : int
     HeurCtx,
     ChangeVis,
     Theme,
+    PauseAtHeurCtx,
 };
 
 
@@ -185,12 +188,11 @@ enum class PrinterWindows
 
 
 template<int KeybindID = 0>
-class PrettyPrinter
+class DBGPrinter
 {
 protected:
     using TChar = char;
     CurseTerminal<ANSIColor, TChar> terminal;
-    AppStyle<ANSIColor> style;
     WindowStack<TChar> winstack;
     PrinterMode _mode;
     std::size_t _keybind_idx;
@@ -204,15 +206,19 @@ protected:
     PrinterThemes _style_select;
     std::basic_string<TChar> _style_name;
     BoxStyle _cur_box_style; // depends on the current theme
+    // settings
+    AppStyle<ANSIColor> style;
+    bool _pause_at_heur_ctx;
 
 public:
-    PrettyPrinter(PrinterThemes theme = PrinterThemes::BIOSBlue) : terminal(std::cout), style(printer_themes[(std::size_t)theme]), _mode(PrinterMode::Normal), _keybind_idx(0), _style_select(PrinterThemes::Panic), _cur_box_style(printer_theme_box_style[(std::size_t)theme])
+    DBGPrinter(PrinterThemes theme = PrinterThemes::BIOSBlue) : terminal(std::cout), style(printer_themes[(std::size_t)theme]), _mode(PrinterMode::Normal), _keybind_idx(0), _style_select(PrinterThemes::Panic), _cur_box_style(printer_theme_box_style[(std::size_t)theme]),
+                                                                _pause_at_heur_ctx(false)
     {
         terminal.init_renderer();
         std::srand(std::time({}));
     }
 
-    ~PrettyPrinter() { close(); }
+    ~DBGPrinter() { close(); }
 
     static void close() { CurseTerminal<ANSIColor, char>::restore_terminal(); }
 
@@ -295,6 +301,12 @@ public:
         }
         if (c == get_key<KeyIdx::NextWin>()) winstack.move_selector_tab(1);
         return false;
+    }
+
+    bool process_at_heur_ctx() // Returns true if ContextManager::next() can progress further
+    {
+        if (!_pause_at_heur_ctx) return true;
+        return process();
     }
 
     // Stack rendering
@@ -1244,6 +1256,11 @@ protected:
                         _mode = PrinterMode::Theme;
                         winstack.overlays[0] = make_bottom_overlay_theme();
                         return true; // continue
+                    case get_key<KeyIdx::PauseAtHeurCtx>(): // H
+                        _pause_at_heur_ctx = !_pause_at_heur_ctx;
+                        kill_settings_win();
+                        show_settings_win();
+                        return true;
                     case 27:  // esc
                         kill_settings_win();
                         _mode = PrinterMode::Normal;
@@ -1559,9 +1576,9 @@ protected:
     {
         Widget<TChar> settings(WidgetLayout::Vertical, {
             Widget<TChar>(WidgetLayout::Horizontal, {
-                Widget<TChar>(std::basic_string<TChar>("[*]"), Colors::Selected),
-                Widget<TChar>(std::basic_string<TChar>("h"), Colors::Accent3),
-                Widget<TChar>(std::basic_string<TChar>("Pause at Heur Ctx match"), Colors::Primary),
+                (_pause_at_heur_ctx ? Widget<TChar>(std::basic_string<TChar>("[*]"), Colors::Selected) : Widget<TChar>(std::basic_string<TChar>("[ ]"), Colors::Disabled)),
+                Widget<TChar>(get_keybind_text<KeyIdx::PauseAtHeurCtx>(), Colors::Accent3),
+                Widget<TChar>(std::basic_string<TChar>("Pause at Heur Ctx next()"), Colors::Primary),
             }, Colors::None, Quad(), Quad(1,0,1,0)),
         }, Colors::None, Quad(2,3,2,3), Quad(), &_cur_box_style);
 

@@ -2,15 +2,15 @@
 
 ## Initialization
 
-In order to analyze the inner state of the parser generator, the debugger may be used. In order to use it, enable the `SRConfEnum::PrettyPrint` flag and pass the `PrettyPrinter` instance to the `make_sr_parser()` and `SRParser::run()` functions.
+In order to analyze the inner state of the parser generator, the debugger may be used. In order to use it, enable the `SRConfEnum::PrettyPrint` flag and pass the `DBGPrinter` instance to the `make_sr_parser()` and `SRParser::run()` functions.
 
-The example of the UI is provided in `extra/dbg.cpp`, and the `PrettyPrinter` class is defined in `extra/prettyprint.h`. You may run the example using the `superdbg` target.
+The example of the UI is provided in `extra/dbg.cpp`, and the `DBGPrinter` class is defined in `extra/superdbg.h`. You may run the example using the `superdbg` target.
 
 ## How to use the TUI
 
 **TODO describe how to use the debugger**
 
-In order to change the keybinds, pass the keybind index from the `keybinds` map (0 - default) to `PrettyPrinter<KEYBIND_ID>`. You may delegate new keybinds in this map.
+In order to change the keybinds, pass the keybind index from the `keybinds` map (0 - default) to `DBGPrinter<KEYBIND_ID>`. You may delegate new keybinds in this map.
 
 ## Parser structures troubleshooting
 
