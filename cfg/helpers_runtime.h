@@ -139,7 +139,7 @@ constexpr auto lexical_ranges_intersect(TChar a_start, TChar a_end, TChar b_star
 
 
 /**
- * @brief Calculate union between 2 vectors. It is assumed that lhs and rhs do not contain duplicates
+ * @brief Calculate union between 2 vectors (ConstVec). It is assumed that lhs and rhs do not contain duplicates
  */
 template<class T>
 auto vec_union(const ConstVec<T>& lhs, const ConstVec<T>& rhs)
@@ -156,6 +156,19 @@ auto vec_union(const ConstVec<T>& lhs, const ConstVec<T>& rhs)
         }
     }
     return res;
+}
+
+
+/**
+ * @brief Type morphing for vectors, lambda is applied to each element of src and the new vector is returned
+ */
+template<class TDest, class TSrc>
+std::vector<TDest> vec_morph(const std::vector<TSrc>& src, auto func)
+{
+    std::vector<TDest> dest(src.size());
+    for (std::size_t i = 0; i < src.size(); i++)
+        dest[i] = func(src[i]);
+    return dest;
 }
 
 

@@ -7,6 +7,7 @@
 
 #include "curse.h"
 #include "extra/clang_formatter.h"
+#include "cfg/helpers_runtime.h"
 
 #include <cstring>
 #include <ctime>
@@ -15,6 +16,11 @@
 #include <algorithm>
 #include <csignal>
 #include <functional>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <cstdio>
+#include <bit>
 
 using namespace curse;
 
@@ -102,7 +108,7 @@ template<char key> static constexpr char PressShift() { if constexpr (key > 'Z')
 template<char key> static constexpr char PressRegular() { if constexpr (key <= 'Z') { return key - 'A' + 'a'; } else return key; }
 
 
-static constexpr char keybinds[2][14] = {
+static constexpr char keybinds[2][16] = {
     {   // DEFAULT
         '\t', // Next Win
         // Main menu
@@ -121,6 +127,8 @@ static constexpr char keybinds[2][14] = {
         PressRegular<'E'>(), // Change Vis
         // Settings
         PressCtrl<'T'>(), // Theme
+        PressCtrl<'W'>(), // WritePrefs
+        PressCtrl<'D'>(), // DefaultPrefs
         PressRegular<'H'>(), // Pause at Heur Ctx match
     },
     {   // NO CTRL
@@ -141,6 +149,8 @@ static constexpr char keybinds[2][14] = {
         PressRegular<'E'>(), // Change Vis
         // Settings
         PressRegular<'T'>(), // Theme
+        PressRegular<'W'>(), // WritePrefs
+        PressRegular<'D'>(), // DefaultPrefs
         PressRegular<'H'>(), // Pause at Heur Ctx match
     },
 };
@@ -148,6 +158,7 @@ static constexpr char keybinds[2][14] = {
 
 enum class KeyIdx : int
 {
+    // Main menu
     NextWin,
     OpenWin,
     Quit,
@@ -155,12 +166,17 @@ enum class KeyIdx : int
     MoveWin,
     DestroyWin,
     Settings,
+    // Open Win
     EBNFRepr,
     ReverseRules,
     FixHeur,
     HeurCtx,
+    // Move Win
     ChangeVis,
+    // Settings
     Theme,
+    WritePrefs,
+    DefaultPrefs,
     PauseAtHeurCtx,
 };
 
@@ -176,14 +192,20 @@ enum class PrinterMode : std::size_t
 };
 
 
-// Windows which need to be updated
 enum class PrinterWindows
 {
+    // Windows which need to be updated
     Stack,
     Descend,
     AST,
     HeurCtx,
-    DebugMsg    // Right now only a single debug window is supported
+    DebugMsg,    // Right now only a single debug window is supported
+    // Static windows
+    EBNF,
+    RRTree,
+    FixHeur,
+
+    None // End of enum
 };
 
 
@@ -196,8 +218,10 @@ protected:
     WindowStack<TChar> winstack;
     PrinterMode _mode;
     std::size_t _keybind_idx;
+    AppStyle<ANSIColor> style;
 
     // pre-rendered widgets
+    std::array<Widget<TChar>, (std::size_t)PrinterWindows::None> _prerendered_widgets;  // Stores static widgets, not updated during execution
     Widget<TChar> _ebnf;
     Widget<TChar> _rr_tree;
     Widget<TChar> _fix;
@@ -207,12 +231,12 @@ protected:
     std::basic_string<TChar> _style_name;
     BoxStyle _cur_box_style; // depends on the current theme
     // settings
-    AppStyle<ANSIColor> style;
+    PrinterThemes _theme;
     bool _pause_at_heur_ctx;
 
 public:
     DBGPrinter(PrinterThemes theme = PrinterThemes::BIOSBlue) : terminal(std::cout), style(printer_themes[(std::size_t)theme]), _mode(PrinterMode::Normal), _keybind_idx(0), _style_select(PrinterThemes::Panic), _cur_box_style(printer_theme_box_style[(std::size_t)theme]),
-                                                                _pause_at_heur_ctx(false)
+                                                                _pause_at_heur_ctx(false), _prerendered_widgets{}, _theme(theme)
     {
         terminal.init_renderer();
         std::srand(std::time({}));
@@ -229,18 +253,48 @@ public:
         int term_h = terminal.get_terminal_height();
         terminal.init_matrix(term_h, term_w);
 
-        winstack.push(Widget<TChar>(), 0, (int)PrinterWindows::Stack); // STACK
-        winstack.push(Widget<TChar>(), 0, (int)PrinterWindows::Descend); // DESCEND
-        winstack.push(make_ast(TreeNode<std::basic_string<TChar>>()), 0, (int)PrinterWindows::AST); // AST
+        _prerendered_widgets[(std::size_t)PrinterWindows::AST] = make_ast(TreeNode<std::basic_string<TChar>>());
 
         winstack.push_overlay(make_bottom_overlay());  // bottom overlay has idx 0
         set_bottom_overlay_pos();
-        winstack.selector_idx = 0;
 
-        _ebnf = make_ebnf_preview(rules);
-        _rr_tree = make_rr_tree(rr_tree);
-        _fix = make_empty_fix();
-        _heur_ctx = make_empty_heur_ctx();
+        _prerendered_widgets[(std::size_t)PrinterWindows::EBNF] = make_ebnf_preview(rules);
+        _prerendered_widgets[(std::size_t)PrinterWindows::RRTree] = make_rr_tree(rr_tree);
+        _prerendered_widgets[(std::size_t)PrinterWindows::FixHeur] = make_empty_fix();
+        _prerendered_widgets[(std::size_t)PrinterWindows::HeurCtx] = make_empty_heur_ctx();
+
+        std::vector<std::basic_string<TChar>> errors;
+        bool ok = load(errors);
+        if (!ok)
+        {
+            // Defaults
+            winstack.push(_prerendered_widgets[(std::size_t)PrinterWindows::Stack], 0, (int)PrinterWindows::Stack); // STACK
+            winstack.push(_prerendered_widgets[(std::size_t)PrinterWindows::Descend], 0, (int)PrinterWindows::Descend); // DESCEND
+            winstack.push(_prerendered_widgets[(std::size_t)PrinterWindows::AST], 0, (int)PrinterWindows::AST); // AST
+        }
+
+        winstack.selector_idx = 0; // Select first window
+
+        // Show errors
+        if (errors.size() > 0)
+        {
+            Widget<TChar> errors_win(WidgetLayout::Vertical,
+                                 vec_morph<Widget<TChar>>(errors, [](const auto& x){ return Widget<TChar>(x, Colors::Primary, Quad(1,0,1,0)); }),
+                                 Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
+            errors_win._children.insert(errors_win._children.begin(),
+                                        Widget<TChar>((ok ? std::basic_string<TChar>("Could not load ./.superdbg.conf:") : std::basic_string<TChar>("Warning during loading ./superdbg.conf:")), Colors::Secondary, Quad(1,0,1,0)));
+
+            Widget<TChar> close_btn(std::basic_string<TChar>("<close>"), Colors::Primary, Quad(1,0,1,0));
+            close_btn.set_selectable(true);
+            close_btn.on_event = [](Widget<TChar>* self, WindowStack<TChar>* window, const IPEvent& ev,
+                                    const std::vector<int>& path) -> bool
+            {
+                if (ev.type == EventType::Select || ev.type == EventType::Click) { window->pop(window->selector_idx); return true; }
+                return false;
+            };
+            errors_win.add_child(close_btn);
+            winstack.push(errors_win);
+        }
     }
 
 
@@ -305,8 +359,15 @@ public:
 
     bool process_at_heur_ctx() // Returns true if ContextManager::next() can progress further
     {
-        if (!_pause_at_heur_ctx) return true;
-        return process();
+        if (_pause_at_heur_ctx)
+        {
+            // Check that the stack window is populated
+            const int id = winstack.find((int)PrinterWindows::Stack);
+            if (id != -1 && !winstack.stack[id]._children.empty())
+                return process();
+            return true;
+        }
+        return true;
     }
 
     // Stack rendering
@@ -407,6 +468,7 @@ public:
 protected:
     void apply_theme(PrinterThemes theme)
     {
+        _theme = theme;
         const std::size_t thm = static_cast<std::size_t>(theme);
         style = printer_themes[thm];
         _cur_box_style = printer_theme_box_style[thm];
@@ -1219,17 +1281,17 @@ protected:
                 switch (input)
                     {
                     case get_key<KeyIdx::EBNFRepr>():
-                        winstack.push(_ebnf); // EBNF
+                        winstack.push(_ebnf, 0, (int)PrinterWindows::EBNF); // EBNF
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true;
                     case get_key<KeyIdx::ReverseRules>():
-                        winstack.push(_rr_tree); // RR TREE
+                        winstack.push(_rr_tree, 0, (int)PrinterWindows::RRTree); // RR TREE
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true;
                     case get_key<KeyIdx::FixHeur>():
-                        winstack.push(_fix); // FIX
+                        winstack.push(_fix, 0, (int)PrinterWindows::FixHeur); // FIX
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true;
@@ -1256,6 +1318,22 @@ protected:
                         _mode = PrinterMode::Theme;
                         winstack.overlays[0] = make_bottom_overlay_theme();
                         return true; // continue
+                    case get_key<KeyIdx::WritePrefs>(): // ^W
+                        kill_settings_win();
+                        if (!save())
+                            winstack.overlays[0] = make_bottom_overlay_custom("Could not write to ./.superdbg.conf");
+                        else
+                            winstack.overlays[0] = make_bottom_overlay_custom("Config written to ./.superdbg.conf");
+                        _mode = PrinterMode::Normal;
+                        return true;
+                    case get_key<KeyIdx::DefaultPrefs>(): // ^D
+                        kill_settings_win();
+                        if (std::remove(".superdbg.conf") != 0)
+                            winstack.overlays[0] = make_bottom_overlay_custom("Could not remove ./.superdbg.conf");
+                        else
+                            winstack.overlays[0] = make_bottom_overlay_custom("Erased config file ./.superdbg.conf, reload the debugger");
+                        _mode = PrinterMode::Normal;
+                        return true;
                     case get_key<KeyIdx::PauseAtHeurCtx>(): // H
                         _pause_at_heur_ctx = !_pause_at_heur_ctx;
                         kill_settings_win();
@@ -1562,13 +1640,17 @@ protected:
                 return Widget<TChar>(WidgetLayout::Horizontal, {
                         Widget<TChar>(get_keybind_text<KeyIdx::Theme>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Theme"), Colors::Primary),
+                        Widget<TChar>(get_keybind_text<KeyIdx::WritePrefs>(), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Save Prefs"), Colors::Primary),
+                        Widget<TChar>(get_keybind_text<KeyIdx::DefaultPrefs>(), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Default Prefs"), Colors::Primary),
                         Widget<TChar>(std::basic_string<TChar>("ESC"), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Exit Mode"), Colors::Primary),
                     }, Colors::None, Quad(), Quad(1,0,1,0));
             default:
                 break;
             }
-        assert((_mode == PrinterMode::Normal || _mode == PrinterMode::Open) && "make_bottom_overlay() can only work in normal and open modes");
+        assert((_mode == PrinterMode::Normal || _mode == PrinterMode::Open || _mode == PrinterMode::Settings) && "make_bottom_overlay() can only work in normal, open and settings modes");
         return Widget<TChar>(); // unreachable
     }
 
@@ -1588,7 +1670,91 @@ protected:
     void kill_settings_win()
     {
         // cannot create any more windows without exiting settings
-        winstack.pop(winstack.selector_idx);
+        winstack.pop(winstack.stack.size() - 1);
+    }
+
+    bool save()
+    {
+        std::ofstream of(".superdbg.conf");
+        if (!of) return false;
+        of << "pause_at_heur_ctx: " << _pause_at_heur_ctx << std::endl;
+        of << "theme: " << (std::size_t)_theme << std::endl;
+        // Window stack
+        std::size_t num = 0;
+        for (std::size_t i = 0; i < winstack.stack.size(); i++)
+        {
+            if (winstack.window_ids[i] == -1)
+                continue; // Ignore temporary windows
+
+            Point pos = winstack.stack[i]._xy;
+            of << "wnd: " << num << " " << winstack.window_ids[i] << " " << pos.x() << " " << pos.y() << " " << winstack.flags[i] << std::endl;
+            num++;
+        }
+        return true;
+    }
+
+    bool load(std::vector<std::string>& errors)
+    {
+        std::ifstream ifs(".superdbg.conf");
+        if (!ifs) return false;
+
+        std::vector<std::tuple<std::size_t, int, int, int, std::size_t>> layout;
+        std::string line;
+
+        while (std::getline(ifs, line))
+        {
+            if (line.empty()) continue;
+
+            const auto sep = line.find(": ");
+            if (sep == std::string::npos) { errors.push_back(std::format("could not parse string : {}", line)); continue; }
+
+            const std::string key = line.substr(0, sep);
+            const std::string val = line.substr(sep + 2);   // skip ": "
+
+            if (key == "wnd")
+            {
+                std::istringstream ss(val);
+                std::size_t num, flags;
+                int id, x, y;
+                if (ss >> num >> id >> x >> y >> flags)
+                {
+                    layout.push_back({num, id, x, y, flags});
+                } else {
+                    errors.push_back(std::format("could not parse window params : {}", val));
+                    // Attempt to load anyways
+                }
+
+            } else {
+                // There ideally should be a hashtable/lut with settings, but the boilerplate would be pretty large
+                if (key == "pause_at_heur_ctx") { _pause_at_heur_ctx = (val == "1"); }
+                else errors.push_back(std::format("unknown key : {}", key));
+            }
+        }
+
+        if (layout.size() == 0)
+        {
+            errors.push_back(std::basic_string<TChar>("No windows found in config"));
+            return false;  // Skip loading
+        }
+
+        // Parse layout
+        std::sort(layout.begin(), layout.end(), [](const auto& lhs, const auto& rhs){ return std::get<0>(lhs) < std::get<0>(rhs); });
+        for (const auto [num, id, x, y, flags] : layout)
+        {
+            if (id < 0) { errors.push_back(std::format("missing window id at pos {}", num)); return false; }
+
+            if (winstack.find(id) != -1) { errors.push_back(std::format("assert : window {} already exists at pos {}", winstack.find(id), num)); return false; }
+
+            if (num != winstack.stack.size()) { errors.push_back(std::format("window pos {} is not sequential", num)); return false; }
+
+            if (id >= (std::size_t)PrinterWindows::None) { errors.push_back(std::format("window id {} at pos {} does not exist", id, num)); return false; }
+
+            if (std::bit_width(flags) > std::bit_width((std::size_t)IPWindowFlagsLast)) { errors.push_back(std::format("bad window flags {} at pos {}", flags, num)); return false; }
+
+            winstack.push(_prerendered_widgets[id], flags, id);
+            winstack.stack[winstack.stack.size() - 1]._xy = Point(x, y);
+        }
+        return true;
     }
 };
 
