@@ -203,7 +203,7 @@ enum class PrinterWindows
     // Static windows
     EBNF,
     RRTree,
-    FixHeur,
+    FixHeur, // Updated once during init
 
     None // End of enum
 };
@@ -221,11 +221,7 @@ protected:
     AppStyle<ANSIColor> style;
 
     // pre-rendered widgets
-    std::array<Widget<TChar>, (std::size_t)PrinterWindows::None> _prerendered_widgets;  // Stores static widgets, not updated during execution
-    Widget<TChar> _ebnf;
-    Widget<TChar> _rr_tree;
-    Widget<TChar> _fix;
-    Widget<TChar> _heur_ctx;
+    std::array<Widget<TChar>, (std::size_t)PrinterWindows::None> _widgets;  // May be updated during execution
     // current selection
     PrinterThemes _style_select;
     std::basic_string<TChar> _style_name;
@@ -236,7 +232,7 @@ protected:
 
 public:
     DBGPrinter(PrinterThemes theme = PrinterThemes::BIOSBlue) : terminal(std::cout), style(printer_themes[(std::size_t)theme]), _mode(PrinterMode::Normal), _keybind_idx(0), _style_select(PrinterThemes::Panic), _cur_box_style(printer_theme_box_style[(std::size_t)theme]),
-                                                                _pause_at_heur_ctx(false), _prerendered_widgets{}, _theme(theme)
+                                                                _pause_at_heur_ctx(false), _widgets{}, _theme(theme)
     {
         terminal.init_renderer();
         std::srand(std::time({}));
@@ -253,24 +249,24 @@ public:
         int term_h = terminal.get_terminal_height();
         terminal.init_matrix(term_h, term_w);
 
-        _prerendered_widgets[(std::size_t)PrinterWindows::AST] = make_ast(TreeNode<std::basic_string<TChar>>());
+        _widgets[(std::size_t)PrinterWindows::AST] = make_ast(TreeNode<std::basic_string<TChar>>());
 
         winstack.push_overlay(make_bottom_overlay());  // bottom overlay has idx 0
         set_bottom_overlay_pos();
 
-        _prerendered_widgets[(std::size_t)PrinterWindows::EBNF] = make_ebnf_preview(rules);
-        _prerendered_widgets[(std::size_t)PrinterWindows::RRTree] = make_rr_tree(rr_tree);
-        _prerendered_widgets[(std::size_t)PrinterWindows::FixHeur] = make_empty_fix();
-        _prerendered_widgets[(std::size_t)PrinterWindows::HeurCtx] = make_empty_heur_ctx();
+        _widgets[(std::size_t)PrinterWindows::EBNF] = make_ebnf_preview(rules);
+        _widgets[(std::size_t)PrinterWindows::RRTree] = make_rr_tree(rr_tree);
+        _widgets[(std::size_t)PrinterWindows::FixHeur] = make_empty_fix();
+        _widgets[(std::size_t)PrinterWindows::HeurCtx] = make_empty_heur_ctx();
 
         std::vector<std::basic_string<TChar>> errors;
         bool ok = load(errors);
         if (!ok)
         {
             // Defaults
-            winstack.push(_prerendered_widgets[(std::size_t)PrinterWindows::Stack], 0, (int)PrinterWindows::Stack); // STACK
-            winstack.push(_prerendered_widgets[(std::size_t)PrinterWindows::Descend], 0, (int)PrinterWindows::Descend); // DESCEND
-            winstack.push(_prerendered_widgets[(std::size_t)PrinterWindows::AST], 0, (int)PrinterWindows::AST); // AST
+            winstack.push(_widgets[(std::size_t)PrinterWindows::Stack], 0, (int)PrinterWindows::Stack); // STACK
+            winstack.push(_widgets[(std::size_t)PrinterWindows::Descend], 0, (int)PrinterWindows::Descend); // DESCEND
+            winstack.push(_widgets[(std::size_t)PrinterWindows::AST], 0, (int)PrinterWindows::AST); // AST
         }
 
         winstack.selector_idx = 0; // Select first window
@@ -301,7 +297,7 @@ public:
     template<class TMatches, class TRules, class AllTerms, class NTermsPosPairs, class TermsPosPairs, class FixLimits>
     void init_ctx_classes(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t, const FixLimits& limits)
     {
-        _fix = make_rules_fix(rules, all_rr, all_t, pairs_nt, pairs_t, limits);
+        update_widget(make_rules_fix(rules, all_rr, all_t, pairs_nt, pairs_t, limits), PrinterWindows::FixHeur);
     }
 
     bool process() // Returns true if the stack can progress further
@@ -374,71 +370,54 @@ public:
     template<class VStr, class TokenTSet, class TokenType>
     void update_stack(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const std::vector<ConstVec<TokenType>>& related_types, const ConstVec<TokenType>& intersect, std::size_t idx)
     {
-        const auto& id = winstack.find((int)PrinterWindows::Stack);
-        if (id != -1)
-            winstack.stack[id].refresh(make_stack(stack, related_types, intersect, idx));
+        update_widget(make_stack(stack, related_types, intersect, idx), PrinterWindows::Stack);
     }
 
     template<class VStr, class TokenTSet, class TSymbol>
     void update_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t candidate, std::size_t total, std::size_t parsed, bool found)
     {
-        const auto& id = winstack.find((int)PrinterWindows::Descend);
-        if (id != -1)
-            winstack.stack[id].refresh(make_descend(stack, rule, idx, candidate, total, parsed, found));
+        update_widget(make_descend(stack, rule, idx, candidate, total, parsed, found), PrinterWindows::Descend);
     }
 
     template<class Tree>
     void update_ast(const Tree& tree)
     {
-        const auto& id = winstack.find((int)PrinterWindows::AST);
-        if (id != -1)
-            winstack.stack[id].refresh(make_ast(tree));
+        update_widget(make_ast(tree), PrinterWindows::AST);
+    }
+
+    void set_empty_descend()
+    {
+        update_widget(Widget<TChar>(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("DESCEND"), Colors::Primary, Quad(1,0,1,0)),
+            Widget<TChar>(std::basic_string<TChar>("<empty>"), Colors::Primary, Quad(1,0,1,0))
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style), PrinterWindows::Descend);
     }
 
     // Process heuristic ctx during next()
     template<std::size_t N, class TMatches, class TFix, class CTODO, class GSymbol>
     void update_heur_ctx_at_next(const std::array<std::size_t, N>& context, const TMatches& nterms, const std::vector<TFix>& prefix, const std::vector<TFix>& postfix, const CTODO prefix_todo, const CTODO postfix_todo, const std::vector<GSymbol>& stack)
     {
-        const auto& id = winstack.find((int)PrinterWindows::HeurCtx);
-        if (id != -1)
-            winstack.stack[id].refresh(make_context_at_next(context, nterms, prefix, postfix, prefix_todo, postfix_todo, stack));
+        update_widget(make_context_at_next(context, nterms, prefix, postfix, prefix_todo, postfix_todo, stack), PrinterWindows::HeurCtx);
     }
 
     // Process heuristic ctx during check_ctx()
     template<class TSymbol>
     void update_heur_ctx_at_check(const TSymbol& match, bool accepted)
     {
-        const auto& id = winstack.find((int)PrinterWindows::HeurCtx);
-        if (id != -1)
-            update_context_at_check(winstack.stack[id], match, accepted);
+        Widget<TChar>& old_wid = _widgets[(std::size_t)PrinterWindows::HeurCtx];
+        if (old_wid.widgets_num() >= 2 && old_wid.at(1).widgets_num() > 0) // Check that it's not empty
+        {
+            update_context_at_check(old_wid, match, accepted);
+            const int id = winstack.find((int)PrinterWindows::HeurCtx);  // We don't want self-reassignment, so we don't call update_widget here
+            if (id != -1) winstack.stack[id].refresh(old_wid);
+        }
     }
 
     // Process heuristic ctx during apply_reduce()
     template<std::size_t N, class TMatches, class TFix, class CTODO, class GSymbol, class TSymbol>
     void update_heur_ctx_at_apply(const std::array<std::size_t, N>& context, const TMatches& nterms, const std::vector<TFix>& prefix, const std::vector<TFix>& postfix, const CTODO prefix_todo, const CTODO postfix_todo, const std::vector<GSymbol>& stack, const TSymbol& match)
     {
-        const auto& id = winstack.find((int)PrinterWindows::HeurCtx);
-        if (id != -1)
-            winstack.stack[id].refresh(make_context_at_apply(context, nterms, prefix, postfix, prefix_todo, postfix_todo, stack, match));
-    }
-
-    void set_empty_descend()
-    {
-        const auto& id = winstack.find((int)PrinterWindows::Descend);
-        if (id == -1)
-            return;
-        winstack.stack[id].refresh(Widget<TChar>(WidgetLayout::Vertical, {
-            Widget<TChar>(std::basic_string<TChar>("DESCEND"), Colors::Primary, Quad(1,0,1,0)),
-            Widget<TChar>(std::basic_string<TChar>("<empty>"), Colors::Primary, Quad(1,0,1,0))
-        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style));
-    }
-
-    Widget<TChar> make_empty_heur_ctx()
-    {
-        return Widget<TChar>(WidgetLayout::Vertical, {
-            Widget<TChar>(std::basic_string<TChar>("HEUR CTX"), Colors::Primary, Quad(1,0,1,0)),
-            Widget<TChar>(std::basic_string<TChar>("Step over to generate data"), Colors::Secondary, Quad(1,0,1,0))
-        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
+        update_widget(make_context_at_apply(context, nterms, prefix, postfix, prefix_todo, postfix_todo, stack, match), PrinterWindows::HeurCtx);
     }
 
     // Blocking !!
@@ -472,6 +451,21 @@ protected:
         const std::size_t thm = static_cast<std::size_t>(theme);
         style = printer_themes[thm];
         _cur_box_style = printer_theme_box_style[thm];
+    }
+
+    void update_widget(const Widget<TChar>& wid, const PrinterWindows name)
+    {
+        _widgets[(std::size_t)name] = wid;  // Primary storage
+        const int id = winstack.find((int)name);
+        if (id != -1) winstack.stack[id].refresh(wid);  // Update widget on screen, secondary storage
+    }
+
+    Widget<TChar> make_empty_heur_ctx()
+    {
+        return Widget<TChar>(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("HEUR CTX"), Colors::Primary, Quad(1,0,1,0)),
+            Widget<TChar>(std::basic_string<TChar>("Step over to generate data"), Colors::Secondary, Quad(1,0,1,0))
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
 
     template<class TSymbol>
@@ -1281,22 +1275,22 @@ protected:
                 switch (input)
                     {
                     case get_key<KeyIdx::EBNFRepr>():
-                        winstack.push(_ebnf, 0, (int)PrinterWindows::EBNF); // EBNF
+                        winstack.push(_widgets[(std::size_t)PrinterWindows::EBNF], 0, (int)PrinterWindows::EBNF); // EBNF
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true;
                     case get_key<KeyIdx::ReverseRules>():
-                        winstack.push(_rr_tree, 0, (int)PrinterWindows::RRTree); // RR TREE
+                        winstack.push(_widgets[(std::size_t)PrinterWindows::RRTree], 0, (int)PrinterWindows::RRTree); // RR TREE
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true;
                     case get_key<KeyIdx::FixHeur>():
-                        winstack.push(_fix, 0, (int)PrinterWindows::FixHeur); // FIX
+                        winstack.push(_widgets[(std::size_t)PrinterWindows::FixHeur], 0, (int)PrinterWindows::FixHeur); // FIX
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true;
                     case get_key<KeyIdx::HeurCtx>():
-                        winstack.push(_heur_ctx, 0, (int)PrinterWindows::HeurCtx);
+                        winstack.push(_widgets[(std::size_t)PrinterWindows::HeurCtx], 0, (int)PrinterWindows::HeurCtx);
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true;
@@ -1727,6 +1721,17 @@ protected:
             } else {
                 // There ideally should be a hashtable/lut with settings, but the boilerplate would be pretty large
                 if (key == "pause_at_heur_ctx") { _pause_at_heur_ctx = (val == "1"); }
+                else if (key == "theme")
+                {
+                    try
+                    {
+                        std::size_t t = std::stoi(val);
+                        if (t >= (std::size_t)PrinterThemes::Panic) { errors.push_back(std::format("bad theme : {}", t)); }
+                        else apply_theme((PrinterThemes)t);
+                    }
+                    catch (const std::invalid_argument& ex) { errors.push_back(std::format("could not parse theme {} : {}", val, ex.what())); }
+                    catch (const std::out_of_range& ex) { errors.push_back(std::format("could not parse theme {} : {}", val, ex.what())); }
+                }
                 else errors.push_back(std::format("unknown key : {}", key));
             }
         }
@@ -1747,11 +1752,11 @@ protected:
 
             if (num != winstack.stack.size()) { errors.push_back(std::format("window pos {} is not sequential", num)); return false; }
 
-            if (id >= (std::size_t)PrinterWindows::None) { errors.push_back(std::format("window id {} at pos {} does not exist", id, num)); return false; }
+            if ((std::size_t)id >= (std::size_t)PrinterWindows::None) { errors.push_back(std::format("window id {} at pos {} does not exist", id, num)); return false; }
 
             if (std::bit_width(flags) > std::bit_width((std::size_t)IPWindowFlagsLast)) { errors.push_back(std::format("bad window flags {} at pos {}", flags, num)); return false; }
 
-            winstack.push(_prerendered_widgets[id], flags, id);
+            winstack.push(_widgets[id], flags, id);
             winstack.stack[winstack.stack.size() - 1]._xy = Point(x, y);
         }
         return true;
