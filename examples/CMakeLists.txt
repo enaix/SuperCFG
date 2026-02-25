@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 add_subdirectory(".." "../build/tests")
 include_directories("..")
+include_directories("../simply-curse/lib/")
 #add_library(supercfg STATIC "..")
 
 add_executable(calc calc.cpp)

@@ -382,10 +382,10 @@ public:
                     {
                         // The symbol is reduced
                         prettyprinter.guru_meditation("match candidate reduced in the illegal postfix position", __FILE__, __LINE__);
-                        assert(postfix.fix == stack_size - 1 && "apply_reduce() : guru meditation : match candidate reduced in the illegal postfix position");
+                        assert(post.fix == stack_size - 1 && "apply_reduce() : guru meditation : match candidate reduced in the illegal postfix position");
                     }
 
-                    if (context[index] == 0)
+                    if (context[index] == 0)  // This condition will fail if there exists postfix without a prefix
                     {
                         prettyprinter.guru_meditation("empty context with non-empty postfix", __FILE__, __LINE__);
                         assert(context[index] > 0 && "apply_reduce() : guru meditation : empty context with non-empty postfix");

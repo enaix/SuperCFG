@@ -44,3 +44,9 @@ tuple<
 ```
 
 The debug logging can be enabled with `-DCMAKE_CXX_FLAGS=-DDBG_PRINT_FIX_POS` and overriden with `-DCMAKE_CXX_FLAGS=-DNO_DBG_PRINT_FIX_POS`. Print the indented template using `python3 format_template_inst.py -k 3 PATH_TO_FILE_WITH_TEMPLATE`
+
+### Terms type map
+
+TODO describe this
+
+Can be enabled with `-DCMAKE_CXX_FLAGS=-DDBG_PRINT_TERMS_TYPE_MAP` and overriden with `-DCMAKE_CXX_FLAGS=-DNO_DBG_PRINT_TERMS_TYPE_MAP`

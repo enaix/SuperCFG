@@ -5,6 +5,8 @@
 #ifndef HELPERS_RUNTIME_H
 #define HELPERS_RUNTIME_H
 
+#include <cassert>
+
 #include "cfg/containers.h"
 
 
@@ -75,11 +77,11 @@ constexpr bool in_lexical_range(TChar a_start, TChar a_end, TChar b_start, TChar
  */
 enum class RangesIntersect
 {
-    Partial, /**  [  ( ]  ) */
-    AInB,    /**  ( [   ] )  Note: 1st and 3rd ranges are of the same type (B) */
-    BInA,    /**  [ (   ) ]  Note: 1st and 3rd ranges are of the same type (A) */
-    OnlyA,   /**  [(   )  ]  Note: first range is empty */
-    OnlyB,   /**  ([   ]  )  Note: third range is empty */
+    Partial, /**  [  ( ]  )  Note: 1st/3rd range is of type A, 3rd/1st range is of type B. Returns (A, intersect, B) */
+    AInB,    /**  ( [   ] )  Note: 1st and 3rd ranges are of the same type (B). Returns as-is */
+    BInA,    /**  [ (   ) ]  Note: 1st and 3rd ranges are of the same type (A). Returns as-is */
+    OnlyA,   /**  [(   )  ]  Note: 1st/3rd range is empty, opposite range is of type A. Returns (A, intersect, N/A) */
+    OnlyB,   /**  ([   ]  )  Note: 3rd/1st range is empty, opposite range is of type B. Returns (N/A, intersect, B) */
 };
 
 
@@ -90,6 +92,8 @@ template<class TChar>
 constexpr auto lexical_ranges_intersect(TChar a_start, TChar a_end, TChar b_start, TChar b_end)
 {
     using range_type = std::pair<TChar, TChar>;
+
+    assert(!(a_start == b_start && a_end == b_end) && "lexical_ranges_intersect() : ranges are equal");
 
     // Calculate intersection boundaries
     const TChar intersect_start = a_start > b_start ? a_start : b_start; // std::max(a_start, b_start)
@@ -103,20 +107,20 @@ constexpr auto lexical_ranges_intersect(TChar a_start, TChar a_end, TChar b_star
     // [  (   )  ] or [(   )  ] (any combination)
     if ((intersect_start == a_start && intersect_end == a_end) || (intersect_start == b_start && intersect_end == b_end))
     {
-        if (a_start == b_start)
+        if (a_start == b_start)  // [ == (
             return (a_end < b_end ?
                 // ([   ]   )
                 std::make_pair(RangesIntersect::OnlyB, std::make_tuple(range_type(), intersect, range_type(i_incr, b_end))) :
                 // [(   )   ]
-                std::make_pair(RangesIntersect::OnlyA, std::make_tuple(range_type(a_start, i_decr), intersect, range_type())));
-        else if (a_end == b_end)
+                std::make_pair(RangesIntersect::OnlyA, std::make_tuple(range_type(i_incr, a_end), intersect, range_type())));
+        else if (a_end == b_end) // ) == ]
             return (b_start < a_start ?
-                // ([   ]   )
-                std::make_pair(RangesIntersect::OnlyB, std::make_tuple(range_type(), intersect, range_type(i_incr, b_end))) :
+                // (   [   ])
+                std::make_pair(RangesIntersect::OnlyB, std::make_tuple(range_type(), intersect, range_type(b_start, i_decr))) :
                 // [   (   )]
                 std::make_pair(RangesIntersect::OnlyA, std::make_tuple(range_type(a_start, i_decr), intersect, range_type())));
         else {
-            // [  (   )  ]
+            // [  (   )  ] or (  [   ]  )
             // Note: 1st and 3rd ranges are of the same type
             return (a_start == intersect_start ?
                 // (  [   ]  )

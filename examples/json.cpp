@@ -10,6 +10,8 @@
 #include "cfg/parser.h"
 #include "cfg/containers.h"
 
+#include "extra/superdbg.h"
+
 
 template<class CStr, std::size_t... Ints>
 constexpr auto build_range(const CStr& s, auto builder, const std::index_sequence<Ints...>)
@@ -46,12 +48,7 @@ int main()
     //constexpr auto d_character = Define(character, Repeat(build_range(cs<s>(), [](const auto&... str){ return Alter(Term(str)...); }, std::make_index_sequence<sizeof(s)-1>{})));
     constexpr auto d_character = Define(character, Repeat(Alter(TermsRange(cs<"-">(), cs<"~">())), Term(cs<" ">())));
 
-    constexpr auto d_digit = Define(digit, Repeat(Alter(
-        Term(cs<"1">()), Term(cs<"2">()), Term(cs<"3">()),
-        Term(cs<"4">()), Term(cs<"5">()), Term(cs<"6">()),
-        Term(cs<"7">()), Term(cs<"8">()), Term(cs<"9">()),
-        Term(cs<"0">())
-    )));
+    constexpr auto d_digit = Define(digit, Repeat(Alter(TermsRange(cs<"0">(), cs<"9">()))));
     constexpr auto d_number = Define(number, Repeat(digit));
 
     constexpr auto d_boolean = Define(boolean, Alter(Term(cs<"true">()), Term(cs<"false">())));
@@ -75,22 +72,46 @@ int main()
     constexpr auto conf = mk_sr_parser_conf<
         SRConfEnum::PrettyPrint,  // Enable pretty printing for debugging
         SRConfEnum::Lookahead,     // Enable lookahead(1)
-        SRConfEnum::ReducibilityChecker, // Enable RC(1)
-        SRConfEnum::RC1CheckContext>(); // Enable RC(1) advanced context check
+        SRConfEnum::HeuristicCtx>(); // Enable HeurCtx
 
 
     // Initialize the tokenizer
     //LexerLegacy<VStr, TokenType> lexer(ruleset);
     auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<
         LexerConfEnum::AdvancedLexer,    // Enable advanced lexer
-        LexerConfEnum::HandleDuplicates, // Handle duplicate tokens
-        LexerConfEnum::HandleDupInRuntime>());
+        LexerConfEnum::HandleDuplicates // Handle duplicate tokens
+        >()); // Disable LexerConfEnum::HandleDupInRuntime for now
+
+
+    DBGPrinter printer;
+    printer.init_signal_handler();
 
     // Create the shift-reduce parser
     // TreeNode<VStr> is the AST class
-    auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf);
+    auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf, printer);
 
-    while(true)
+    StdStr<char> in("[\"abc\",\"asdf\",{\"a\":1,\"b\":\"a\"}]");
+    bool ok;
+    auto tokens = lexer.run(in, ok);
+
+
+    if (!ok) {
+        std::cout << "main() : lexer failed" << std::endl;
+        return 1;
+    }
+
+
+    // Create a parse tree
+    TreeNode<VStr> tree;
+
+    ok = parser.run(tree, json, tokens, printer);
+
+    if (!ok) {
+        std::cout << "main() : parser failed" << std::endl;
+        return 1;
+    }
+
+    /*while(true)
     {
         VStr input;
         std::cout << "json> ";
@@ -135,7 +156,7 @@ int main()
                                                                                           *const_cast<std::chrono::steady_clock::time_point*>(&lex_start)).count() << " ms" << std::endl
         << "  sr(1) : " << std::chrono::duration_cast<std::chrono::milliseconds>(*const_cast<std::chrono::steady_clock::time_point*>(&p_end) -
                                                                                 *const_cast<std::chrono::steady_clock::time_point*>(&p_start)).count() << " ms" << std::endl;
-    }
+    } */
 
 
 }

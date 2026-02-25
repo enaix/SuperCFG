@@ -776,6 +776,8 @@ protected:
                             auto& elem = rr_grid.at(2).at(row+1).at(pre);
                             if (!(elem._content == "?" || elem._content == "-"))
                                 guru_meditation("make_rules_fix() : overlapping fix rules found", __FILE__, __LINE__);
+                                //{ elem.refresh(Widget<TChar>(WidgetLayout::Horizontal, {elem, Widget<TChar>(";", Colors::Accent2), make_symbol(symbol)})); }
+                                //else
                             elem.refresh(make_symbol(symbol));
 
                             // Repeating pattern
@@ -795,6 +797,8 @@ protected:
                             auto& elem = rr_grid.at(4).at(row+1).at(post);
                             if (!(elem._content == "?" || elem._content == "-"))
                                 guru_meditation("make_rules_fix() : overlapping fix rules found", __FILE__, __LINE__);
+                                //{ elem.refresh(Widget<TChar>(WidgetLayout::Horizontal, {elem, Widget<TChar>(";", Colors::Accent2), make_symbol(symbol)})); }
+                                //else
                             elem.refresh(make_symbol(symbol));
 
                             // Repeating pattern

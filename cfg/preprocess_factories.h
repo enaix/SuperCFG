@@ -679,6 +679,13 @@ namespace cfg_helpers
 
         if constexpr (in_lexical_range(term_char, range_start, range_end))
         {
+            auto handle_edges = [&]<const auto start, const auto end>(const auto& value){
+                if constexpr (start == end)
+                    return std::make_pair(Term(range.start.template make<start>()), value);
+                else
+                    return std::make_pair(TermsRange(range.start.template make<start>(), range.start.template make<end>()), value);
+            };
+
             const auto v_union = tuple_unique(std::tuple_cat(value_lhs, value_rhs));
             if constexpr (in_lexical_range_strict(term_char, range_start, range_end))
             {
@@ -686,14 +693,14 @@ namespace cfg_helpers
                 constexpr auto res = lexical_intersect(term_char, range_start, range_end);
                 constexpr auto l_pair = res.first, r_pair = res.second;
                 return std::make_tuple(
-                    std::make_pair(TermsRange(range.start.template make<l_pair.first>(), range.start.template make<l_pair.second>()), value_lhs), // First range
-                    std::make_pair(TermsRange(range.start.template make<r_pair.first>(), range.start.template make<r_pair.second>()), value_lhs), // Second range
+                    handle_edges.template operator()<l_pair.first, l_pair.second>(value_lhs), // First range
+                    handle_edges.template operator()<r_pair.first, r_pair.second>(value_lhs), // Second range
                     std::make_pair(Term(range.start.template make<term_char>()), v_union)); // Symbol
             } else {
                 // Edge case
                 constexpr auto pair = lexical_intersect_edge(term_char, range_start, range_end);
                 constexpr auto start = pair.first, end = pair.second;
-                return std::make_tuple(std::make_pair(TermsRange(range.start.template make<start>(), range.start.template make<end>()), value_lhs),
+                return std::make_tuple(handle_edges.template operator()<start, end>(value_lhs),
                     std::make_pair(Term(range.start.template make<term_char>()), v_union));
             }
         }
@@ -760,7 +767,7 @@ namespace cfg_helpers
             // Term and TermsRange
             return get_terms_intersection_symbols_ab(b, a, value_rhs, value_lhs);
         else if constexpr (is_terms_range<TSymbolA>() && is_term<TSymbolB>())
-            // Term and TermsRange
+            // TermsRange and Term
             return get_terms_intersection_symbols_ab(a, b, value_lhs, value_rhs);
         else if constexpr (is_terms_range<TSymbolA>() && is_terms_range<TSymbolB>())
             // Both are TermsRange
@@ -840,6 +847,10 @@ auto terms_type_map_factory(const TypesCache& cache)
 
         auto keys = tuple_take_along_axis<0>(res);
         auto values = tuple_take_along_axis<1>(res);
+
+        #if defined(DBG_PRINT_TERMS_TYPE_MAP) && !defined(NO_DBG_PRINT_TERMS_TYPE_MAP)
+        static_assert(std::is_same_v<std::false_type, std::decay_t<decltype(res)>>, "Terms type map; run the format_template_inst.py script with this template");
+        #endif
 
         auto map = TermsTypeMap<VStr, TokenType, std::decay_t<decltype(keys)>, std::decay_t<decltype(values)>>(keys, values);
         map.populate_ht();
