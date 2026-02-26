@@ -986,7 +986,7 @@ template<class TupleA, class TupleB>
 constexpr auto tuple_merge_along_axis(const TupleA& lhs, const TupleB& rhs)
 {
     static_assert(std::tuple_size_v<TupleA> == std::tuple_size_v<TupleB>, "Tuples must be equal");
-    return tuple_morph([&]<std::size_t i>(const auto& container){ return std::make_tuple(std::get<i>(lhs), std::get<i>(rhs)); }, lhs);
+    return tuple_morph([&]<std::size_t i>(const auto& container){ return std::make_pair(std::get<i>(lhs), std::get<i>(rhs)); }, lhs);
 }
 
 

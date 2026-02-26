@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import re
 import sys
+import os
+
 
 
 def find_matching_angle(text, start):
@@ -80,7 +82,7 @@ def split_top_level_args(args_str):
 def substitute_templates(text, substitutions):
     """Single pass over *text* replacing template instantiations.
 
-    *substitutions* maps ``template_name`` → ``handler(args) -> str | None``.
+    *substitutions* maps ``template_name`` -> ``handler(args) -> str | None``.
     When a handler returns ``None`` the original text is left unchanged.
 
     Longer pattern names are tried first so that e.g. ``std::integral_constant``
@@ -255,8 +257,79 @@ def clean_template_names(text):
     return text
 
 
+
+# 256-color ANSI palette picked for good contrast on both dark and light
+# backgrounds, cycling by bracket depth.
+_BRACKET_COLORS = [
+    "\033[38;5;214m",  # depth 0 – orange
+    "\033[38;5;41m",   # depth 1 – green
+    "\033[38;5;39m",   # depth 2 – sky blue
+    "\033[38;5;205m",  # depth 3 – pink
+    "\033[38;5;226m",  # depth 4 – yellow
+    "\033[38;5;135m",  # depth 5 – purple
+]
+_RESET = "\033[0m"
+_STRING_COLOR = "\033[38;5;180m"  # muted tan for string contents
+
+
+def colorize_brackets(text):
+    """Wrap angle brackets and string literals with ANSI color codes.
+
+    Bracket color cycles through _BRACKET_COLORS based on nesting depth.
+    The depth used to color a bracket is its depth *at* that bracket:
+      - for '<' the depth after opening (so the contents share that color)
+      - for '>' the depth before closing (matching its '<')
+
+    String literals (including their quotes) are colored uniformly so
+    colorful brackets don't bleed into content strings.
+    """
+    result = []
+    depth = 0
+    i = 0
+
+    while i < len(text):
+        c = text[i]
+
+        if c in ('"', "'"):
+            # Consume the whole string literal in a single color
+            quote = c
+            literal = [c]
+            i += 1
+            while i < len(text):
+                ch = text[i]
+                literal.append(ch)
+                if ch == '\\':
+                    i += 1
+                    if i < len(text):
+                        literal.append(text[i])
+                elif ch == quote:
+                    break
+                i += 1
+            result.append(_STRING_COLOR + ''.join(literal) + _RESET)
+
+        elif c == '<':
+            depth += 1
+            color = _BRACKET_COLORS[(depth - 1) % len(_BRACKET_COLORS)]
+            result.append(color + c + _RESET)
+
+        elif c == '>':
+            color = _BRACKET_COLORS[(depth - 1) % len(_BRACKET_COLORS)]
+            result.append(color + c + _RESET)
+            depth = max(0, depth - 1)
+
+        else:
+            result.append(c)
+
+        i += 1
+
+    return ''.join(result)
+
+
+
 def main():
     min_params = 5
+    # 'auto' enables color when stdout is a TTY, 'always'/'never' force it
+    color_mode = 'auto'
     args = sys.argv[1:]
     input_file = None
 
@@ -269,9 +342,26 @@ def main():
             else:
                 print("Error: -k/--min-params requires a value", file=sys.stderr)
                 sys.exit(1)
+        elif args[i] == '--color':
+            # --color          -> always
+            # --color=auto     -> auto (default)
+            # --color=never    -> never
+            color_mode = 'always'
+            i += 1
+        elif args[i].startswith('--color='):
+            value = args[i].split('=', 1)[1]
+            if value not in ('auto', 'always', 'never'):
+                print(f"Error: --color value must be auto/always/never, got '{value}'",
+                      file=sys.stderr)
+                sys.exit(1)
+            color_mode = value
+            i += 1
         else:
             input_file = args[i]
             i += 1
+
+    use_color = (color_mode == 'always' or
+                 (color_mode == 'auto' and os.isatty(sys.stdout.fileno())))
 
     if input_file:
         with open(input_file, 'r') as f:
@@ -282,6 +372,10 @@ def main():
     content = re.sub(r'\s+', ' ', content).strip()
     cleaned = clean_template_names(content)
     formatted = format_template_error(cleaned, min_params=min_params)
+
+    if use_color:
+        formatted = colorize_brackets(formatted)
+
     print(formatted)
 
 

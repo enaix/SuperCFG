@@ -553,8 +553,9 @@ constexpr auto make_ctx_manager(const RulesDef& rules, const RRTree& tree, const
     const auto fix_limits = cfg_helpers::ctx_get_fix_limits<0>(tree.defs, pairs_nt, pairs_t);
 
     #if defined(DBG_PRINT_FIX_POS) && !defined(NO_DBG_PRINT_FIX_POS)
-    static_assert(std::is_same_v<std::false_type, std::decay_t<decltype(pairs_nt)>>, "NTerms pairs; run the format_template_inst.py script with this template");
-    static_assert(std::is_same_v<std::false_type, std::decay_t<decltype(pairs_t)>>, "Terms pairs; run the format_template_inst.py script with this template");
+    const auto defs_nterms = tuple_morph([]<std::size_t i>(const auto& src){ return std::get<0>(std::get<i>(src).terms); }, tree.defs);
+    static_assert(std::is_same_v<std::false_type, std::decay_t<decltype(tuple_merge_along_axis(defs_nterms, pairs_nt))>>, "NTerms pairs; run the format_template_inst.py script with this template");
+    static_assert(std::is_same_v<std::false_type, std::decay_t<decltype(tuple_merge_along_axis(terms_tmap.terms, pairs_t))>>, "Terms pairs; run the format_template_inst.py script with this template");
     static_assert(std::is_same_v<std::false_type, std::decay_t<decltype(fix_limits)>>, "Fix limits; run the format_template_inst.py script with this template");
     #endif
 
