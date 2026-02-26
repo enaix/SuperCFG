@@ -108,7 +108,7 @@ template<char key> static constexpr char PressShift() { if constexpr (key > 'Z')
 template<char key> static constexpr char PressRegular() { if constexpr (key <= 'Z') { return key - 'A' + 'a'; } else return key; }
 
 
-static constexpr char keybinds[2][16] = {
+static constexpr char keybinds[2][17] = {
     {   // DEFAULT
         '\t', // Next Win
         // Main menu
@@ -121,6 +121,7 @@ static constexpr char keybinds[2][16] = {
         // Open Win
         PressRegular<'E'>(), // EBNF Repr
         PressRegular<'R'>(), // Reverse rules
+        PressRegular<'T'>(), // Terms type map
         PressRegular<'F'>(), // Fix Heur
         PressRegular<'C'>(), // Heur Ctx
         // Move Win
@@ -143,6 +144,7 @@ static constexpr char keybinds[2][16] = {
         // Open Win
         PressRegular<'E'>(), // EBNF Repr
         PressRegular<'R'>(), // Reverse rules
+        PressRegular<'T'>(), // Terms type map
         PressRegular<'F'>(), // Fix Heur
         PressRegular<'C'>(), // Heur Ctx
         // Move Win
@@ -169,6 +171,7 @@ enum class KeyIdx : int
     // Open Win
     EBNFRepr,
     ReverseRules,
+    TermsTypeMap,
     FixHeur,
     HeurCtx,
     // Move Win
@@ -204,6 +207,7 @@ enum class PrinterWindows
     EBNF,
     RRTree,
     FixHeur, // Updated once during init
+    TermsTypeMap,
 
     None // End of enum
 };
@@ -294,10 +298,11 @@ public:
     }
 
 
-    template<class TMatches, class TRules, class AllTerms, class NTermsPosPairs, class TermsPosPairs, class FixLimits>
-    void init_ctx_classes(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t, const FixLimits& limits)
+    template<class TMatches, class TRules, class AllTerms, class TermsDefs, class NTermsPosPairs, class TermsPosPairs, class FixLimits>
+    void init_ctx_classes(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const TermsDefs& terms2nterms, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t, const FixLimits& limits)
     {
         update_widget(make_rules_fix(rules, all_rr, all_t, pairs_nt, pairs_t, limits), PrinterWindows::FixHeur);
+        update_widget(make_terms_type_map(all_t, terms2nterms), PrinterWindows::TermsTypeMap);
     }
 
     bool process() // Returns true if the stack can progress further
@@ -692,6 +697,39 @@ protected:
         return Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("REVERSE RULES TREE"), Colors::Primary, Quad(1,0,1,0)),
             rr_grid
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
+    }
+
+    template<class AllTerms, class TermsDefs>
+    Widget<TChar> make_terms_type_map(const AllTerms& all_terms, const TermsDefs& terms2nterms)
+    {
+        // Grid containing all columns
+        Widget<TChar> terms_grid(WidgetLayout::Horizontal, {
+            Widget<TChar>(WidgetLayout::Vertical, {}, Colors::None), // Term
+            Widget<TChar>(WidgetLayout::Vertical, {}, Colors::None), // ->
+            Widget<TChar>(WidgetLayout::Vertical, {}, Colors::None) // NTerms
+        }, Colors::None, Quad(), Quad(1,0,1,0));
+
+        constexpr std::size_t n = std::tuple_size_v<std::decay_t<decltype(all_terms)>>;
+        // Iterate over each term and populate the first column
+        tuple_each(all_terms, [&](std::size_t i, const auto& elem){
+            terms_grid._children[0].add_child(make_symbol(elem));
+        });
+
+        for (std::size_t i = 0; i < n; i++)
+            terms_grid._children[1].add_child(Widget<TChar>(std::basic_string<TChar>("->"), Colors::Primary));
+
+        // Iterate over each type
+        tuple_each(terms2nterms, [&](std::size_t i, const auto& elem){
+            Widget<TChar>& cell = terms_grid._children[2].add_child(Widget<TChar>(WidgetLayout::Horizontal, {}, Colors::None, Quad(), Quad(1,0,1,0)));
+            tuple_each(elem, [&](std::size_t j, const auto& nterm){
+                terms_grid._children[2]._children[i].add_child(make_nterm(nterm));
+            });
+        });
+        // Create wrapper
+        return Widget<TChar>(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("TERMS TYPE MAP"), Colors::Primary, Quad(1,0,1,0)),
+            terms_grid
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
 
@@ -1288,6 +1326,11 @@ protected:
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true;
+                    case get_key<KeyIdx::TermsTypeMap>():
+                        winstack.push(_widgets[(std::size_t)PrinterWindows::TermsTypeMap], 0, (int)PrinterWindows::TermsTypeMap);
+                        _mode = PrinterMode::Normal;
+                        winstack.overlays[0] = make_bottom_overlay();
+                        return true;
                     case get_key<KeyIdx::FixHeur>():
                         winstack.push(_widgets[(std::size_t)PrinterWindows::FixHeur], 0, (int)PrinterWindows::FixHeur); // FIX
                         _mode = PrinterMode::Normal;
@@ -1627,6 +1670,8 @@ protected:
                         Widget<TChar>(std::basic_string<TChar>("EBNF Repr"), Colors::Primary),
                         Widget<TChar>(get_keybind_text<KeyIdx::ReverseRules>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Rev Rules"), Colors::Primary),
+                        Widget<TChar>(get_keybind_text<KeyIdx::TermsTypeMap>(), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("Terms Map"), Colors::Primary),
                         Widget<TChar>(get_keybind_text<KeyIdx::FixHeur>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Fix Heur"), Colors::Primary),
                         Widget<TChar>(get_keybind_text<KeyIdx::HeurCtx>(), Colors::Accent3),

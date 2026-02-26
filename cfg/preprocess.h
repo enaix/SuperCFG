@@ -1090,8 +1090,8 @@ public:
     template<class RRTree, class RulesDef>
     void init_windows(const RRTree& rr_tree, const RulesDef& rules) {}
 
-    template<class TMatches, class TRules, class AllTerms, class NTermsPosPairs, class TermsPosPairs, class FixLimits>
-    void init_ctx_classes(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const NTermsPosPairs& nt_pairs, const TermsPosPairs& t_pairs, const FixLimits& limits) {}
+    template<class TMatches, class TRules, class AllTerms, class TermsDefs, class NTermsPosPairs, class TermsPosPairs, class FixLimits>
+    void init_ctx_classes(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const TermsDefs& terms2nterms, const NTermsPosPairs& nt_pairs, const TermsPosPairs& t_pairs, const FixLimits& limits) {}
 
     bool process() { return true; }
 

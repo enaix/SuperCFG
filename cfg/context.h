@@ -561,7 +561,7 @@ constexpr auto make_ctx_manager(const RulesDef& rules, const RRTree& tree, const
 
     const auto defs_flatten = tuple_morph([&]<std::size_t i>(const auto& src){ return std::get<0>(std::get<i>(tree.defs).terms); }, tree.defs);
     //static_assert(std::tuple_size_v<std::decay_t<decltype(tree.defs)>> == std::tuple_size_v<std::decay_t<decltype(pairs_nt)>>, "bad pairs_nt");
-    prettyprinter.init_ctx_classes(defs_flatten, h_pre.unique_rr, terms_tmap.terms, pairs_nt, pairs_t, fix_limits);
+    prettyprinter.init_ctx_classes(defs_flatten, h_pre.unique_rr, terms_tmap.terms, terms_tmap.nterms, pairs_nt, pairs_t, fix_limits);
     return ContextManager<decltype(defs_flatten), decltype(pairs_nt), decltype(pairs_t), decltype(h_pre.unique_rr), decltype(terms_tmap.terms), decltype(h_pre.full_rr), decltype(fix_limits)>(defs_flatten, pairs_nt, pairs_t, h_pre.unique_rr, terms_tmap.terms, h_pre.full_rr, fix_limits);
 }
 

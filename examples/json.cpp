@@ -46,7 +46,7 @@ int main()
     constexpr auto member = NTerm(cs<"member">());
 
     //constexpr auto d_character = Define(character, Repeat(build_range(cs<s>(), [](const auto&... str){ return Alter(Term(str)...); }, std::make_index_sequence<sizeof(s)-1>{})));
-    constexpr auto d_character = Define(character, Repeat(Alter(TermsRange(cs<"-">(), cs<"~">())), Term(cs<" ">())));
+    constexpr auto d_character = Define(character, Repeat(Alter(TermsRange(cs<"-">(), cs<"~">()))));
 
     constexpr auto d_digit = Define(digit, Repeat(Alter(TermsRange(cs<"0">(), cs<"9">()))));
     constexpr auto d_number = Define(number, Repeat(digit));
