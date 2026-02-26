@@ -598,6 +598,7 @@ public:
 
     using TokenSetClass = TypeSet<TokenType>;
     [[nodiscard]] static constexpr bool is_legacy() { return false; }
+    const auto& all_terms() const { return terms_map.terms; }
 
     constexpr explicit Lexer(const TermsTMap& terms) : terms_map(terms) {}
 
@@ -711,6 +712,9 @@ public:
 };
 
 
+/**
+  * @brief Maps TokenType to its Term/TermsRange/NTerm symbol
+  */
 template<class TokenType, class Terms, class NTerms>
 class SymbolsHashTable
 {
@@ -1040,6 +1044,7 @@ class NoReducibilityChecker {};
 
 
 // Heuristics preprocessing helpers
+// TODO remove dead code
 enum class HeuristicFeatures : std::uint64_t
 {
     ContextManagement = 0x1, // Build the FullRRTree

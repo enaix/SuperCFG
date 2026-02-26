@@ -369,7 +369,7 @@ class SRParser
 {
 public:
     SymbolsHT symbols_ht;
-    TermsMap terms_storage;
+    TermsMap terms_storage;  // Legacy TermsMap
     RRTree reverse_rules;
     // std::unordered_map<TokenType, std::vector<TokenType>> reverse_rules_ht;
     NTermsConstHashTable<RulesSymbol> defs;
@@ -1046,13 +1046,22 @@ constexpr auto make_sr_parser(const RulesSymbol& rules, const TLexer& lex, Conf 
 {
     // Initialize reverse rules tree
     auto rr_tree = reverse_rules_tree_factory(rules); //ReverseRuleTreeFactory().build(root);
-    // Initialize symbols hashtable
-    // Cannot be constexpr due to std::unordered_map
-    auto symbols_ht = symbols_ht_factory<TokenType>(rules); //SymbolsHashTableFactory().build<TokenType>(root);
-    // Initialize terms2nterms map
+
+    auto instantiate_ht = [&](){
+        if constexpr (std::decay_t<TLexer>::is_legacy())
+            return symbols_ht_factory<TokenType>(rules);
+        else
+            return symbols_ht_factory<TokenType>(rules, lex.all_terms());  // Use full mapping instead
+    };
+
+    // Initialize terms2nterms map (legacy)
     auto terms_map = terms_map_factory(rules); //TermsMapFactory::build(root);
     // Initialize nterms2defs map
     auto defs = NTermsConstHashTable(rules);
+
+    // Initialize symbols hashtable
+    // Cannot be constexpr due to std::unordered_map
+    auto symbols_ht = instantiate_ht(); //SymbolsHashTableFactory().build<TokenType>(root);
 
     // Get tokens container class
     using TokenSetClass = typename TLexer::TokenSetClass;

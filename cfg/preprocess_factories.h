@@ -793,13 +793,21 @@ auto terms_map_factory(const RulesSymbol& rules)
 }
 
 
+template<class TokenType, class RulesSymbol, class AllTerms>
+auto symbols_ht_factory(const RulesSymbol& rules, const AllTerms& all_terms)
+{
+    auto nterms = cfg_helpers::symbols_ht_find_nterms(rules); // Find all nterms in rules
+
+    return SymbolsHashTable<TokenType, std::decay_t<AllTerms>, decltype(nterms)>(all_terms, nterms);
+}
+
+
 template<class TokenType, class RulesSymbol>
 auto symbols_ht_factory(const RulesSymbol& rules)
 {
-    auto nterms = cfg_helpers::symbols_ht_find_nterms(rules); // Find all nterms in rules
+    // If TermsTypeMap is not generated, take all terms instead
     auto terms = tuple_unique(cfg_helpers::symbols_ht_find_terms(rules)); // Find all terms in rules, only get the unique ones
-
-    return SymbolsHashTable<TokenType, decltype(terms), decltype(nterms)>(terms, nterms);
+    return symbols_ht_factory(rules, terms);
 }
 
 
