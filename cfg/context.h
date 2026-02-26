@@ -492,8 +492,10 @@ protected:
     template<std::size_t depth, class TSymbol>
     constexpr auto& do_get_term_pos(const TSymbol& symbol) const
     {
+        if constexpr (depth >= std::tuple_size_v<TTerms>)
+            static_assert(std::is_same_v<std::false_type, TSymbol>, "heheheha");
         static_assert(depth < std::tuple_size_v<TTerms>, "Term type not found");
-        // Get the corresponding NTermsPosPairs element
+        // Get the corresponding TTerms element
         if constexpr (std::is_same_v<std::decay_t<TSymbol>, std::tuple_element_t<depth, TTerms>>)
         {
             return std::get<depth>(pos_term);

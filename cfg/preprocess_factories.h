@@ -809,6 +809,11 @@ auto reverse_rules_tree_factory(const RulesSymbol& rules)
     const auto defs = rules.terms;
     const auto nterms = cfg_helpers::rr_tree_for_symbol<0>(rules);
 
+    #if defined(DBG_PRINT_RR_TREE) && !defined(NO_DBG_PRINT_RR_TREE)
+    const auto defs_nterms = tuple_morph([]<std::size_t i>(const auto& src){ return std::get<0>(std::get<i>(src).terms); }, defs);
+    static_assert(std::is_same_v<std::false_type, decltype(tuple_merge_along_axis(defs_nterms, nterms))>, "RR Tree; run the format_template_inst.py script with this template");
+    #endif
+
     return ReverseRuleTree(defs, nterms);
 }
 

@@ -50,3 +50,7 @@ The debug logging can be enabled with `-DCMAKE_CXX_FLAGS=-DDBG_PRINT_FIX_POS` an
 TODO describe this
 
 Can be enabled with `-DCMAKE_CXX_FLAGS=-DDBG_PRINT_TERMS_TYPE_MAP` and overriden with `-DCMAKE_CXX_FLAGS=-DNO_DBG_PRINT_TERMS_TYPE_MAP`
+
+### Other structures
+
+Reverse rules tree: `-DCMAKE_CXX_FLAGS=-DDBG_PRINT_RR_TREE`, `-DCMAKE_CXX_FLAGS=-DNO_DBG_PRINT_RR_TREE`
