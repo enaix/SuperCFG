@@ -69,7 +69,7 @@ bool test_heuristic_ctx_init()
     //LexerLegacy<VStr, TokenType> lexer(ruleset); // Lexer init
 
     // Init prettyprinter (default debugger)
-    DBGPrinter printer;
+    DBGPrinter<0> printer;
     printer.init_signal_handler();
 
     // Parser init

@@ -807,7 +807,7 @@ auto symbols_ht_factory(const RulesSymbol& rules)
 {
     // If TermsTypeMap is not generated, take all terms instead
     auto terms = tuple_unique(cfg_helpers::symbols_ht_find_terms(rules)); // Find all terms in rules, only get the unique ones
-    return symbols_ht_factory(rules, terms);
+    return symbols_ht_factory<TokenType>(rules, terms);
 }
 
 

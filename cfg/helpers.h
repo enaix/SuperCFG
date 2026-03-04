@@ -45,6 +45,12 @@ namespace cfg_helpers
             return Target(morph.template operator()<Ints>(src) ...);
     }
 
+    template<class Argument, Argument Arg, template<Argument k, class...> class Target, class Src, std::size_t... Ints>
+    constexpr auto do_partial_type_morph(auto morph, const Src &src, const std::integer_sequence<std::size_t, Ints...>)
+    {
+        return Target<Arg, std::decay_t<decltype(morph.template operator()<Ints>(src))>...>(morph.template operator()<Ints>(src) ...);
+    }
+
     template<class TElem, class... TupleElems>
     constexpr bool compare_elements(const TElem& elem, const TupleElems&... args)
     {
@@ -544,6 +550,15 @@ template<class Target, bool init_agg, std::size_t N, class Src>
 constexpr auto h_type_morph(auto morph, const IntegralWrapper<N> length, const Src& src)
 {
     return cfg_helpers::do_h_type_morph<init_agg, Target>(morph, src, std::make_index_sequence<N>{});
+}
+
+/**
+ * @brief Same as type_morph, but Target also takes an extra template parameter
+ */
+template<class Argument, Argument Arg, template<Argument A, class...> class Target, std::size_t N, class Src>
+constexpr auto partial_type_morph(auto morph, const IntegralWrapper<N> length, const Src& src)
+{
+    return cfg_helpers::do_partial_type_morph<Argument, Arg, Target>(morph, src, std::make_index_sequence<N>{});
 }
 
 

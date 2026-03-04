@@ -249,9 +249,7 @@ public:
     template<class RRTree, class RulesDef>
     void init_windows(const RRTree& rr_tree, const RulesDef& rules)
     {
-        int term_w = terminal.get_terminal_width();
-        int term_h = terminal.get_terminal_height();
-        terminal.init_matrix(term_h, term_w);
+        terminal.update_terminal_size();
 
         _widgets[(std::size_t)PrinterWindows::AST] = make_ast(TreeNode<std::basic_string<TChar>>());
 
@@ -310,6 +308,7 @@ public:
         //return true; // useful for debugging
         //if (c == 'q') return false;
 
+        terminal.update_terminal_size();
         terminal.reset_output_matrix();
         winstack.render_all(terminal._output_matrix, terminal._color_matrix, style);
         winstack.render_overlays(terminal._output_matrix, terminal._color_matrix, style);

@@ -692,6 +692,28 @@ template<class... TSymbols> constexpr auto End(const TSymbols&... symbols) { ret
 template<class... TSymbols> constexpr auto RulesDef(const TSymbols&... symbols) { return BaseOp<OpType::RulesDef, TSymbols...>(symbols...); }
 
 
+
+/**
+ * @brief Convert complex terms ("abcd") into Concat('a', 'b', 'c', 'd')
+ */
+template<class TSymbol>
+constexpr auto concatify(const TSymbol& rules)
+{
+    if constexpr (is_term<TSymbol>())
+    {
+        using term_str = TSymbol::_name_type;
+        return partial_type_morph<OpType, OpType::Concat, BaseOp>([&]<std::size_t i>(const auto& src){ return Term(term_str::template make<term_str::template at<i>()>()); }, IntegralWrapper<term_str::size() - 1>{}, rules.name);
+    }
+    else if constexpr (is_operator<TSymbol>())
+    {
+        constexpr OpType Op = std::decay_t<TSymbol>::_get_operator::value;
+        return partial_type_morph<OpType, Op, BaseOp>([]<std::size_t i>(const auto& src){ return concatify(std::get<i>(src)); }, IntegralWrapper<std::decay_t<TSymbol>::size()>{}, rules.terms);
+    } else return rules;
+}
+
+
+
+
  /**
   * @brief Base extended operator class for RepeatExact and RepeatGT
   * @tparam Operator Operator enum type

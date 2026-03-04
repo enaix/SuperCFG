@@ -63,7 +63,7 @@ int main()
 
     constexpr auto d_json = Define(json, Alter(array, boolean, null, number, object, string));
 
-    constexpr auto ruleset = RulesDef(d_character, d_digit, d_number, d_boolean, d_null, d_string, d_array, d_member, d_object, d_json);
+    constexpr auto ruleset = concatify(RulesDef(d_character, d_digit, d_number, d_boolean, d_null, d_string, d_array, d_member, d_object, d_json));
 
     using VStr = StdStr<char>; // Variable string class inherited from std::string<TChar>
     using TokenType = StdStr<char>; // Class used for storing a token type in runtime
