@@ -160,3 +160,6 @@ int main()
 
 
 }
+
+
+int json() { return main(); }  // cling entrypoint

@@ -202,4 +202,4 @@ int main()
     return 0;
 }
 
-
+int dbg() { return main(); }  // cling entrypoint
