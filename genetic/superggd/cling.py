@@ -14,9 +14,17 @@ class ClingInstance:
         self.status = ExecStatus.Exited
 
 
-    async def compile(self, code: str) -> None:
+    async def compile(self, code: str) -> ExecStatus:
+        """Compile the code, will exit immediately"""
         self.instance = await asyncio.create_subprocess_exec(self.path_to_cling, *self.extra_args, code, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         self.status = ExecStatus.Compiling
+        return self.status
+
+    async def wait(self, success_string: str) -> ExecStatus:
+        """Wait for the compilation"""
+        while await self.update_status(success_string) == ExecStatus.Compiling:
+            pass
+        return self.status
 
     async def update_status(self, success_string: str) -> ExecStatus:
         """Update and return instance status, will check one stdout line at a time for the matching success substring"""
