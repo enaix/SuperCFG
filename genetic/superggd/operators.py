@@ -58,7 +58,11 @@ class BaseOp(type):
                 res += ";"
             return res
 
+        def _repr(instance) -> str:
+            return instance.bake_supercfg()  # temporary
+
         attrs["bake_supercfg"] = bake_supercfg
+        attrs["__repr__"] = _repr
 
         def init(instance, ops: list[Union[Type[BaseOp], Term, TermsRange, NTerm]]):
             instance.ops = ops

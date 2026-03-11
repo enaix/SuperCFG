@@ -2,6 +2,7 @@ import os
 import concurrent.futures
 import asyncio
 import threading
+import time
 from typing import Optional, Any
 
 from superggd.cling import ClingInstance
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 SUPERCFG_SOURCE_SINGLE = """
 #include <iostream>
+#include <sstream>
 
 #include "cfg/gbnf.h"
 #include "cfg/containers.h"
@@ -21,6 +23,7 @@ SUPERCFG_SOURCE_SINGLE = """
 #include "cfg/parser.h"
 #include "cfg/str.h"
 #include "cfg/preprocess_factories.h"
+#include "extra/ast_serializer.h"
 
 
 SUPERCFG_RULESET_DEF
@@ -42,20 +45,40 @@ auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, co
 
 for (std::size_t seq = 1; ; seq++)
 {
-    VStr input;
+    VStr input, tok;
     std::cout << "SUPERCFG_READY" << std::endl;
 
     std::cin >> input;
 
-    // TODO split input into command and data
+    std::stringstream ss(input);
+    if (!std::getline(ss, tok, ' '))
+    {
+        std::cout << "SUPERCFG_FAIL BAD_INPUT " << seq << std::endl;
+        continue;
+    }
+
+    if (tok == "SUPERCFG_EXIT") {
+        std::cout << "SUPERCFG_OK EXIT " << seq << std::endl;
+        return 0;
+    } else {
+        if (tok == "SUPERCFG_PARSE") {
+            if (!std::getline(ss, tok, ' ')) {
+                std::cout << "SUPERCFG_FAIL BAD_INPUT " << seq << std::endl;
+                continue;
+            } // else run the default loop
+        } else {
+            std::cout << "SUPERCFG_FAIL BAD_CMD " << seq << std::endl;
+            continue;
+        }
+    }
 
     bool ok;
 
     // Tokenize the input
-    auto tokens = lexer.run(input, ok);
+    auto tokens = lexer.run(tok, ok);
 
     if (!ok) {
-        std::cout << "SUPERCFG_FAIL 0 " << seq << std::endl;
+        std::cout << "SUPERCFG_FAIL TOKENIZER_FAIL " << seq << std::endl;
         continue;
     }
 
@@ -65,20 +88,12 @@ for (std::size_t seq = 1; ; seq++)
     ok = parser.run(tree, json, tokens);
 
     if (!ok) {
-        std::cout << "main() : parser failed" << std::endl;
-        return 1;
+        std::cout << "SUPERCFG_FAIL PARSER_FAIL " << seq << std::endl;
+        continue;
     }
 
     // Process the parse tree
-    // TODO make a reliable interface for encoding AST
-    tree.traverse([&](const auto& node, std::size_t depth) {
-        // Print the tree structure
-        for (std::size_t i = 0; i < depth; i++)
-            std::cout << "|  ";
-        std::cout << node.name << " (" << node.nodes.size()
-                  << " elems) : " << node.value << std::endl;
-    });
-
+    std::cout << "SUPERCFG_OK " << serialize_ast_wire<VStr, TreeNode<VStr>>(tree) << " " << seq << std::endl;
 }
 """
 
@@ -100,14 +115,20 @@ class SuperCFGParser:
     def status(self) -> ExecStatus:
         return self.cling.status  # Seems to be safe
 
-    async def run(self, string: str) -> Optional[str]:
+    async def run(self, string: str) -> Optional[ASTNode]:
         if self.cling.status != ExecStatus.Running:
             return None
 
         self.cur_seq += 1
         # TODO consume all stdout first, so that we process only parsing output
-        await self.cling.write_to_stdin(string)
+        await self.cling.write_to_stdin(("SUPERCFG_PARSE " + string + "\n"))
+        if self.cling.is_exited():
+            logger.error("SuperCFG has unexpectedly exited")
+            return None  # we should handle stdout here
         output = await self.cling.readline()
+        if output is None:
+            logger.error("SuperCFG has unexpectedly exited")
+            return None
 
         out = output.split(' ')
         if len(out) != 3:
@@ -125,13 +146,26 @@ class SuperCFGParser:
             # Try to continue parsing anyways
 
         if out[0] == "SUPERCFG_OK":
-            return out[1]  # TODO convert to ast
+            try:
+                ast = deserealize_ast_wire(out[1])
+            except ValueError as e:
+                logger.error(f"bad SuperCFG output : {e}")
+                return None  # bad format
+            return ast
+
         elif out[0] == "SUPERCFG_FAIL":
+            logger.info("SuperCFG failed, reason : %s", out[1])
             return None  # parsing failed
         else:
-            # TODO log errors
             logger.error("bad SuperCFG output : no such command : %s", output)
             return None  # bad string
+
+    def shutdown(self):
+        if self.cling.is_exited():
+            return
+        if not self.cling.shutdown():
+            self.cling.kill()
+
        
     def to_ebnf_repr(self, grammar: Grammar) -> str:
         return grammar.bake_supercfg()  # the method actually exists
@@ -140,7 +174,8 @@ class SuperCFGParser:
 class ParserInstance:
     def __init__(self, grammar: Grammar, parser: Any, compilation_strategy: CompilationStrategy):
         self.parser = parser
-        self.grammar: Optional[Grammar] = grammar
+        self.grammar: Grammar = grammar
+        self.future: Optional[concurrent.futures.Future] = None
         self.comp_strategy = compilation_strategy
 
     async def compile(self) -> ExecStatus:
@@ -156,27 +191,20 @@ class ParserInstance:
 
 
 class ParserManager:
-    num_parallel: int
-
-    _loop: Optional[asyncio.AbstractEventLoop] = None
-    _thread: Optional[threading.Thread] = None
-    _lock = threading.Lock()
-
     def __init__(self, num_parallel: int, compilation_strategy: CompilationStrategy = CompilationStrategy.Die):
         self.num_parallel = num_parallel
-        self.futures: list[concurrent.futures.Future] = []
-        self.instances: list[ParserInstance] = []
+        self.instances: dict[Grammar, ParserInstance] = {}
         self.comp_strategy = compilation_strategy
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
 
     def _get_loop(self) -> asyncio.AbstractEventLoop:
         """Create a new event loop for parsing events"""
-        global _loop, _thread
         with self._lock:
             if self._loop is None or not self._loop.is_running():
                 self._loop = asyncio.new_event_loop()
-                self._thread = threading.Thread(
-                    target=self._loop.run_forever, daemon=True, name="superggd-event-loop"
-                )
+                self._thread = threading.Thread(target=self._loop.run_forever, daemon=True, name="superggd-event-loop")
                 self._thread.start()
         return self._loop
 
@@ -184,22 +212,77 @@ class ParserManager:
         """Submit a coroutine to the background loop, returns Future (sync-safe)"""
         return asyncio.run_coroutine_threadsafe(coro, self._get_loop())
 
+    def reset(self) -> None:
+        for inst in self.instances.values():
+            if inst.future and not inst.future.done():
+                inst.future.cancel()
+
+        for g in self.instances.keys():
+            self.instances[g].parser.shutdown()
+        self.instances.clear()
+
     def compile_batch(self, grammars: list[Grammar], parsers: list[Any]) -> None:
         """Compile a set of parsers. Starts a background job, see status()"""
+        self.reset()
         for i in range(len(parsers)):
-            #parsers[i].compile(grammars[i])
-            self.instances[i] = ParserInstance(grammars[i], parsers[i], self.comp_strategy)
-            self.futures[i] = self.submit(self.instances[i].compile())
+            inst = ParserInstance(grammars[i], parsers[i], self.comp_strategy)
+            inst.future = self.submit(inst.compile())
+            self.instances[grammars[i]] = inst
 
-    def status(self) -> list[ExecStatus]:
-        """Check execution status"""
-        res: list[ExecStatus] = []
-        for i in range(len(self.futures)):
-            if self.futures[i].done():
-                res[i] = self.instances[i].status() # Should be thread-safe, since the compilation is completed
+    def run(self, grammar: Grammar, input_string: str, timeout: Optional[int] = None) -> Optional[ASTNode]:
+        if grammar not in self.instances:
+            logger.error("ParserManager::run() : no parser instance for grammar")
+            return None  # No such grammar
+        if self.instances[grammar].status() != ExecStatus.Compiling:
+            logger.error("ParserManager::run() : parser is still compiling")
+            return None
+
+        future = self.submit(self.instances[grammar].parser.run(input_string))
+        # TODO properly log everything, since we need to know which input & grammar caused the error
+        return future.result(timeout=timeout)
+
+    def status(self) -> dict[Grammar, ExecStatus]:
+        """Check compilation status"""
+        res: dict[Grammar, ExecStatus] = {}
+        for g in self.instances.keys():
+            inst = self.instances[g]
+            assert inst.future is not None, "ParserManager::status() : there is no future"
+            if inst.future.done():
+                res[g] = inst.status()  # Should be thread-safe, since the compilation is completed
             else:
-                res[i] = ExecStatus.Compiling
+                res[g] = ExecStatus.Compiling
         return res
 
+    def wait(self, timeout: Optional[float] = None) -> dict[Grammar, ExecStatus]:
+        """
+        Block the calling thread until all pending compilations finish. Returns the final status of each grammar.
+        Raises concurrent.futures.TimeoutError if timeout is exceeded.
+        """
+        if not self.instances:
+            return {}
+
+        deadline = (time.monotonic() + timeout) if timeout is not None else None
+
+        for g, inst in self.instances.items():
+            if inst.future is None:
+                continue
+
+            remaining = (deadline - time.monotonic()) if deadline is not None else None
+            if remaining is not None and remaining <= 0:
+                raise concurrent.futures.TimeoutError(
+                    f"ParserManager::wait() timed out before compiling grammar: {g}"
+                )
+
+            try:
+                inst.future.result(timeout=remaining)
+            except concurrent.futures.TimeoutError:
+                raise concurrent.futures.TimeoutError(
+                    f"ParserManager::wait() timed out while compiling grammar: {g}"
+                )
+            #except Exception as e:
+            #    logger.error("ParserManager::wait() : compilation of grammar %s raised: %s", g, e)
+
+        return self.status()
+
     def is_done(self):
-        return ExecStatus.Compiling not in self.status()
+        return ExecStatus.Compiling not in self.status().values()

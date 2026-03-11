@@ -13,6 +13,7 @@
 #include "cfg/parser.h"
 #include "cfg/str.h"
 #include "cfg/preprocess_factories.h"
+#include "extra/ast_serializer.h"
 
 
 bool test_gbnf_basic()
@@ -535,6 +536,8 @@ bool test_heuristic_ctx_init()
         for (std::size_t i = 0; i < depth; i++) std::cout << "|  ";
         std::cout << node.name << " (" << node.nodes.size() << " elems) : " << node.value << std::endl;
     });
+
+    std::cout << "======" << std::endl << "wire ast format : " << serialize_ast_wire<VStr, TreeNode<VStr>>(tree) << std::endl;
 
     if (!ok)
     {

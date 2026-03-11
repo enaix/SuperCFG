@@ -18,6 +18,8 @@ public:
 
     constexpr StdStr(const StdStr<TChar>& rhs) : std::basic_string<TChar>(rhs) {}
 
+    constexpr StdStr(const std::basic_string<TChar>& rhs) : std::basic_string<TChar>(rhs) {}
+
     constexpr explicit StdStr(const TChar* ch, std::size_t N) : std::basic_string<TChar>(ch, N) {}
 
     constexpr explicit StdStr(const TChar* ch) : std::basic_string<TChar>(ch) {}
