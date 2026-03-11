@@ -269,16 +269,12 @@ class ParserManager:
 
             remaining = (deadline - time.monotonic()) if deadline is not None else None
             if remaining is not None and remaining <= 0:
-                raise concurrent.futures.TimeoutError(
-                    f"ParserManager::wait() timed out before compiling grammar: {g}"
-                )
+                raise concurrent.futures.TimeoutError(f"ParserManager::wait() timed out before compiling grammar: {g}")
 
             try:
                 inst.future.result(timeout=remaining)
             except concurrent.futures.TimeoutError:
-                raise concurrent.futures.TimeoutError(
-                    f"ParserManager::wait() timed out while compiling grammar: {g}"
-                )
+                raise concurrent.futures.TimeoutError(f"ParserManager::wait() timed out while compiling grammar: {g}")
             #except Exception as e:
             #    logger.error("ParserManager::wait() : compilation of grammar %s raised: %s", g, e)
 

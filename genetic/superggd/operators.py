@@ -1,8 +1,6 @@
 from typing import Type, Union, Any
 
 
-# TODO implement Term, NTerm and operators
-
 class Term:
     def __init__(self, value: str):
         self.value = value
@@ -36,6 +34,8 @@ class BaseOp(type):
             res = ""
             if name == "Grammar":
                 res += "RulesDef"  # replace Grammar with RulesDef
+            elif name == "Opt":
+                res += "Optional"
             else:
                 res += name  # otherwise we convert it literally
 
@@ -96,7 +96,8 @@ class Alter(metaclass=BaseOp, num_ops=-1):
 class Define(metaclass=BaseOp, num_ops=2):
     pass # Two
 
-class Optional(metaclass=BaseOp, num_ops=1):
+# Optional, renamed due to Python typing name conflict
+class Opt(metaclass=BaseOp, num_ops=1):
     pass # One
 
 class Repeat(metaclass=BaseOp, num_ops=1):
