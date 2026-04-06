@@ -99,7 +99,8 @@ for (std::size_t seq = 1; ; seq++)
 
 
 class SuperCFGParser:
-    def __init__(self, path_to_cling: str = "cling", path_to_supercfg: str = "../", extra_cling_args: list[str] = []):
+    def __init__(self, path_to_cling: str = "cling", path_to_supercfg: str = "../", extra_cling_args: list[str] = [], **kwargs):
+        """Initialize SuperCFG parser generators. Extra arguments are ignored"""
         self.cling = ClingInstance(path_to_cling, ["-I" + path_to_supercfg] + extra_cling_args)
         self.success_string = "SUPERCFG_READY"
         self.cur_seq = 0 # sequence number of the execution
@@ -171,6 +172,11 @@ class SuperCFGParser:
         return grammar.bake_supercfg()  # the method actually exists
 
 
+# Main parser generator classes
+SUPERGGD_PARSER_GENERATORS = {"supercfg": SuperCFGParser}
+
+
+
 class ParserInstance:
     def __init__(self, grammar: Grammar, parser: Any, compilation_strategy: CompilationStrategy):
         self.parser = parser
@@ -182,6 +188,8 @@ class ParserInstance:
         status = await self.parser.compile(self.grammar)
         if status == ExecStatus.Exited:
             if self.comp_strategy == CompilationStrategy.Die:
+                raise RuntimeError("Parser generator has failed, stopping execution...")
+            elif self.comp_strategy == CompilationStrategy.Skip:
                 return status
             # We do not have any more strategies yet
         return status
@@ -255,7 +263,7 @@ class ParserManager:
 
     def wait(self, timeout: Optional[float] = None) -> dict[Grammar, ExecStatus]:
         """
-        Block the calling thread until all pending compilations finish. Returns the final status of each grammar.
+        Block the calling thread until all pending compilations finish. Timeout is specified in fractional seconds. Returns the final status of each grammar.
         Raises concurrent.futures.TimeoutError if timeout is exceeded.
         """
         if not self.instances:
@@ -269,16 +277,12 @@ class ParserManager:
 
             remaining = (deadline - time.monotonic()) if deadline is not None else None
             if remaining is not None and remaining <= 0:
-                raise concurrent.futures.TimeoutError(
-                    f"ParserManager::wait() timed out before compiling grammar: {g}"
-                )
+                raise concurrent.futures.TimeoutError(f"ParserManager::wait() timed out before compiling grammar: {g}")
 
             try:
                 inst.future.result(timeout=remaining)
             except concurrent.futures.TimeoutError:
-                raise concurrent.futures.TimeoutError(
-                    f"ParserManager::wait() timed out while compiling grammar: {g}"
-                )
+                raise concurrent.futures.TimeoutError(f"ParserManager::wait() timed out while compiling grammar: {g}")
             #except Exception as e:
             #    logger.error("ParserManager::wait() : compilation of grammar %s raised: %s", g, e)
 

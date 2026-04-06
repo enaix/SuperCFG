@@ -1,7 +1,15 @@
-#!/usr/bin/env python3
+import concurrent.futures
+import logging
+import threading
+from typing import Any, Callable, Optional, Type
 
-import os
-#import pygad
+import numpy as np
+import pygad
+
+from superggd.parser import *
+from superggd.base import *
+
+logger = logging.getLogger(__name__)
 
 
 # ======================================
@@ -10,24 +18,223 @@ import os
 
 
 class SuperGGD:
-    def __init__(self):
-        pass
+    """
+    Main SuperGGD instance, handles ``pygad.GA`` and parser generators management. At each step executes parser generators and ``pre_fitness_fn`` in parallel. Execute ``init_parsers`` to configure the remaining parameters.
 
+    Parameters
+    ----------
+    grammar_generator:
+        ``(solution: np.ndarray, solution_idx: int) -> Grammar``
+        Maps a pygad gene vector to a Grammar object.
 
+    fitness_fn:
+        ``(solution, solution_idx, grammar, run_parser, pre_fn_result) -> float``
+        Called *after* all parser generators are compiled and all ``pre_fitness_fn`` exited.
+        ``run_parser(input_string) -> Optional[ASTNode]``
+        ``pre_fn_result`` is the ``pre_fitness_fn`` result (None if not set).
 
+    pre_fitness_fn (optional):
+        ``(solution, solution_idx, grammar) -> Any``
+        Runs concurrently with parser compilation. Its return value is forwarded as ``pre_fn_result`` to ``fitness_fn``.
 
+    num_parallel:
+        How many parser generators to compile at once. Ideally should match the number of CPU cores, limited by the amount of available memory.
 
+    compilation_strategy:
+        Specifies how to handle parser generator errors. Forwarded to ``superggd.parser.ParserManager``.
 
+    compilation_timeout:
+        How long to wait for parser generators to compile (in fractional seconds), passed to ``ParserManager.wait``. Set None to wait forever.
 
+    pygad_kwargs:
+        Every remaining keyword argument is forwarded to ``pygad.GA``. Do not pass ``fitness_func`` or ``on_generation``.
+    """
 
-def main():
-    # Command-line mode:
-    # Base args: --config/-c (path to config) --cling/-l (path to cling exec), --supercfg/-s (path to supercfg folder) --module/-m path_to_module
-    # SuperEGD args: --parallel (build parsers in a single jit interpreter)
-    # other genetic-related args: todo
+    def __init__(self, grammar_generator: Callable[[np.ndarray, int], Any],
+                 fitness_fn: Callable, *,
+                 num_parallel: int = 1,
+                 compilation_strategy: Any = None,   # CompilationStrategy.Die
+                 compilation_timeout: Optional[float] = None,
+                 pre_fitness_fn: Optional[Callable] = None,
+                 **pygad_kwargs):
 
-    # Commands:
-    # gen (genetic algo)
-    # grid (grid search)
+        if compilation_strategy is None:
+            compilation_strategy = CompilationStrategy.Die
 
-    pass
+        self._grammar_generator = grammar_generator
+        self._fitness_fn = fitness_fn
+        self._pre_fitness_fn = pre_fitness_fn
+        self._compilation_timeout = compilation_timeout
+
+        # Parser infrastructure
+        self._manager = ParserManager(num_parallel=num_parallel, compilation_strategy=compilation_strategy)
+        self._parser_class: Optional[Type[Any]] = None
+        self._fallback_parser_class: Optional[Type[Any]] = None
+        self._parser_args: Optional[dict[str, Any]] = None
+        self._fallback_parser_args: Optional[dict[str, Any]] = None
+
+        # Per-generation state (reset at the top of every generation)
+        self._gen_lock = threading.Lock()
+        self._current_gen: int = -1                    # pygad generation counter
+        self._current_grammars: dict[int, Any] = {}    # idx -> Grammar
+        self._pre_states: dict[int, Any] = {}          # idx -> pre_fitness result
+        self._compile_done = threading.Event()
+
+        for reserved in ("fitness_func", "on_generation"):
+            if reserved in pygad_kwargs:
+                raise ValueError(f"SuperGGD manages '{reserved}' internally; do not pass it in pygad_kwargs")
+
+        self._ga: pygad.GA = pygad.GA(fitness_func=self._fitness_wrapper, on_generation=self._on_generation, **pygad_kwargs)
+
+    def init_parsers(self, parser_class: Optional[Type[Any]] = None, fallback_parser_class: Optional[Type[Any]] = None, parser_args: Optional[dict[str, Any]] = None, fallback_parser_args: Optional[dict[str, Any]] = None) -> None:
+        """
+        Initialize parser generators as the ``parser_class`` and ``fallback_parser_class`` class types with parser_args/fallback_parser_args dictionary. ``superggd.parsers.SuperCFGParser`` will be used as the default parser generator.
+        If the strategy is ``CompilationStrategy.Die``, fallback_parser_class is not needed.
+
+        SuperCFG (default parser) parameters:
+
+        path_to_cling:
+            Path to cling binary, see ``superggd.parser.SuperCFGParser``
+
+        path_to_supercfg:
+            Path to SuperCFG source code, see ``superggd.parser.SuperCFGParser``
+
+        extra_cling_args:
+            Extra cling command-line arguments, see ``superggd.cling.ClingInstance``
+        """
+        if parser_class is None:
+            parser_class = SuperCFGParser
+        if parser_args is None:
+            parser_args = {}
+        if fallback_parser_args is None:
+            fallback_parser_args = {}
+
+        self._parser_class = parser_class
+        self._fallback_parser_class = fallback_parser_class
+        self._parser_args = parser_args
+        self._fallback_parser_args = fallback_parser_args
+
+    def run(self) -> pygad.GA:
+        """Start the genetic algorithm. Blocks until completion."""
+        self._ga.run()
+        return self._ga
+
+    @property
+    def ga(self) -> pygad.GA:
+        """Direct access to the underlying pygad.GA instance."""
+        return self._ga
+
+    def best_solution(self):
+        """Convenience wrapper around pygad.GA.best_solution()."""
+        return self._ga.best_solution()
+
+    def _new_parser(self) -> Any:
+        """Create new parser instance"""
+        if self._parser_class is None or self._parser_args is None:
+            raise ValueError("init_parsers() was not called. Configure parser generators using SuperGGD.init_parsers()")
+        return self._parser_class(**self._parser_args)
+
+    def _start_generation(self, ga_instance: pygad.GA) -> None:
+        """
+        Called at the start of each new generation. Handles parsers compilation and fitness_fn/pre_fitness_fn execution
+        """
+        population: np.ndarray = ga_instance.population
+        n = len(population)
+
+        # TODO properly log history
+        self._current_grammars = {}
+        self._pre_states = {}
+        self._compile_done.clear()
+
+        # Generate grammars
+        grammars: list[Any] = []
+        for idx in range(n):
+            try:
+                g = self._grammar_generator(population[idx], idx)
+            except Exception as e:
+                if self._manager.comp_strategy == CompilationStrategy.Die:
+                    raise RuntimeError(f"grammar_generator raised for individual {idx}") from e
+                else:
+                    logger.exception(f"grammar_generator raised for individual {idx} : {e}")
+                g = None
+            self._current_grammars[idx] = g
+            grammars.append(g)
+
+        valid_indices = [i for i, g in enumerate(grammars) if g is not None]
+        valid_grammars = [grammars[i] for i in valid_indices]
+
+        parsers = [self._new_parser() for _ in valid_grammars]
+        self._manager.compile_batch(valid_grammars, parsers)
+
+        if self._pre_fitness_fn is not None:
+            def _run_pre(idx: int) -> tuple[int, Any]:
+                grammar = self._current_grammars[idx]
+                if grammar is None:
+                    return idx, None
+                try:
+                    if self._pre_fitness_fn is not None:
+                        state = self._pre_fitness_fn(population[idx], idx, grammar)
+                except Exception:
+                    logger.exception("pre_fitness_fn raised for individual %d", idx)
+                    state = None
+                return idx, state
+
+            with concurrent.futures.ThreadPoolExecutor(thread_name_prefix="superggd-pre") as pool:
+                # Compilation is already running in the ParserManager's background event loop; pre-fitness runs here in parallel
+                futures = {pool.submit(_run_pre, i): i for i in range(n)}
+                for fut in concurrent.futures.as_completed(futures):
+                    idx, state = fut.result()
+                    self._pre_states[idx] = state
+
+        # Wait for compilation to finish
+        try:
+            status_map = self._manager.wait(timeout=self._compilation_timeout)
+        except concurrent.futures.TimeoutError:
+            logger.error("Compilation timed out after %.1fs for generation %d", self._compilation_timeout, self._current_gen)
+            status_map = self._manager.status()
+
+        logger.debug("Generation %d: compilation status %s", self._current_gen, {str(g)[:40]: s for g, s in status_map.items()})
+
+        self._compile_done.set()
+
+    # pygad hooks
+    # ===========
+
+    def _fitness_wrapper(self, ga_instance: pygad.GA, solution: np.ndarray, solution_idx: int) -> float:
+        """
+        pygad fitness callback, waits for the compilation to finish and then executes user's fitness function.
+        """
+        # this is used as the unique generation identifier
+        gen_id = ga_instance.generations_completed
+
+        with self._gen_lock:
+            if self._current_gen != gen_id:
+                # new generation
+                self._current_gen = gen_id
+                self._compile_done.clear()
+                self._start_generation(ga_instance)  # blocks until the compilation is done
+
+        self._compile_done.wait()
+
+        grammar = self._current_grammars.get(solution_idx)
+        if grammar is None:
+            logger.warning("No grammar for individual %d – returning 0.0", solution_idx)
+            return 0.0
+
+        def run_parser(input_string: str) -> Any:
+            return self._manager.run(grammar, input_string)
+
+        pre_fn_result = self._pre_states.get(solution_idx)
+
+        try:
+            score = self._fitness_fn(solution, solution_idx, grammar, run_parser, pre_fn_result)
+        except Exception as e:
+            logger.exception(f"fitness_fn raised for individual {solution_idx} – returning 0.0 : {e}")
+            score = 0.0
+
+        return float(score)
+
+    def _on_generation(self, ga_instance: pygad.GA) -> None:
+        """Called by pygad after each generation completes."""
+        logger.info("Generation %d complete. Best fitness: %.4f", ga_instance.generations_completed, ga_instance.best_solution()[1])
+        self._manager.reset()

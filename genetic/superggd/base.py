@@ -12,7 +12,8 @@ class ExecStatus(Enum):
 
 class CompilationStrategy(StrEnum):
     """How to handle compilation errors"""
-    Die = "die",
+    Die = "die",  # Give up on the grammar and stop SuperGGD
+    Skip = "skip", # Give up on the grammar and continue execution
 
 
 @dataclass
