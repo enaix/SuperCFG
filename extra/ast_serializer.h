@@ -11,6 +11,7 @@
 // ============================================================================
 //  Every node is serialized as <name_field> '|' <value_field> '|' <child_count> '|' <child_0> <child_1> ...
 //  Each string field is length-prefixed + hex-body: <field> ::= <decimal_byte_len> ':' <hex_chars>
+//  Extremely inefficient
 
 
 namespace cfg_helpers {
@@ -25,6 +26,29 @@ VStr hex_encode(const char* data, std::size_t len)
         out += kHex[byte >> 4];
         out += kHex[byte & 0x0f];
     }
+    return out;
+}
+
+/**
+ * @brief Parse hex-encoded char to hex value
+ */
+inline std::uint8_t hex_nibble(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    throw std::invalid_argument(std::string("hex_nibble() : invalid hex character '") + c + '\'');
+}
+
+template<class VStr>
+VStr hex_decode(const VStr& data)
+{
+    if (data.size() % 2 != 0)
+        throw std::invalid_argument(std::string("hex_decode() : bad input size"));
+    VStr out;
+    out.reserve(data.size() / 2);
+    for (std::size_t i = 0; i < data.size(); i += 2)
+        out += static_cast<char>((hex_nibble(data[i]) << 4) | hex_nibble(data[i + 1]));
     return out;
 }
 

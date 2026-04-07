@@ -20,15 +20,17 @@ def main() -> None:
 
     def _add_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--config", "-c", metavar="PATH", help="Path to a Python config file")
-        p.add_argument("--cling", "-l", metavar="PATH", default="cling", help="Path to the cling executable")
-        p.add_argument("--supercfg","-s", metavar="PATH", default="../", help="Path to supercfg source code")
         p.add_argument("--module", "-m", metavar="PATH",
                        help="Path to the user module. Must expose the following functions:\ngrammar_generator(solution: np.ndarray, solution_idx: int)  -> Grammar\nfitness_fn(solution, solution_idx, grammar, run_parser, pre_state) -> float\npygad_params: dict")
-        p.add_argument("--parser",  default="supercfg", choices=list(SUPERGGD_PARSER_GENERATORS.keys()), help="Parser backend")
-        p.add_argument("--comp-strategy", default="die", choices=["die", "skip"], help="Compilation error handling strategy (die: exit on error, skip: continue)")
         p.add_argument("--jobs", "-j", type=int, default=1, help="Number of parallel parser generator instances")
-        p.add_argument("--cling-args", nargs="*", default=[], metavar="ARG", help="Extra command-line flags forwarded to cling, specified as a list of arguments")
+        p.add_argument("--comp-strategy", default="die", choices=["die", "skip"], help="Compilation error handling strategy (die: exit on error, skip: continue)")
+        p.add_argument("--parser",  default="supercfg", choices=list(SUPERGGD_PARSER_GENERATORS.keys()), help="Parser backend")
         p.add_argument("--compilation-timeout", type=float, default=None, help="Max seconds to wait for batch compilation")
+
+        s_cfg = p.add_argument_group(title="supercfg parser options")
+        s_cfg.add_argument("--cling", "-l", metavar="PATH", default="cling", help="Path to the cling executable")
+        s_cfg.add_argument("--supercfg","-s", metavar="PATH", default="../", help="Path to supercfg source code")
+        s_cfg.add_argument("--cling-args", nargs="*", default=[], metavar="ARG", help="Extra command-line flags forwarded to cling, specified as a list of arguments")
 
     _add_args(ap)
     _add_args(gen_cmd)

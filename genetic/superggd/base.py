@@ -35,11 +35,18 @@ class ASTNode:
         return (f"ASTNode(name={self.name!r}, value={self.value!r}, children=[{len(self.children)} nodes])")
 
 
-# Wire ast representation deserealizer
-# ====================================
+def encode_input_hex(s: str) -> str:
+    """Encode ASCII input string to hex"""
+    try:
+        res = s.encode("ascii").hex()
+    except UnicodeEncodeError as e:
+        raise ValueError("encode_input_hex() only works with ASCII strings") from e
+    return res
 
-class DecodeError(ValueError):
-    """Raised when the encoded string is malformed."""
+
+# Wire ast representation deserealizer
+# Only handles ASCII
+# ====================================
 
 
 def _decode_field(data: str, pos: int) -> tuple[str, int]:
@@ -52,29 +59,24 @@ def _decode_field(data: str, pos: int) -> tuple[str, int]:
     """
     colon = data.find(':', pos)
     if colon == -1:
-        raise DecodeError(f"Expected \':\' after byte-length at pos {pos}")
+        raise ValueError(f"Expected \':\' after byte-length at pos {pos}")
 
     try:
         byte_len = int(data[pos:colon])
     except ValueError:
-        raise DecodeError(
-            f"Non-integer byte-length \'{data[pos:colon]}\' at pos {pos}"
-        )
+        raise ValueError(f"Non-integer byte-length \'{data[pos:colon]}\' at pos {pos}")
 
     hex_start = colon + 1
-    hex_end   = hex_start + byte_len * 2  # 2 hex digits per byte
+    hex_end = hex_start + byte_len * 2  # 2 hex digits per byte
 
     if hex_end > len(data):
-        raise DecodeError(
-            f"Hex body truncated: need {byte_len * 2} chars "
-            f"at pos {hex_start}, but string ends at {len(data)}"
-        )
+        raise ValueError(f"Hex body truncated: need {byte_len * 2} chars at pos {hex_start}, but string ends at {len(data)}")
 
     hex_body = data[hex_start:hex_end]
     try:
-        decoded = bytes.fromhex(hex_body).decode("utf-8")
+        decoded = bytes.fromhex(hex_body).decode("ascii")
     except (ValueError, UnicodeDecodeError) as exc:
-        raise DecodeError(f"Bad hex body at pos {hex_start}: {exc}") from exc
+        raise ValueError(f"Bad hex body at pos {hex_start}: {exc}") from exc
 
     return decoded, hex_end
 
@@ -87,29 +89,26 @@ def _decode_node(data: str, pos: int) -> tuple[ASTNode, int]:
     -------
     (ASTNode, new_pos)
     """
-    # --- name ---
     name, pos = _decode_field(data, pos)
 
     if pos >= len(data) or data[pos] != '|':
-        raise DecodeError(f"Expected \'|\' after name field at pos {pos}")
+        raise ValueError(f"Expected \'|\' after name field at pos {pos}")
     pos += 1  # consume '|'
 
-    # --- value ---
     value, pos = _decode_field(data, pos)
 
     if pos >= len(data) or data[pos] != '|':
-        raise DecodeError(f"Expected '|' after value field at pos {pos}")
+        raise ValueError(f"Expected '|' after value field at pos {pos}")
     pos += 1  # consume '|'
 
-    # --- child count ---
     pipe = data.find('|', pos)
     if pipe == -1:
-        raise DecodeError(f"Expected \'|\' after child-count at pos {pos}")
+        raise ValueError(f"Expected \'|\' after child-count at pos {pos}")
 
     try:
         child_count = int(data[pos:pipe])
     except ValueError:
-        raise DecodeError(
+        raise ValueError(
             f"Non-integer child count \'{data[pos:pipe]}\' at pos {pos}"
         )
     pos = pipe + 1  # consume count + '|'
@@ -123,7 +122,7 @@ def _decode_node(data: str, pos: int) -> tuple[ASTNode, int]:
 
 def deserealize_ast_wire(encoded: str) -> ASTNode:
     """
-    Deserealize a flat encoded string into an ASTNode tree.
+    Deserealize a flat encoded ASCII string into an ASTNode tree.
 
     Parameters
     ----------
@@ -134,23 +133,14 @@ def deserealize_ast_wire(encoded: str) -> ASTNode:
     -------
     ASTNode
         Root of the decoded tree.
-
-    Raises
-    ------
-    DecodeError
-        If the string is malformed.  Callers that want to be resilient can
-        catch `ValueError` (the base class of `DecodeError`).
     """
     encoded = encoded.strip()
     if not encoded:
-        raise DecodeError("Empty encoded string")
+        raise ValueError("Empty encoded string")
 
     root, consumed = _decode_node(encoded, 0)
 
     if consumed != len(encoded):
-        raise DecodeError(
-            f"Trailing garbage in encoded string starting at pos {consumed}: "
-            f"{encoded[consumed:consumed + 40]!r}"
-        )
+        raise ValueError(f"Trailing garbage in encoded string starting at pos {consumed}: {encoded[consumed:consumed + 40]!r}")
 
     return root
