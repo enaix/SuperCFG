@@ -10,4 +10,5 @@ include_directories("../simply-curse/lib/")
 
 add_executable(calc calc.cpp)
 add_executable(json json.cpp)
+add_executable(lsystem lsystem.cpp)
 #target_link_libraries(calc supercfg)

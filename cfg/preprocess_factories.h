@@ -126,30 +126,30 @@ namespace cfg_helpers
         const auto& rule_def = std::get<1>(define_op.terms);
 
         // Check if we compare the type with its own definition
-        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(rule_nterm)>, TSymbol>)
+        /*if constexpr (std::is_same_v<std::remove_cvref_t<decltype(rule_nterm)>, TSymbol>)
         {
             // We need to skip over this element
             if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>) return std::tuple<>();
             else return rr_tree_iterate_over_rules<depth+1>(rules, nterm);
-        } else {
+        } else {*/
             // Check if the element is in this definition
-            constexpr bool found = rr_tree_is_nterm_in_rule<std::decay_t<decltype(rule_def)>, TSymbol>();
+        constexpr bool found = rr_tree_is_nterm_in_rule<std::decay_t<decltype(rule_def)>, TSymbol>();
 
-            if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>)
-            {
-                if constexpr (found)
-                    return std::make_tuple(rule_nterm);
-                else
-                    return std::tuple<>();
-            }
+        if constexpr (depth + 1 >= std::tuple_size_v<typename RulesSymbol::term_types_tuple>)
+        {
+            if constexpr (found)
+                return std::make_tuple(rule_nterm);
             else
-            {
-                if constexpr (found)
-                    return std::tuple_cat(std::make_tuple(rule_nterm), rr_tree_iterate_over_rules<depth+1>(rules, nterm));
-                else
-                    return rr_tree_iterate_over_rules<depth+1>(rules, nterm);
-            }
+                return std::tuple<>();
         }
+        else
+        {
+            if constexpr (found)
+                return std::tuple_cat(std::make_tuple(rule_nterm), rr_tree_iterate_over_rules<depth+1>(rules, nterm));
+            else
+                return rr_tree_iterate_over_rules<depth+1>(rules, nterm);
+        }
+        //}
     }
 
     /**

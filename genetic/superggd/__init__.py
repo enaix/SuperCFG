@@ -7,6 +7,7 @@ import numpy as np
 import pygad
 
 from superggd.parser import *
+from superggd.parsers import *
 from superggd.base import *
 
 logger = logging.getLogger(__name__)

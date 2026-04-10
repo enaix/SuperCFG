@@ -2,7 +2,7 @@
 
 import superggd
 from superggd.base import *
-from superggd.parser import *
+from superggd.parsers import *
 import argparse
 import importlib.util
 import sys
