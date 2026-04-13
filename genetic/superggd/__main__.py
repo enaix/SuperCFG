@@ -4,7 +4,6 @@ import superggd
 from superggd.base import *
 from superggd.parsers import *
 import argparse
-import importlib.util
 import sys
 
 
@@ -21,7 +20,7 @@ def main() -> None:
     def _add_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--config", "-c", metavar="PATH", help="Path to a Python config file")
         p.add_argument("--module", "-m", metavar="PATH",
-                       help="Path to the user module. Must expose the following functions:\ngrammar_generator(solution: np.ndarray, solution_idx: int)  -> Grammar\nfitness_fn(solution, solution_idx, grammar, run_parser, pre_state) -> float\npygad_params: dict")
+                       help="Path to the user module. Must expose SUPERGGD_MODULE_EXPORT object, which has the following functions: [grammar_generator(solution: np.ndarray, solution_idx: int) -> Grammar,  fitness_fn(solution, solution_idx, grammar, run_parser, pre_state) -> float,  pygad_params: dict|Callable[[],dict]]")
         p.add_argument("--jobs", "-j", type=int, default=1, help="Number of parallel parser generator instances")
         p.add_argument("--comp-strategy", default="die", choices=["die", "skip"], help="Compilation error handling strategy (die: exit on error, skip: continue)")
         p.add_argument("--parser",  default="supercfg", choices=list(SUPERGGD_PARSER_GENERATORS.keys()), help="Parser backend")
@@ -46,28 +45,9 @@ def main() -> None:
     if args.config is not None:
         raise NotImplementedError("Config file management is not yet implemented")
 
-    # load user module
-    spec = importlib.util.spec_from_file_location("_superggd_user_module", args.module)
-    if spec is None or spec.loader is None:
-        print(f"Cannot load module: {args.module}", file=sys.stderr)
-        sys.exit(1)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    ggd = superggd.SuperGGD.from_module(args.module, num_parallel=args.jobs,
+        compilation_strategy=CompilationStrategy(args.comp_strategy), compilation_timeout=args.compilation_timeout)
 
-    for attr in ("grammar_generator", "fitness_fn", "pygad_params"):
-        if not hasattr(mod, attr):
-            print(f"User module must define '{attr}'.", file=sys.stderr)
-            sys.exit(1)
-
-    ggd = superggd.SuperGGD(
-        grammar_generator=mod.grammar_generator,
-        fitness_fn=mod.fitness_fn,
-        pre_fitness_fn=getattr(mod, "pre_fitness_fn", None),
-        num_parallel=args.jobs,
-        compilation_strategy=CompilationStrategy(args.comp_strategy),
-        compilation_timeout=args.compilation_timeout,
-        **mod.pygad_params,
-    )
     ggd.init_parsers(SUPERGGD_PARSER_GENERATORS[args.parser], parser_args={"path_to_supercfg": args.supercfg, "path_to_cling": args.cling, "extra_cling_args": args.cling_args})
 
     ga = ggd.run()

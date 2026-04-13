@@ -2,7 +2,8 @@ import concurrent.futures
 import logging
 import threading
 from typing import Any, Callable, Optional, Type
-
+import sys
+import importlib.util
 import numpy as np
 import pygad
 
@@ -86,6 +87,41 @@ class SuperGGD:
                 raise ValueError(f"SuperGGD manages '{reserved}' internally; do not pass it in pygad_kwargs")
 
         self._ga: pygad.GA = pygad.GA(fitness_func=self._fitness_wrapper, on_generation=self._on_generation, **pygad_kwargs)
+
+    @staticmethod
+    def from_module(module: os.PathLike, **kwargs) -> SuperGGD:
+        """Initialize SuperGGD with the specified module, kwargs must not include ``grammar_generator``, ``fitness_fn`` and ``pre_fitness_fn``"""
+        if "grammar_generator" in kwargs or "fitness_fn" in kwargs or "pre_fitness_fn" in kwargs:
+            raise ValueError("kwargs must not include grammar_generator, fitness_fn and pre_fitness_fn")
+
+        spec = importlib.util.spec_from_file_location("_superggd_user_module", module)
+        if spec is None or spec.loader is None:
+            print(f"Cannot load module: {module}", file=sys.stderr)
+            sys.exit(1)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        if not hasattr(mod, "SUPERGGD_MODULE_EXPORT"):
+            raise ValueError(f"Module {module} must define SUPERGGD_MODULE_EXPORT with the main object")
+
+        for attr in ("grammar_generator", "fitness_fn", "pygad_params"):
+            if not hasattr(mod, attr):
+                raise ValueError(f"User module {module} must define SUPERGGD_MODULE_EXPORT.{attr}")
+
+        # get params
+        if callable(mod.pygad_params):
+            params = mod.pygad_params() # defined as a function which returns a dict
+        else:
+            params = mod.pygad_params   # defined as a dict
+
+        if not isinstance(params, dict):
+            raise ValueError(f"In module {module} SUPERGGD_MODULE_EXPORT.pygad_params must be a dict")
+
+        if kwargs.get("pygad_params") is not None:
+            kwargs["pygad_params"] = params | kwargs["pygad_params"]  # Overload elements in module with ones specified in kwargs
+        else:
+            kwargs["pygad_params"] = params
+        return SuperGGD(grammar_generator=mod.grammar_generator, fitness_fn=mod.fitness_fn, pre_fitness_fn=getattr(mod, "pre_fitness_fn"), **kwargs)
 
     def init_parsers(self, parser_class: Optional[Type[Any]] = None, fallback_parser_class: Optional[Type[Any]] = None, parser_args: Optional[dict[str, Any]] = None, fallback_parser_args: Optional[dict[str, Any]] = None) -> None:
         """
