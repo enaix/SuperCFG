@@ -48,25 +48,32 @@ class SuperGGD:
     compilation_timeout:
         How long to wait for parser generators to compile (in fractional seconds), passed to ``ParserManager.wait``. Set None to wait forever.
 
+    extra_genes:
+        Specifies which genes are not used in the grammar_generator.
+
     pygad_kwargs:
         Every remaining keyword argument is forwarded to ``pygad.GA``. Do not pass ``fitness_func`` or ``on_generation``.
     """
 
     def __init__(self, grammar_generator: Callable[[np.ndarray, int], Any],
                  fitness_fn: Callable, *,
+                 pre_fitness_fn: Optional[Callable] = None,
                  num_parallel: int = 1,
                  compilation_strategy: Any = None,   # CompilationStrategy.Die
                  compilation_timeout: Optional[float] = None,
-                 pre_fitness_fn: Optional[Callable] = None,
+                 extra_genes: Optional[list[str]] = None,
                  **pygad_kwargs):
 
         if compilation_strategy is None:
             compilation_strategy = CompilationStrategy.Die
-
         self._grammar_generator = grammar_generator
         self._fitness_fn = fitness_fn
         self._pre_fitness_fn = pre_fitness_fn
         self._compilation_timeout = compilation_timeout
+        if extra_genes is None:
+            self._extra_genes: list[str] = []
+        else:
+            self._extra_genes = extra_genes
 
         # Parser infrastructure
         self._manager = ParserManager(num_parallel=num_parallel, compilation_strategy=compilation_strategy)
@@ -90,9 +97,9 @@ class SuperGGD:
 
     @staticmethod
     def from_module(module: os.PathLike, **kwargs) -> SuperGGD:
-        """Initialize SuperGGD with the specified module, kwargs must not include ``grammar_generator``, ``fitness_fn`` and ``pre_fitness_fn``"""
-        if "grammar_generator" in kwargs or "fitness_fn" in kwargs or "pre_fitness_fn" in kwargs:
-            raise ValueError("kwargs must not include grammar_generator, fitness_fn and pre_fitness_fn")
+        """Initialize SuperGGD with the specified module, kwargs must not include ``grammar_generator``, ``fitness_fn``, ``pre_fitness_fn`` and ``extra_genes``"""
+        if any([x in kwargs for x in ["grammar_generator", "fitness_fn", "pre_fitness_fn", "extra_genes"]]):
+            raise ValueError("kwargs must not include grammar_generator, fitness_fn, pre_fitness_fn and extra_genes")
 
         spec = importlib.util.spec_from_file_location("_superggd_user_module", module)
         if spec is None or spec.loader is None:
@@ -115,12 +122,21 @@ class SuperGGD:
             params = mod.pygad_params   # defined as a dict
 
         if not isinstance(params, dict):
-            raise ValueError(f"In module {module} SUPERGGD_MODULE_EXPORT.pygad_params must be a dict")
+            raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.pygad_params must be a dict")
 
         if kwargs.get("pygad_params") is not None:
             kwargs["pygad_params"] = params | kwargs["pygad_params"]  # Overload elements in module with ones specified in kwargs
         else:
             kwargs["pygad_params"] = params
+
+        if hasattr(mod, "extra_genes"):
+            if callable(mod.extra_genes):
+                kwargs["extra_genes"] = mod.extra_genes()
+            else:
+                kwargs["extra_genes"] = mod.extra_genes
+            if not all([isinstance(x, str) for x in mod.extra_genes]):
+                raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.extra_genes must be list[str]")
+
         return SuperGGD(grammar_generator=mod.grammar_generator, fitness_fn=mod.fitness_fn, pre_fitness_fn=getattr(mod, "pre_fitness_fn"), **kwargs)
 
     def init_parsers(self, parser_class: Optional[Type[Any]] = None, fallback_parser_class: Optional[Type[Any]] = None, parser_args: Optional[dict[str, Any]] = None, fallback_parser_args: Optional[dict[str, Any]] = None) -> None:

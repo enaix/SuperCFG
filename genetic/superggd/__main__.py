@@ -20,7 +20,7 @@ def main() -> None:
     def _add_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--config", "-c", metavar="PATH", help="Path to a Python config file")
         p.add_argument("--module", "-m", metavar="PATH",
-                       help="Path to the user module. Must expose SUPERGGD_MODULE_EXPORT object, which has the following functions: [grammar_generator(solution: np.ndarray, solution_idx: int) -> Grammar,  fitness_fn(solution, solution_idx, grammar, run_parser, pre_state) -> float,  pygad_params: dict|Callable[[],dict]]")
+                       help="Path to the user module. Must expose SUPERGGD_MODULE_EXPORT object, which has the following functions: [grammar_generator(solution: np.ndarray, solution_idx: int) -> Grammar,  (optional) fitness_fn(solution, solution_idx, grammar, run_parser, pre_state) -> float,  pygad_params: dict|Callable[[],dict],  (optional) extra_genes: list[str]|Callable[[],list[str]]]")
         p.add_argument("--jobs", "-j", type=int, default=1, help="Number of parallel parser generator instances")
         p.add_argument("--comp-strategy", default="die", choices=["die", "skip"], help="Compilation error handling strategy (die: exit on error, skip: continue)")
         p.add_argument("--parser",  default="supercfg", choices=list(SUPERGGD_PARSER_GENERATORS.keys()), help="Parser backend")
