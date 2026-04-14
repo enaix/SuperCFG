@@ -162,6 +162,11 @@ class SuperGGD:
                 raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.parsers_defaults must be (or return) a dict")
             ggd.init_parsers(**parsers_params)
 
+        if hasattr(mod, "post_init"):
+            if not callable(mod.post_init):
+                raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.post_init must be a callable")
+            mod.post_init()
+
         return ggd
 
     def init_parsers(self, parser_class: Optional[Type[Any]] = None, fallback_parser_class: Optional[Type[Any]] = None, parser_args: Optional[dict[str, Any]] = None, fallback_parser_args: Optional[dict[str, Any]] = None) -> None:
