@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class SuperGGD:
     """
-    Main SuperGGD instance, handles ``pygad.GA`` and parser generators management. At each step executes parser generators and ``pre_fitness_fn`` in parallel. Execute ``init_parsers`` to configure the remaining parameters.
+    Main SuperGGD instance, handles ``pygad.GA`` and parser generators management. At each step executes parser generators and ``pre_fitness_fn`` in parallel. Also see ``init_parsers``.
 
     Parameters
     ----------
@@ -77,10 +77,10 @@ class SuperGGD:
 
         # Parser infrastructure
         self._manager = ParserManager(num_parallel=num_parallel, compilation_strategy=compilation_strategy)
-        self._parser_class: Optional[Type[Any]] = None
+        self._parser_class: Type[Any] = SuperCFGParser
         self._fallback_parser_class: Optional[Type[Any]] = None
-        self._parser_args: Optional[dict[str, Any]] = None
-        self._fallback_parser_args: Optional[dict[str, Any]] = None
+        self._parser_args: dict[str, Any] = {}
+        self._fallback_parser_args: dict[str, Any] = {}
 
         # Per-generation state (reset at the top of every generation)
         self._gen_lock = threading.Lock()
@@ -96,53 +96,79 @@ class SuperGGD:
         self._ga: pygad.GA = pygad.GA(fitness_func=self._fitness_wrapper, on_generation=self._on_generation, **pygad_kwargs)
 
     @staticmethod
-    def from_module(module: os.PathLike, **kwargs) -> SuperGGD:
-        """Initialize SuperGGD with the specified module, kwargs must not include ``grammar_generator``, ``fitness_fn``, ``pre_fitness_fn`` and ``extra_genes``"""
-        if any([x in kwargs for x in ["grammar_generator", "fitness_fn", "pre_fitness_fn", "extra_genes"]]):
+    def from_module(module: Union[os.PathLike, Any], **kwargs) -> SuperGGD:
+        """Initialize SuperGGD with the specified module, kwargs must not include ``grammar_generator``, ``fitness_fn``, ``pre_fitness_fn`` and ``extra_genes``. kwargs may also define module-specific args"""
+        restricted_params = ["grammar_generator", "fitness_fn", "pre_fitness_fn", "extra_genes"]
+        if any([x in kwargs for x in restricted_params]):
             raise ValueError("kwargs must not include grammar_generator, fitness_fn, pre_fitness_fn and extra_genes")
 
-        spec = importlib.util.spec_from_file_location("_superggd_user_module", module)
-        if spec is None or spec.loader is None:
-            print(f"Cannot load module: {module}", file=sys.stderr)
-            sys.exit(1)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-
-        if not hasattr(mod, "SUPERGGD_MODULE_EXPORT"):
-            raise ValueError(f"Module {module} must define SUPERGGD_MODULE_EXPORT with the main object")
+        if isinstance(module, os.PathLike):
+            spec = importlib.util.spec_from_file_location("_superggd_user_module", module)
+            if spec is None or spec.loader is None:
+                print(f"Cannot load module: {module}", file=sys.stderr)
+                sys.exit(1)
+            mod_raw = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod_raw)
+            if not hasattr(mod_raw, "SUPERGGD_MODULE_EXPORT"):
+                raise ValueError(f"Module {module} must define SUPERGGD_MODULE_EXPORT with the main object")
+            mod = mod_raw.SUPERGGD_MODULE_EXPORT
+        else:
+            mod = module  # do nothing, expect it to be mod.SUPERGGD_MODULE_EXPORT
 
         for attr in ("grammar_generator", "fitness_fn", "pygad_params"):
             if not hasattr(mod, attr):
                 raise ValueError(f"User module {module} must define SUPERGGD_MODULE_EXPORT.{attr}")
 
-        # get params
-        if callable(mod.pygad_params):
-            params = mod.pygad_params() # defined as a function which returns a dict
-        else:
-            params = mod.pygad_params   # defined as a dict
+        get_callable_or_obj = lambda x: x() if callable(x) else x  # If x is a function, call it, return it as-is otherwise
 
+        # init module args
+        if hasattr(mod, "init_args"):
+            if not callable(mod.init_args):
+                raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.init_args must be a callable")
+            mod.init_args(**kwargs)
+
+        # get pygad params
+        params = get_callable_or_obj(mod.pygad_params)
         if not isinstance(params, dict):
-            raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.pygad_params must be a dict")
-
+            raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.pygad_params must be (or return) a dict")
         if kwargs.get("pygad_params") is not None:
             kwargs["pygad_params"] = params | kwargs["pygad_params"]  # Overload elements in module with ones specified in kwargs
         else:
             kwargs["pygad_params"] = params
 
+        # get extra genes
         if hasattr(mod, "extra_genes"):
-            if callable(mod.extra_genes):
-                kwargs["extra_genes"] = mod.extra_genes()
-            else:
-                kwargs["extra_genes"] = mod.extra_genes
-            if not all([isinstance(x, str) for x in mod.extra_genes]):
-                raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.extra_genes must be list[str]")
+            kwargs["extra_genes"] = get_callable_or_obj(mod.extra_genes)
+            if not all([isinstance(x, str) for x in kwargs["extra_genes"]]):
+                raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.extra_genes must be (or return) list[str]")
 
-        return SuperGGD(grammar_generator=mod.grammar_generator, fitness_fn=mod.fitness_fn, pre_fitness_fn=getattr(mod, "pre_fitness_fn"), **kwargs)
+        # get default superggd params
+        if hasattr(mod, "defaults"):
+            kw_defaults = get_callable_or_obj(mod.defaults)
+            if not isinstance(kw_defaults, dict):
+                raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.defaults must be (or return) a dict")
+            all_restricted = restricted_params + ["pygad_params", "extra_genes"]
+            if any([x in kw_defaults for x in all_restricted]):
+                raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.defaults must not export {all_restricted}")
+
+            kwargs = kw_defaults | kwargs  # Overload elements in defaults with user-provided kwargs
+
+        ggd = SuperGGD(grammar_generator=mod.grammar_generator, fitness_fn=mod.fitness_fn, pre_fitness_fn=getattr(mod, "pre_fitness_fn"), **kwargs)
+
+        # get default parsers params, will be overriden with the next init_parsers() call
+        if hasattr(mod, "parsers_defaults"):
+            parsers_params = get_callable_or_obj(mod.parsers_defaults)
+            if not isinstance(parsers_params, dict):
+                raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.parsers_defaults must be (or return) a dict")
+            ggd.init_parsers(**parsers_params)
+
+        return ggd
 
     def init_parsers(self, parser_class: Optional[Type[Any]] = None, fallback_parser_class: Optional[Type[Any]] = None, parser_args: Optional[dict[str, Any]] = None, fallback_parser_args: Optional[dict[str, Any]] = None) -> None:
         """
         Initialize parser generators as the ``parser_class`` and ``fallback_parser_class`` class types with parser_args/fallback_parser_args dictionary. ``superggd.parsers.SuperCFGParser`` will be used as the default parser generator.
         If the strategy is ``CompilationStrategy.Die``, fallback_parser_class is not needed.
+        If init_parsers is called twice (example: module has defined parsers_defaults), the next call is going to overload the previous args. Args of type dict are merged.
 
         SuperCFG (default parser) parameters:
 
@@ -155,17 +181,17 @@ class SuperGGD:
         extra_cling_args:
             Extra cling command-line arguments, see ``superggd.cling.ClingInstance``
         """
-        if parser_class is None:
-            parser_class = SuperCFGParser
-        if parser_args is None:
-            parser_args = {}
-        if fallback_parser_args is None:
-            fallback_parser_args = {}
+        def update_if_none(lhs, rhs):
+            if rhs is not None:
+                if isinstance(lhs, dict):
+                    lhs = lhs | rhs  # Overload old args
+                else:
+                    lhs = rhs
 
-        self._parser_class = parser_class
-        self._fallback_parser_class = fallback_parser_class
-        self._parser_args = parser_args
-        self._fallback_parser_args = fallback_parser_args
+        update_if_none(self._parser_class, parser_class)
+        update_if_none(self._fallback_parser_class, fallback_parser_class)
+        update_if_none(self._parser_args, parser_args)
+        update_if_none(self._fallback_parser_args, fallback_parser_args)
 
     def run(self) -> pygad.GA:
         """Start the genetic algorithm. Blocks until completion."""
