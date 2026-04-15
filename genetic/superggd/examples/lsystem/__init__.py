@@ -16,7 +16,9 @@ class LSystem:
 
     def post_init(self) -> None:
         if self._target is None:
-            raise ValueError("No target to optimize, please specify \"lsystem\" argument")
+            raise ValueError("No target to optimize, please specify the \"lsystem\" argument")
+
+        # Generate candidates for the mapping
 
     def grammar_generator(self, genome):
         pass

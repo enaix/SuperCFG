@@ -74,6 +74,7 @@ class SuperGGD:
             self._extra_genes: list[str] = []
         else:
             self._extra_genes = extra_genes
+        self._module: Optional[Any] = None
 
         # Parser infrastructure
         self._manager = ParserManager(num_parallel=num_parallel, compilation_strategy=compilation_strategy)
@@ -167,6 +168,7 @@ class SuperGGD:
                 raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.post_init must be a callable")
             mod.post_init()
 
+        ggd._module = mod  # Make sure that the module is not unloaded by the gc
         return ggd
 
     def init_parsers(self, parser_class: Optional[Type[Any]] = None, fallback_parser_class: Optional[Type[Any]] = None, parser_args: Optional[dict[str, Any]] = None, fallback_parser_args: Optional[dict[str, Any]] = None) -> None:
