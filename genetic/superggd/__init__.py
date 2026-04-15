@@ -116,10 +116,6 @@ class SuperGGD:
         else:
             mod = module  # do nothing, expect it to be mod.SUPERGGD_MODULE_EXPORT
 
-        for attr in ("grammar_generator", "fitness_fn", "pygad_params"):
-            if not hasattr(mod, attr):
-                raise ValueError(f"User module {module} must define SUPERGGD_MODULE_EXPORT.{attr}")
-
         get_callable_or_obj = lambda x: x() if callable(x) else x  # If x is a function, call it, return it as-is otherwise
 
         # init module args
@@ -127,6 +123,15 @@ class SuperGGD:
             if not callable(mod.init_args):
                 raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.init_args must be a callable")
             mod.init_args(**kwargs)
+
+        if hasattr(mod, "post_init"):
+            if not callable(mod.post_init):
+                raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.post_init must be a callable")
+            mod.post_init()
+
+        for attr in ("grammar_generator", "fitness_fn", "pygad_params"):
+            if not hasattr(mod, attr):
+                raise ValueError(f"User module {module} must define SUPERGGD_MODULE_EXPORT.{attr}")
 
         # get pygad params
         params = get_callable_or_obj(mod.pygad_params)
@@ -162,11 +167,6 @@ class SuperGGD:
             if not isinstance(parsers_params, dict):
                 raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.parsers_defaults must be (or return) a dict")
             ggd.init_parsers(**parsers_params)
-
-        if hasattr(mod, "post_init"):
-            if not callable(mod.post_init):
-                raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.post_init must be a callable")
-            mod.post_init()
 
         ggd._module = mod  # Make sure that the module is not unloaded by the gc
         return ggd
