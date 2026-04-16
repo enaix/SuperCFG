@@ -76,13 +76,13 @@ class ParserManager:
             inst.future = self.submit(inst.compile())
             self.instances[grammars[i]] = inst
 
-    def run(self, grammar: Grammar, input_string: str, timeout: Optional[int] = None) -> Optional[ASTNode]:
+    def run(self, grammar: Grammar, input_string: str, timeout: Optional[int] = None) -> tuple[bool, Optional[ASTNode]]:
         if grammar not in self.instances:
             logger.error("ParserManager::run() : no parser instance for grammar")
-            return None  # No such grammar
+            return False, None  # No such grammar
         if self.instances[grammar].status() != ExecStatus.Compiling:
             logger.error("ParserManager::run() : parser is still compiling")
-            return None
+            return False, None
 
         future = self.submit(self.instances[grammar].parser.run(input_string))
         # TODO properly log everything, since we need to know which input & grammar caused the error

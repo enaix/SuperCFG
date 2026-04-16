@@ -24,7 +24,7 @@ def main() -> None:
     def _add_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--config", "-c", metavar="PATH", help="Path to a Python config file")
         p.add_argument("--module", "-m", metavar="PATH",
-                       help="Path to the user module. Must expose SUPERGGD_MODULE_EXPORT object, which has the following functions: [grammar_generator(solution: np.ndarray, solution_idx: int) -> Grammar,  (optional) fitness_fn(solution, solution_idx, grammar, run_parser, pre_state) -> float,  pygad_params: dict|Callable[[],dict],  (optional) extra_genes: list[str]|Callable[[],list[str]]]")
+                       help="Path to the user module. Must expose SUPERGGD_MODULE_EXPORT object")
         p.add_argument("--jobs", "-j", type=int, help="Number of parallel parser generator instances")
         p.add_argument("--comp-strategy", choices=["die", "skip"], help="Compilation error handling strategy (die: exit on error, skip: continue)")
         p.add_argument("--parser", choices=list(SUPERGGD_PARSER_GENERATORS.keys()), help="Parser backend")
@@ -34,6 +34,7 @@ def main() -> None:
         s_cfg.add_argument("--cling", "-l", metavar="PATH", default="cling", help="Path to the cling executable")
         s_cfg.add_argument("--supercfg","-s", metavar="PATH", default="../", help="Path to supercfg source code")
         s_cfg.add_argument("--cling-args", nargs="*", metavar="ARG", help="Extra command-line flags forwarded to cling, specified as a list of arguments")
+        s_cfg.add_argument("--supercfg-args", nargs="*", metavar="ARG", help="Extra supercfg SRConfEnum flags (without the enum prefix)")
 
     module_subgroup_title = "module-specific options"
     def _add_module_group(p: argparse.ArgumentParser, populate_argparse_group: Callable):
@@ -113,7 +114,16 @@ def main() -> None:
         parser_class = SUPERGGD_PARSER_GENERATORS[args.parser]
     else:
         parser_class = None
-    ggd.init_parsers(parser_class, parser_args={"path_to_supercfg": args.supercfg, "path_to_cling": args.cling, "extra_cling_args": getattr(args, "cling_args", None)})
+    # Parse supercfg args
+    if hasattr(args, "supercfg_args"):
+        supercfg_args = []
+        for arg in args.supercfg_args:
+            if arg not in SUPERCFG_SR_CONF_ENUM:
+                ap_full.error(f"Bad SuperCFG SRConfEnum flag: {arg}. Valid flags are {SUPERCFG_SR_CONF_ENUM.keys()}")
+            supercfg_args.append(SUPERCFG_SR_CONF_ENUM[arg])
+    else:
+        supercfg_args = None
+    ggd.init_parsers(parser_class, parser_args={"path_to_supercfg": args.supercfg, "path_to_cling": args.cling, "extra_cling_args": getattr(args, "cling_args", None), "supercfg_args": supercfg_args})
 
     ga = ggd.run()
     solution, fitness, idx = ga.best_solution()

@@ -1,6 +1,8 @@
-from typing import Any, Optional
+from typing import Any, Optional, Callable
 from collections import OrderedDict
 import itertools as it
+
+from superggd.operators import *
 
 type SubstrMap = OrderedDict[str, tuple[int, list[tuple[int, int]]]]
 
@@ -99,8 +101,35 @@ class LSystem:
                 lambda sol, values: [val for val in values if _check_constraint(self._gene_to_substr(sol[0], sol[1]), self._gene_to_substr(sol[2], val), cbi)],  # Rule 1+i, gene 1:
             ]
 
-    def grammar_generator(self, genome):
-        pass
+    def grammar_generator(self, solution, solution_idx: int) -> Grammar:
+        rhs: list[str] = []
+        lhs: list[str] = []
+        # Get rule rhs
+        for i0, i1 in self._gene_groups_idx:
+            rhs.append(self._gene_to_substr(solution[i0], solution[i1]))
+
+        # Get rule lhs
+        for i in self._gene_symbols_idx:
+            val = solution[i]
+            if val >= len(self._symbols):
+                lhs.append("")  # skip rule
+            else:
+                lhs.append(self._symbols[val])
+
+        # Get axiom
+        axiom = self._axioms[solution[self._gene_axiom_id]]
+
+        # Generate the ruleset
+        rhs_to_def = lambda x: NTerm(f"rule_{x}") if x in lhs else Term(x)  # Use terminal if symbol is a constant, else use the nterm
+        rules: list[Type[BaseOp]] = []
+        for i in range(self._num_rules):
+            if lhs[i] == "":
+                continue
+            rules.append(Define([NTerm(f"rule_{lhs[i]}"), Alter(Term(lhs[i]), Concat([rhs_to_def(x) for x in rhs[i]]))]))
+        return Grammar(rules)
+
+    def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result) -> float:
+       pass
 
     # Gene mapping helpers
     # ====================

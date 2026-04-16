@@ -32,7 +32,7 @@ class SuperGGD:
     fitness_fn:
         ``(solution, solution_idx, grammar, run_parser, pre_fn_result) -> float``
         Called *after* all parser generators are compiled and all ``pre_fitness_fn`` exited.
-        ``run_parser(input_string) -> Optional[ASTNode]``
+        ``run_parser(input_string) -> tuple[bool, Optional[ASTNode]]``
         ``pre_fn_result`` is the ``pre_fitness_fn`` result (None if not set).
 
     pre_fitness_fn (optional):
@@ -314,6 +314,7 @@ class SuperGGD:
 
         try:
             score = self._fitness_fn(solution, solution_idx, grammar, run_parser, pre_fn_result)
+            # TODO add multivariate fitness fn support
         except Exception as e:
             logger.exception(f"fitness_fn raised for individual {solution_idx} – returning 0.0 : {e}")
             score = 0.0

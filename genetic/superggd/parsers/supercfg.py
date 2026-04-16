@@ -1,4 +1,5 @@
 from typing import Optional, Any
+from enum import Flag, auto
 
 from superggd.cling import ClingInstance
 from superggd.operators import *
@@ -7,6 +8,11 @@ from superggd.base import *
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+class SRConfEnum(Flag):
+    Lookahead = auto()
+    HeuristicCtx = auto()
 
 
 SUPERCFG_SOURCE_SINGLE = """
@@ -26,14 +32,13 @@ SUPERCFG_RULESET_DEF
 
 
 constexpr auto conf = mk_sr_parser_conf<
-    SRConfEnum::PrettyPrint,  // Enable pretty printing for debugging
-    SRConfEnum::Lookahead,     // Enable lookahead(1)
-    SRConfEnum::HeuristicCtx>(); // Enable HeurCtx
+SUPERCFG_SR_PARSER_CONF
+    >();
 
 
 auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<
-    LexerConfEnum::AdvancedLexer,    // Enable advanced lexer
-    LexerConfEnum::HandleDuplicates // Handle duplicate tokens
+    LexerConfEnum::AdvancedLexer,
+    LexerConfEnum::HandleDuplicates
     >());
 
 
@@ -91,7 +96,10 @@ for (std::size_t seq = 1; ; seq++)
     ok = parser.run(tree, json, tokens);
 
     if (!ok) {
-        std::cout << "SUPERCFG_FAIL PARSER_FAIL " << seq << std::endl;
+        if (tree.nodes.size() > 0 || tree.name.size() > 0)
+            std::cout << "SUPERCFG_FAIL " << serialize_ast_wire<VStr, TreeNode<VStr>>(tree) << " " << seq << std::endl;
+        else
+            std::cout << "SUPERCFG_FAIL PARSER_FAIL " << seq << std::endl;
         continue;
     }
 
@@ -102,16 +110,22 @@ for (std::size_t seq = 1; ; seq++)
 
 
 class SuperCFGParser:
-    def __init__(self, path_to_cling: str = "cling", path_to_supercfg: str = "../", extra_cling_args: list[str] = [], **kwargs):
+    def __init__(self, path_to_cling: str = "cling", path_to_supercfg: str = "../", supercfg_conf: SRConfEnum = SRConfEnum.Lookahead | SRConfEnum.HeuristicCtx, extra_cling_args: list[str] = [], **kwargs):
         """Initialize SuperCFG parser generator. Extra arguments are ignored"""
         self.cling = ClingInstance(path_to_cling, ["-I" + path_to_supercfg] + extra_cling_args)
         self.success_string = "SUPERCFG_READY"
+        self.supercfg_conf = supercfg_conf
         self.cur_seq = 0 # sequence number of the execution
 
     async def compile(self, grammar: Grammar) -> ExecStatus:
         """Compile and wait for the completion"""
         ebnf = self.to_ebnf_repr(grammar)
-        code = SUPERCFG_SOURCE_SINGLE.replace("SUPERCFG_RULESET_DEF", ebnf)
+        parser_enum: list[str] = []
+        if SRConfEnum.Lookahead in self.supercfg_conf:
+            parser_enum.append("SRConfEnum::Lookahead")
+        if SRConfEnum.HeuristicCtx in self.supercfg_conf:
+            parser_enum.append("SRConfEnum::HeuristicCtx")
+        code = SUPERCFG_SOURCE_SINGLE.replace("SUPERCFG_RULESET_DEF", ebnf).replace("SUPERCFG_SR_PARSER_CONF", ',\n'.join(parser_enum))
 
         await self.cling.compile(code)
         return await self.cling.wait(self.success_string)
@@ -119,9 +133,9 @@ class SuperCFGParser:
     def status(self) -> ExecStatus:
         return self.cling.status  # Seems to be safe
 
-    async def run(self, string: str) -> Optional[ASTNode]:
+    async def run(self, string: str) -> tuple[bool, Optional[ASTNode]]:
         if self.cling.status != ExecStatus.Running:
-            return None
+            return False, None
 
         self.cur_seq += 1
         # TODO consume all stdout first, so that we process only parsing output
@@ -129,26 +143,26 @@ class SuperCFGParser:
             string_enc = encode_input_hex(string)
         except ValueError as e:
             logger.error("Input string is not ASCII")
-            return None
+            return False, None
         await self.cling.write_to_stdin(("SUPERCFG_PARSE " + string_enc + "\n"))
         if self.cling.is_exited():
             logger.error("SuperCFG has unexpectedly exited")
-            return None  # we should handle stdout here
+            return False, None  # we should handle stdout here
         output = await self.cling.readline()
         if output is None:
             logger.error("SuperCFG has unexpectedly exited")
-            return None
+            return False, None
 
         out = output.split(' ')
         if len(out) != 3:
             logger.error("bad SuperCFG output : bad split : %s", output)
-            return None  # bad string format
+            return False, None  # bad string format
 
         try:
             seq = int(out[2])
         except ValueError:
             logger.error("could not parse SuperCFG output : bad seq : %s", output)
-            return None
+            return False, None
 
         if seq != self.cur_seq:
             logger.error("bad SuperCFG output : seq num does not match : %s", output)
@@ -159,15 +173,26 @@ class SuperCFGParser:
                 ast = deserealize_ast_wire(out[1])
             except ValueError as e:
                 logger.error(f"bad SuperCFG output : {e}")
-                return None  # bad format
-            return ast
+                return False, None  # bad format
+            return True, ast
 
         elif out[0] == "SUPERCFG_FAIL":
-            logger.info("SuperCFG failed, reason : %s", out[1])
-            return None  # parsing failed
+            if out[1] == "TOKENIZER_FAIL":
+                logger.info("SuperCFG failed, reason : tokenizer failure")
+                return False, None
+            elif out[1] == "PARSER_FAIL":
+                logger.info("SuperCFG failed, reason : parser failure, no AST produced")
+            else:
+                try:
+                    ast = deserealize_ast_wire(out[1])
+                except ValueError as e:
+                    logger.info("SuperCFG failed, could not decode AST : %s", out[1])
+                    return False, None  # bad format
+                logger.info("SuperCFG failed, returning partial result")
+                return False, ast  # parsing failed, return partial ast
         else:
             logger.error("bad SuperCFG output : no such command : %s", output)
-            return None  # bad string
+            return False, None  # bad string
 
     def shutdown(self):
         if self.cling.is_exited():
