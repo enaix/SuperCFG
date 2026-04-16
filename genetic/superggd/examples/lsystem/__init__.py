@@ -11,6 +11,18 @@ class LSystem:
         self._all_substr: bool = False
         self._num_rules: int = 2
 
+        # Generated
+        self._groups: list[tuple[int, SubstrMap]] = []  # rule rhs groups
+        self._groups_flat: list[tuple[int, list[str]]] = []  # rule rhs group values (for gene -> str mapping)
+        self._symbols: list[str] = []  # unique symbols
+        self._axioms: list[str] = []  # possible axioms
+        self._gene_groups_idx: list[list[int]] = [] # gene groups idx for each rule
+        self._gene_symbols_idx: list[int] = [] # rule (lhs) symbol idx for each rule
+        self._gene_axiom_id: int = -1  # axiom idx
+
+        # Exports
+        self.pygad_params: dict[str, Any] = {}
+
     def populate_argparse_group(self, group: Any) -> None:
         group.add_argument("--lsystem", required=True, help="Target l-system string")
         group.add_argument("--mapping-type", choices=["naive", "lex", "seed"], default=self._mapping_type, help="l-system gene mapping algorithm; naive: merge by inclusion count, lex: merge by lex order, seed: merge by lex order and seed")
@@ -35,13 +47,70 @@ class LSystem:
         else:
             pr_f = pr
         mut, cbi, pairs = self._mut_strong(pr_f)  # get mutex
-        # ...
+
+        if self._mapping_type == "naive":
+            self._groups = self._gene_mapping_naive(pr_f)
+        elif self._mapping_type == "lex":
+            self._groups = self._gene_mapping_lex(pr_f)
+        elif self._mapping_type == "seed":
+            self._groups = self._gene_mapping_seed(pr_f, cbi)
+        else:
+            raise ValueError(f"No such gene mapping: {self._mapping_type}")
+
+        self._groups_flat = list([(group[0], list(group[1].keys())) for group in self._groups])
+
+        # Generate gene space
+        # ===================
+        gene0 = range(len(self._groups))  # 0th gene selects the top-level group
+        gene1 = range(max(map(lambda x: len(x[1]), self._groups)))  # 1th gene selects the max element in nested group, mapped using modulo
+        self.pygad_params["gene_space"] = []
+
+        # Populate gene groups
+        for i in range(self._num_rules):
+            self.pygad_params["gene_space"] += [gene0, gene1]  # unfortunately, we get duplicates
+            self._gene_groups_idx.append([2*i, 2*i+1])  # idx of gene0 and gene1
+
+        # Populate rule symbols (lhs), for now we only consider single-symbol rules
+        self._symbols = list(set(self._target))
+        gene2 = range(len(self._symbols) + 1)  # We also add an empty rule
+        for i in range(self._num_rules):
+            self.pygad_params["gene_space"].append(self._symbols)
+            self._gene_symbols_idx.append(len(self.pygad_params["gene_space"]) - 1)
+
+        # Add axiom (consider up to size 2)
+        self._axioms = self._symbols + list(it.product(''.join(self._symbols), repeat=2))  # axioms of size 1 are more likely
+        self.pygad_params["gene_space"].append(range(len(self._axioms)))
+        self._gene_axiom_id = len(self.pygad_params["gene_space"]) - 1
+
+        # Gene constraint
+        if self._num_rules == 2:
+            # TODO add a general case
+            self.pygad_params["gene_constraint"] = [
+                None,  # Rule 0, gene 0: any group
+                None,  # Rule 1, gene 1: any value for group
+            ]
+            def _check_constraint(sub1: str, sub2: str, cbi: dict[str, list[str]]) -> bool:
+                if sub1 <= sub2:
+                    return sub2 not in cbi[sub1]  # s2 not in "cannot be in" set -> ok
+                return sub1 not in cbi[sub2]
+
+            self.pygad_params["gene_constraint"] += [
+                None,  # Rule 1+i, gene 0: any group
+                lambda sol, values: [val for val in values if _check_constraint(self._gene_to_substr(sol[0], sol[1]), self._gene_to_substr(sol[2], val), cbi)],  # Rule 1+i, gene 1:
+            ]
 
     def grammar_generator(self, genome):
         pass
 
     # Gene mapping helpers
     # ====================
+
+    def _gene_to_substr(self, gene0: int, gene1: int) -> str:
+        """Map the gene value to the rule rhs string"""
+        #if self._mapping_type == "lex":
+        # TODO test the length-based encoding for lex
+        group_size = len(self._groups_flat[gene0][1])
+        return self._groups_flat[gene0][1][gene1 % group_size]
 
     @staticmethod
     def _gene_mapping_naive(pr_f: SubstrMap) -> list[tuple[int, SubstrMap]]:
