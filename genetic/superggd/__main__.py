@@ -121,6 +121,8 @@ def main() -> None:
             if arg not in SUPERCFG_SR_CONF_ENUM:
                 ap_full.error(f"Bad SuperCFG SRConfEnum flag: {arg}. Valid flags are {SUPERCFG_SR_CONF_ENUM.keys()}")
             supercfg_args.append(SUPERCFG_SR_CONF_ENUM[arg])
+        if not supercfg_args:
+            supercfg_args = [SUPERCFG_SR_CONF_ENUM["EmptyFlag"]]
     else:
         supercfg_args = None
     ggd.init_parsers(parser_class, parser_args={"path_to_supercfg": args.supercfg, "path_to_cling": args.cling, "extra_cling_args": getattr(args, "cling_args", None), "supercfg_args": supercfg_args})

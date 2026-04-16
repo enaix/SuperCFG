@@ -1,8 +1,13 @@
 from typing import Any, Optional, Callable
 from collections import OrderedDict
 import itertools as it
+import logging
 
 from superggd.operators import *
+from superggd.parsers.supercfg import SRConfEnum
+
+
+logger = logging.getLogger(__name__)
 
 type SubstrMap = OrderedDict[str, tuple[int, list[tuple[int, int]]]]
 
@@ -24,6 +29,7 @@ class LSystem:
 
         # Exports
         self.pygad_params: dict[str, Any] = {}
+        self.parsers_defaults = {"supercfg_args": [SRConfEnum.EmptyFlag]}  # Disable lookahead
 
     def populate_argparse_group(self, group: Any) -> None:
         group.add_argument("--lsystem", required=True, help="Target l-system string")
@@ -129,7 +135,17 @@ class LSystem:
         return Grammar(rules)
 
     def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result) -> float:
-       pass
+        ok, ast = run_parser(self._target)
+        if ok:
+            logger.info("LSystem::run() : matching solution found")
+            # TODO add results logging
+        if ast is not None:
+            # For now we use average AST depth as the target metric
+            depths: list[int] = []
+            ast.each(lambda node, depth, is_leaf: depths.append(depth) if is_leaf else None)
+            return sum(depths) / float(len(depths))  # E[depths]
+        else:
+            return 0.0
 
     # Gene mapping helpers
     # ====================

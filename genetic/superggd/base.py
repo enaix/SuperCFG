@@ -1,4 +1,5 @@
 from enum import Enum, StrEnum
+from typing import Callable
 
 from dataclasses import dataclass, field
 
@@ -19,17 +20,22 @@ class CompilationStrategy(StrEnum):
 @dataclass
 class ASTNode:
     """Abstract syntax tree node"""
-    name:     str
-    value:    str
+    name: str
+    value: str
     children: list[ASTNode] = field(default_factory=list)
 
-    # ------------------------------------------------------------------
     def pformat(self, _depth: int = 0) -> str:
         """Return a human-readable representation"""
         indent = "|  " * _depth
         header = f"{indent}{self.name!r} ({len(self.children)} children) : {self.value!r}"
         child_lines = [c.pformat(_depth + 1) for c in self.children]
         return "\n".join([header] + child_lines)
+
+    def each(self, fn: Callable, depth: int = 0) -> None:
+        """Apply fn recursively to every AST child, fn must accept the AST node, depth and is_leaf arguments"""
+        fn(self, depth=depth, is_leaf=(len(self.children) == 0))
+        for child in self.children:
+            child.each(fn, depth + 1)
 
     def __repr__(self) -> str:
         return (f"ASTNode(name={self.name!r}, value={self.value!r}, children=[{len(self.children)} nodes])")

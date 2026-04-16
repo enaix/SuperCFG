@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class SRConfEnum(Flag):
+    EmptyFlag = auto()  # Used for explicitly settings an empty flag (None is used as default value instead)
     Lookahead = auto()
     HeuristicCtx = auto()
 
@@ -110,11 +111,14 @@ for (std::size_t seq = 1; ; seq++)
 
 
 class SuperCFGParser:
-    def __init__(self, path_to_cling: str = "cling", path_to_supercfg: str = "../", supercfg_conf: SRConfEnum = SRConfEnum.Lookahead | SRConfEnum.HeuristicCtx, extra_cling_args: list[str] = [], **kwargs):
+    def __init__(self, path_to_cling: str = "cling", path_to_supercfg: str = "../", supercfg_args: Optional[SRConfEnum] = None, extra_cling_args: list[str] = [], **kwargs):
         """Initialize SuperCFG parser generator. Extra arguments are ignored"""
         self.cling = ClingInstance(path_to_cling, ["-I" + path_to_supercfg] + extra_cling_args)
         self.success_string = "SUPERCFG_READY"
-        self.supercfg_conf = supercfg_conf
+        if supercfg_args is None:
+            self.supercfg_conf = SRConfEnum.Lookahead | SRConfEnum.HeuristicCtx
+        else:
+            self.supercfg_conf = supercfg_args
         self.cur_seq = 0 # sequence number of the execution
 
     async def compile(self, grammar: Grammar) -> ExecStatus:
@@ -182,6 +186,7 @@ class SuperCFGParser:
                 return False, None
             elif out[1] == "PARSER_FAIL":
                 logger.info("SuperCFG failed, reason : parser failure, no AST produced")
+                return False, None
             else:
                 try:
                     ast = deserealize_ast_wire(out[1])
