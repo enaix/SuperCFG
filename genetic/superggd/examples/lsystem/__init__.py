@@ -28,8 +28,8 @@ class LSystem:
         self._gene_axiom_id: int = -1  # axiom idx
 
         # Exports
-        self.pygad_params: dict[str, Any] = {}
-        self.parsers_defaults = {"supercfg_args": [SRConfEnum.EmptyFlag]}  # Disable lookahead
+        self.pygad_params: dict[str, Any] = {"num_generations": 50, "num_parents_mating": 4, "sol_per_pop": 10, "gene_type": int}
+        self.parsers_defaults = {"parser_args": {"supercfg_args": [SRConfEnum.EmptyFlag]}}  # Disable lookahead
 
     def populate_argparse_group(self, group: Any) -> None:
         group.add_argument("--lsystem", required=True, help="Target l-system string")
@@ -37,12 +37,12 @@ class LSystem:
         group.add_argument("--all-substr", action="store_true", help="Consider all l-system rule candidates, including those which occur only once")
         group.add_argument("--num_rules", type=int, default=self._num_rules, help="Max number of lsystem rules")
 
-    def init_args(self, args: dict[str, Any]) -> None:
+    def init_args(self, **kwargs):
         # Note: some arguments may be missing, argparse is not guaranteed to be called
-        self._target = args.get("lsystem")
-        self._mapping_type = args.get("mapping_type", self._mapping_type)
-        self._all_substr = args.get("all_substr", self._all_substr)
-        self._num_rules = args.get("num_rules", self._num_rules)
+        self._target = kwargs.get("lsystem")
+        self._mapping_type = kwargs.get("mapping_type", self._mapping_type)
+        self._all_substr = kwargs.get("all_substr", self._all_substr)
+        self._num_rules = kwargs.get("num_rules", self._num_rules)
 
     def post_init(self) -> None:
         if self._target is None:
@@ -55,6 +55,9 @@ class LSystem:
         else:
             pr_f = pr
         mut, cbi, pairs = self._mut_strong(pr_f)  # get mutex
+        # Add missing keys to cbi
+        for s1 in set(pr) - set(cbi):
+            cbi[s1] = []
 
         if self._mapping_type == "naive":
             self._groups = self._gene_mapping_naive(pr_f)
@@ -69,6 +72,8 @@ class LSystem:
 
         # Generate gene space
         # ===================
+        if len(self._groups) == 0 or any([len(x[1]) == 0 for x in self._groups]):
+            raise ValueError("One of the gene groups is empty")
         gene0 = range(len(self._groups))  # 0th gene selects the top-level group
         gene1 = range(max(map(lambda x: len(x[1]), self._groups)))  # 1th gene selects the max element in nested group, mapped using modulo
         self.pygad_params["gene_space"] = []
@@ -82,13 +87,15 @@ class LSystem:
         self._symbols = list(set(self._target))
         gene2 = range(len(self._symbols) + 1)  # We also add an empty rule
         for i in range(self._num_rules):
-            self.pygad_params["gene_space"].append(self._symbols)
+            self.pygad_params["gene_space"].append(gene2)
             self._gene_symbols_idx.append(len(self.pygad_params["gene_space"]) - 1)
 
         # Add axiom (consider up to size 2)
         self._axioms = self._symbols + list(it.product(''.join(self._symbols), repeat=2))  # axioms of size 1 are more likely
         self.pygad_params["gene_space"].append(range(len(self._axioms)))
         self._gene_axiom_id = len(self.pygad_params["gene_space"]) - 1
+
+        self.pygad_params["num_genes"] = len(self.pygad_params["gene_space"])
 
         # Gene constraint
         if self._num_rules == 2:
@@ -106,6 +113,9 @@ class LSystem:
                 None,  # Rule 1+i, gene 0: any group
                 lambda sol, values: [val for val in values if _check_constraint(self._gene_to_substr(sol[0], sol[1]), self._gene_to_substr(sol[2], val), cbi)],  # Rule 1+i, gene 1:
             ]
+            # Set the remaining as None
+            for i in range(len(self.pygad_params["gene_constraint"]), self.pygad_params["num_genes"]):
+                self.pygad_params["gene_constraint"].append(None)
 
     def grammar_generator(self, solution, solution_idx: int) -> Grammar:
         rhs: list[str] = []
@@ -131,7 +141,7 @@ class LSystem:
         for i in range(self._num_rules):
             if lhs[i] == "":
                 continue
-            rules.append(Define([NTerm(f"rule_{lhs[i]}"), Alter(Term(lhs[i]), Concat([rhs_to_def(x) for x in rhs[i]]))]))
+            rules.append(Define([NTerm(f"rule_{lhs[i]}"), Alter([Term(lhs[i]), Concat([rhs_to_def(x) for x in rhs[i]])])]))
         return Grammar(rules)
 
     def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result) -> float:

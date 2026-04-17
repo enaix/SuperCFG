@@ -13,13 +13,15 @@ from typing import Callable, Optional, Any
 # ==============
 
 def main() -> None:
-    def _get_parsers(add_help: bool = True):
+    def _get_parser(add_help: bool = True):
         ap = argparse.ArgumentParser(prog="superggd", description="Genetic grammatical descent", formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=add_help)
+        return ap
 
+    def _get_subparsers(ap: argparse.ArgumentParser, add_help: bool = True):
         sub = ap.add_subparsers(dest="command", required=False)
         gen_cmd = sub.add_parser("gen", help="Run the genetic algorithm")
         sub.add_parser("grid", help="Grid search (not yet implemented)")
-        return ap, sub, gen_cmd
+        return sub, gen_cmd
 
     def _add_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--config", "-c", metavar="PATH", help="Path to a Python config file")
@@ -42,17 +44,19 @@ def main() -> None:
         populate_argparse_group(subgroup)
 
     # First parser without module-specific args. Must not print help
-    ap, sub, gen_cmd = _get_parsers(add_help=False)
+    ap = _get_parser(add_help=False)
+    #sub, gen_cmd = _get_subparsers(ap, add_help=False)
     _add_args(ap)
-    _add_args(gen_cmd)
+    #_add_args(gen_cmd)
     args, unknown_args = ap.parse_known_args()
     # Start populating the second parser, prints full help
-    ap_full, sub_full, gen_cmd_full = _get_parsers()
+    ap_full = _get_parser()
     _add_args(ap_full)
-    _add_args(gen_cmd_full)
 
-    if args.command == "grid":
-        raise NotImplementedError("Grid search is not yet implemented")
+    #if args.command == "gen":
+    #    pass
+    #elif args.command == "grid":
+    #    raise NotImplementedError("Grid search is not yet implemented")
 
     if args.module is None:
         # Avoid calling ap.error to prevent usage prints
@@ -60,7 +64,9 @@ def main() -> None:
             # Print help without module-specific args
             add_placeholder_arg = lambda group: group.add_argument("--foo", help="(Placeholder) Module-defined arguments will appear here")
             _add_module_group(ap_full, add_placeholder_arg)
-            _add_module_group(gen_cmd_full, add_placeholder_arg)
+            #sub_full, gen_cmd_full = _get_subparsers(ap_full)  # only after populating the module args
+            #_add_args(gen_cmd_full)
+            #_add_module_group(gen_cmd_full, add_placeholder_arg)
             ap_full.parse_args()  # will print help and exit
 
         ap_full.error("--module/-m is required in CLI mode")
@@ -84,10 +90,11 @@ def main() -> None:
         if not callable(mod.populate_argparse_group):
             raise ValueError(f"In module {args.module}, SUPERGGD_MODULE_EXPORT.populate_argparse_group must be a callable")
         _add_module_group(ap_full, mod.populate_argparse_group)  # must accept argparse.ArgumentGroup
-        _add_module_group(gen_cmd_full, mod.populate_argparse_group)
+        #sub_full, gen_cmd_full = _get_subparsers(ap_full)  # only after populating the module args
+        #_add_module_group(gen_cmd_full, mod.populate_argparse_group)
 
     # Module loading finished, need to parse module args & print help
-    args_full = ap_full.parse_args()
+    args = ap_full.parse_args()
     module_args: Optional[dict[str, Any]] = None
     for group in ap_full._action_groups:
         if group.title == module_subgroup_title:
@@ -99,23 +106,23 @@ def main() -> None:
     # We need to make sure that only explicitly-specified arguments are provided, so that the module can supply its own defaults
     # Ideally, the parser should display module-defined defaults
     kwargs = {"num_parallel": getattr(args, "jobs", None), "compilation_timeout": getattr(args, "compilation_timeout", None)}
-    if hasattr(args, "comp_strategy"):
+    if args.comp_strategy is not None:
         kwargs["compilation_strategy"] = CompilationStrategy(args.comp_strategy)
 
     # Load module args
-    if kwargs.keys() & module_args.keys():
-        raise ValueError(f"In module {args.module}: SUPERGGD_MODULE_EXPORT.populate_argparse_group defines conflicting args: {kwargs.keys() & module_args.keys()}")
-    kwargs = kwargs | module_args  # Do not intersect
+    #if kwargs.keys() & module_args.keys():
+    #    raise ValueError(f"In module {args.module}: SUPERGGD_MODULE_EXPORT.populate_argparse_group defines conflicting args: {kwargs.keys() & module_args.keys()}")
+    #kwargs = kwargs | module_args  # Do not intersect
 
-    ggd = superggd.SuperGGD.from_module(mod, **kwargs)
+    ggd = superggd.SuperGGD.from_module(mod, module_args, **kwargs)
 
     # Same for init_parsers
-    if hasattr(args, "parser"):
+    if args.parser is not None:
         parser_class = SUPERGGD_PARSER_GENERATORS[args.parser]
     else:
         parser_class = None
     # Parse supercfg args
-    if hasattr(args, "supercfg_args"):
+    if args.supercfg_args:
         supercfg_args = []
         for arg in args.supercfg_args:
             if arg not in SUPERCFG_SR_CONF_ENUM:
