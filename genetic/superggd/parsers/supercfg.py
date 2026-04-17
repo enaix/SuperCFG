@@ -137,6 +137,7 @@ class SuperCFGParser:
         status = await self.cling.wait(self.success_string)
         if status != ExecStatus.Running:
             logger.warning(f"compile() : [{self.solution_idx}] compilation failed")
+            logger.info(f"compile() : [{self.solution_idx}] compilation output : {await self.cling.read_all_stderr()}")
         return status
 
     def status(self) -> ExecStatus:

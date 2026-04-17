@@ -16,6 +16,8 @@ class ClingInstance:
         self.extra_args.append("--nologo")
         self.instance: Optional[asyncio.subprocess.Process] = None
         self.status = ExecStatus.Exited
+        self.stdout_buffer: str = ""
+        self.stderr_buffer: str = ""
 
 
     async def compile(self, code: str) -> ExecStatus:
@@ -55,11 +57,14 @@ class ClingInstance:
             self.status = ExecStatus.Exited
             return self.status
 
+        decoded = line.decode()
+        self.stdout_buffer += decoded
+
         if self.instance.returncode is not None:
             self.status = ExecStatus.Exited
             return self.status
 
-        if success_string in line.decode():
+        if success_string in decoded:
             # TODO clear stdout & stderr
             self.status = ExecStatus.Running
         return self.status
@@ -83,7 +88,52 @@ class ClingInstance:
         if not line:  # EOF
             self.status = ExecStatus.Exited
             return None
-        return line.decode()
+        decoded = line.decode()
+        self.stdout_buffer += decoded
+        return decoded
+
+    async def read(self, timeout=0.01) -> str:
+        """Drain any currently available stdout without blocking, append to the buffer and return the new chunk. Returns after waiting for input for longer than timeout."""
+        assert self.instance is not None, "ClingInstance::read() : instance has not been started"
+        assert self.instance.stdout is not None, "ClingInstance::read() : no stdout"
+
+        new_output = await self._read_pipe(self.instance.stdout, timeout)
+        self.stdout_buffer += new_output
+        return new_output
+
+    async def read_stderr(self, timeout=0.01) -> str:
+        """Drain any currently available stderr without blocking, append to the buffer and return the new chunk. Returns after waiting for input for longer than timeout."""
+        assert self.instance is not None, "ClingInstance::read() : instance has not been started"
+        assert self.instance.stderr is not None, "ClingInstance::read() : no stdout"
+
+        new_output = await self._read_pipe(self.instance.stderr, timeout)
+        self.stderr_buffer += new_output
+        return new_output
+
+    async def _read_pipe(self, pipe: asyncio.StreamReader, timeout) -> str:
+        chunks: list[str] = []
+        while True:
+            try:
+                data = await asyncio.wait_for(pipe.read(4096), timeout=timeout)
+            except asyncio.TimeoutError:
+                break
+            if not data:  # EOF
+                self.status = ExecStatus.Exited
+                break
+            chunks.append(data.decode())
+        new_output = "".join(chunks)
+
+        return new_output
+
+    async def read_all(self) -> str:
+        """Drain any remaining stdout via read() and return the full accumulated buffer"""
+        await self.read()
+        return self.stdout_buffer
+
+    async def read_all_stderr(self) -> str:
+        """Drain all stderr and return the accumulated buffer"""
+        await self.read_stderr()
+        return self.stderr_buffer
 
     def shutdown(self) -> bool:
         if self.instance is None:
