@@ -31,6 +31,8 @@ def main() -> None:
         p.add_argument("--comp-strategy", choices=["die", "skip"], help="Compilation error handling strategy (die: exit on error, skip: continue)")
         p.add_argument("--parser", choices=list(SUPERGGD_PARSER_GENERATORS.keys()), help="Parser backend")
         p.add_argument("--compilation-timeout", type=float, help="Max seconds to wait for batch compilation")
+        p.add_argument("--output-folder", "-o", metavar="PATH", help="Folder to write per-generation logs")
+        p.add_argument("--log-dump-every-n", type=int, help="Dump logs every N generations")
 
         s_cfg = p.add_argument_group(title="supercfg parser options")
         s_cfg.add_argument("--cling", "-l", metavar="PATH", default="cling", help="Path to the cling executable")
@@ -108,6 +110,10 @@ def main() -> None:
     kwargs = {"num_parallel": getattr(args, "jobs", None), "compilation_timeout": getattr(args, "compilation_timeout", None)}
     if args.comp_strategy is not None:
         kwargs["compilation_strategy"] = CompilationStrategy(args.comp_strategy)
+    if getattr(args, "output_folder", None) is not None:
+        kwargs["output_folder"] = args.output_folder
+    if getattr(args, "log_dump_every_n", None) is not None:
+        kwargs["log_dump_every_n"] = args.log_dump_every_n
 
     # Load module args
     #if kwargs.keys() & module_args.keys():

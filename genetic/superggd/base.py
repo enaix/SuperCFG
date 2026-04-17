@@ -1,7 +1,18 @@
 from enum import Enum, StrEnum
-from typing import Callable
+from typing import Callable, Optional, Any
+import os
+import sys
+import threading
+import atexit
+import logging
+import datetime
+import shutil
+from typing import Union
 
 from dataclasses import dataclass, field
+
+
+logger = logging.getLogger(__name__)
 
 
 class ExecStatus(Enum):
@@ -150,3 +161,269 @@ def deserealize_ast_wire(encoded: str) -> ASTNode:
         raise ValueError(f"Trailing garbage in encoded string starting at pos {consumed}: {encoded[consumed:consumed + 40]!r}")
 
     return root
+
+
+# AppLogger class
+# ===============
+
+
+@dataclass
+class _SolutionLog:
+    """Per-solution accumulated execution state within a single generation"""
+    stdout: list[str] = field(default_factory=list)
+    stderr: list[str] = field(default_factory=list)
+    grammar: Optional[str] = None
+
+
+@dataclass
+class _GenerationLog:
+    """Per-generation execution state"""
+    solutions: dict[int, _SolutionLog] = field(default_factory=dict)
+    dumped: bool = False
+
+    def sol(self, idx: int) -> _SolutionLog:
+        if idx not in self.solutions:
+            self.solutions[idx] = _SolutionLog()
+        return self.solutions[idx]
+
+
+class AppLogger:
+    """Singleton execution logger for SuperGGD. Stores per-generation parser stdout/stderr and grammar info, flushes to disk every N generations and on error. Thread-safe. Use ``get_applogger()``"""
+
+    _instance: Optional["AppLogger"] = None
+    _instance_lock = threading.Lock()
+
+    def __init__(self):
+        self._lock = threading.RLock()
+        self._configured: bool = False
+        self._output_folder: Optional[str] = None
+        self._dump_every_n: int = 1
+        self._print_parser_stdout: bool = False
+        self._print_parser_stderr: bool = False
+        self._generations: dict[int, _GenerationLog] = {}
+        self._current_gen: int = -1
+        self._atexit_registered: bool = False
+
+    _MARKER_FILE = "superggd.txt"
+
+    def configure(self, output_folder: Optional[str], dump_every_n: int = 1, print_parser_stdout: bool = False, print_parser_stderr: bool = False, extra_params: Optional[dict[str, Any]] = None) -> None:
+        """Configure the logger. If ``output_folder`` is None, logging is disabled. Should be called once from SuperGGD. ``extra_params`` is serialized into the marker file along with the built-in params"""
+        with self._lock:
+            self._output_folder = output_folder
+            self._dump_every_n = max(1, int(dump_every_n))
+            self._print_parser_stdout = print_parser_stdout
+            self._print_parser_stderr = print_parser_stderr
+            if output_folder is not None:
+                self._prepare_output_folder(output_folder)
+                self._write_marker_file(output_folder, extra_params)
+            self._configured = True
+            if not self._atexit_registered:
+                atexit.register(self._atexit_dump)
+                self._atexit_registered = True
+
+
+    @property
+    def enabled(self) -> bool:
+        return self._configured and self._output_folder is not None
+
+    def begin_generation(self, gen: int) -> None:
+        """Start bucketing log records under the given generation id"""
+        if not self.enabled:
+            return
+        with self._lock:
+            self._current_gen = gen
+            if gen not in self._generations:
+                self._generations[gen] = _GenerationLog()
+
+    def end_generation(self, gen: int) -> None:
+        """Mark generation as finished; dumps to disk if the dump cadence matches"""
+        if not self.enabled:
+            return
+        with self._lock:
+            if gen % self._dump_every_n == 0:
+                self._dump_generation(gen)
+
+    def log_grammar(self, sol_idx: int, grammar_repr: str, gen: Optional[int] = None) -> None:
+        """Record grammar representation for a solution within a generation"""
+        if not self.enabled:
+            return
+        with self._lock:
+            g = self._gen_bucket(gen)
+            g.sol(sol_idx).grammar = grammar_repr
+
+    def log_parser_stdout(self, sol_idx: int, text: str, gen: Optional[int] = None) -> None:
+        """Append parser stdout chunk for a solution within a generation"""
+        if not self.enabled or not text:
+            return
+        with self._lock:
+            self._gen_bucket(gen).sol(sol_idx).stdout.append(text)
+        if self._print_parser_stdout:
+            print(text, end="")
+
+    def log_parser_stderr(self, sol_idx: int, text: str, gen: Optional[int] = None) -> None:
+        """Append parser stderr chunk for a solution within a generation"""
+        if not self.enabled or not text:
+            return
+        with self._lock:
+            self._gen_bucket(gen).sol(sol_idx).stderr.append(text)
+        if self._print_parser_stderr:
+            print(text, end="")
+
+    def save_artifact(self, sol_idx: int, filename: str, data: Union[str, bytes, bytearray, os.PathLike], gen: Optional[int] = None) -> Optional[str]:
+        """
+        Write an artifact (e.g. generated parser.cpp) straight to ``gen_{gen}/sol_{sol_idx}/{filename}`` without buffering it in memory.
+
+        ``data`` may be:
+        - ``bytes`` / ``bytearray``: written as binary
+        - ``os.PathLike``: treated as a source file path, copied into place
+        - ``str``: if it points to an existing file, copied; otherwise written as text
+
+        Returns the destination path or None if logging is disabled
+        """
+        if not self.enabled:
+            return None
+        if gen is None:
+            gen = self._current_gen
+        assert self._output_folder is not None, "AppLogger::save_artifact() : output_folder is None"
+
+        # Prevent directory traversal
+        safe_name = os.path.basename(filename)
+        if not safe_name or safe_name in (".", ".."):
+            raise ValueError(f"AppLogger::save_artifact() : invalid filename {filename!r}")
+
+        sol_dir = os.path.join(self._output_folder, f"gen_{gen}", f"sol_{sol_idx}")
+        dest = os.path.join(sol_dir, safe_name)
+        try:
+            with self._lock:
+                os.makedirs(sol_dir, exist_ok=True)
+                if isinstance(data, (bytes, bytearray)):
+                    with open(dest, "wb") as f:
+                        f.write(data)
+                elif isinstance(data, os.PathLike):
+                    shutil.copyfile(os.fspath(data), dest)
+                elif isinstance(data, str):
+                    if os.path.isfile(data):
+                        shutil.copyfile(data, dest)
+                    else:
+                        with open(dest, "w", encoding="utf-8") as f:
+                            f.write(data)
+                else:
+                    raise TypeError(f"AppLogger::save_artifact() : data must be str, bytes or PathLike, got {type(data).__name__}")
+        except Exception as e:
+            logger.exception(f"AppLogger::save_artifact() : failed to save {safe_name!r} for sol_{sol_idx} gen {gen} : {e}")
+            return None
+        return dest
+
+    def dump_all(self) -> None:
+        """Flush all in-memory generations to disk. Called on error / exit"""
+        if not self.enabled:
+            return
+        with self._lock:
+            for gen in list(self._generations.keys()):
+                bucket = self._generations[gen]
+                if bucket.dumped and not bucket.solutions:
+                    continue  # already flushed and cleared
+                try:
+                    self._dump_generation(gen)
+                except Exception as e:
+                    logger.exception(f"AppLogger::dump_all() : failed to dump generation {gen} : {e}")
+
+    # Internals
+    # =========
+
+    def _prepare_output_folder(self, folder: str) -> None:
+        """Ensure the output folder is safe to write into. If it already contains the marker file, archive the old folder to ``folder_DDMMYYYY_i``; if it exists without the marker, raise an error"""
+        if not os.path.exists(folder):
+            os.makedirs(folder, exist_ok=True)
+            return
+        if not os.path.isdir(folder):
+            raise ValueError(f"AppLogger::configure() : output_folder {folder!r} exists but is not a directory")
+
+        marker = os.path.join(folder, self._MARKER_FILE)
+        if os.path.isfile(marker):
+            date_str = datetime.datetime.now().strftime("%d%m%Y")
+            archive = f"{folder}_{date_str}"
+            # Find a free suffix if the dated folder already exists
+            candidate = archive
+            i = 1
+            while os.path.exists(candidate):
+                candidate = f"{archive}_{i}"
+                i += 1
+            os.rename(folder, candidate)
+            print(f"AppLogger: existing output folder archived to {candidate}", file=sys.stderr)
+            os.makedirs(folder, exist_ok=True)
+        else:
+            raise ValueError(f"AppLogger::configure() : output_folder {folder!r} already exists and is not a SuperGGD output folder (no {self._MARKER_FILE}). Refusing to write into it")
+
+    def _write_marker_file(self, folder: str, extra_params: Optional[dict[str, Any]]) -> None:
+        """Write the superggd.txt marker with the creation date and execution parameters"""
+        params: dict[str, Any] = {
+            "output_folder": folder,
+            "dump_every_n": self._dump_every_n,
+            "print_parser_stdout": self._print_parser_stdout,
+            "print_parser_stderr": self._print_parser_stderr,
+        }
+        if extra_params:
+            params.update(extra_params)
+        path = os.path.join(folder, self._MARKER_FILE)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"created: {datetime.datetime.now().isoformat(timespec='seconds')}\n")
+            f.write("parameters:\n")
+            for k, v in params.items():
+                f.write(f"  {k} = {v!r}\n")
+
+    def _gen_bucket(self, gen: Optional[int]) -> _GenerationLog:
+        if gen is None:
+            gen = self._current_gen
+        if gen not in self._generations:
+            self._generations[gen] = _GenerationLog()
+        return self._generations[gen]
+
+    def _dump_generation(self, gen: int) -> None:
+        assert self._output_folder is not None, "AppLogger::_dump_generation() : output_folder is None"
+        logger.debug("AppLogger::_dump_generation() : begin...")
+        bucket = self._generations.get(gen)
+        if bucket is None:
+            return
+        gen_dir = os.path.join(self._output_folder, f"gen_{gen}")
+        os.makedirs(gen_dir, exist_ok=True)
+
+        # Per-solution grammar / stdout / stderr
+        fully_dumped = True
+        for sol_idx, sol in bucket.solutions.items():
+            sol_dir = os.path.join(gen_dir, f"sol_{sol_idx}")
+            try:
+                os.makedirs(sol_dir, exist_ok=True)
+                if sol.grammar is not None:
+                    with open(os.path.join(sol_dir, "grammar.txt"), "w", encoding="utf-8") as f:
+                        f.write(sol.grammar)
+                if sol.stdout:
+                    with open(os.path.join(sol_dir, "stdout.txt"), "w", encoding="utf-8") as f:
+                        f.write("".join(sol.stdout))
+                if sol.stderr:
+                    with open(os.path.join(sol_dir, "stderr.txt"), "w", encoding="utf-8") as f:
+                        f.write("".join(sol.stderr))
+            except Exception as e:
+                fully_dumped = False
+                logger.exception(f"AppLogger::_dump_generation() : failed to dump sol_{sol_idx} for gen {gen} : {e}")
+
+        bucket.dumped = True
+        # Release the in-memory buffers for this generation to avoid heap growth across long runs.
+        # Keep the bucket marker (dumped=True) so repeated dump_all() calls become no-ops
+        if fully_dumped:
+            bucket.solutions.clear()
+
+    def _atexit_dump(self) -> None:
+        try:
+            self.dump_all()
+        except Exception as e:
+            logger.exception(f"AppLogger::_atexit_dump() raised : {e}")
+
+
+def get_applogger() -> AppLogger:
+    """Return the AppLogger singleton"""
+    if AppLogger._instance is None:
+        with AppLogger._instance_lock:
+            if AppLogger._instance is None:
+                AppLogger._instance = AppLogger()
+    return AppLogger._instance

@@ -114,7 +114,7 @@ class SuperCFGParser:
     def __init__(self, solution_idx: int, path_to_cling: str = "cling", path_to_supercfg: str = "../", supercfg_args: Optional[SRConfEnum] = None, extra_cling_args: list[str] = [], **kwargs):
         """Initialize SuperCFG parser generator. Extra arguments are ignored"""
         self.solution_idx = solution_idx
-        self.cling = ClingInstance(path_to_cling, ["-I" + path_to_supercfg] + extra_cling_args)
+        self.cling = ClingInstance(path_to_cling, ["--std=c++20", "-I" + path_to_supercfg] + (extra_cling_args or []))
         self.success_string = "SUPERCFG_READY"
         if supercfg_args is None:
             self.supercfg_conf = SRConfEnum.Lookahead | SRConfEnum.HeuristicCtx
@@ -133,11 +133,21 @@ class SuperCFGParser:
             parser_enum.append("SRConfEnum::HeuristicCtx")
         code = SUPERCFG_SOURCE_SINGLE.replace("SUPERCFG_RULESET_DEF", ebnf).replace("SUPERCFG_SR_PARSER_CONF", ',\n'.join(parser_enum))
 
+        try:
+            get_applogger().save_artifact(self.solution_idx, "parser.cpp", code)
+        except Exception as e:
+            logger.exception(f"compile() : [{self.solution_idx}] save_artifact raised : {e}")
+
         await self.cling.compile(code)
         status = await self.cling.wait(self.success_string)
         if status != ExecStatus.Running:
             logger.warning(f"compile() : [{self.solution_idx}] compilation failed")
-            logger.info(f"compile() : [{self.solution_idx}] compilation output : {await self.cling.read_all_stderr()}")
+
+        try:
+            get_applogger().log_parser_stdout(self.solution_idx, await self.cling.read_all())
+            get_applogger().log_parser_stderr(self.solution_idx, await self.cling.read_all_stderr())
+        except Exception as e:
+            logger.exception(f"compile() : [{self.solution_idx}] AppLogger raised : {e}")
         return status
 
     def status(self) -> ExecStatus:

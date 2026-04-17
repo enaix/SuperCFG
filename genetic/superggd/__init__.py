@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 class SuperGGD:
     """
     Main SuperGGD instance, handles ``pygad.GA`` and parser generators management. At each step executes parser generators and ``pre_fitness_fn`` in parallel. Also see ``init_parsers``.
+    ``output_folder``, ``log_dump_every_n``, ``log_print_parser_stdout``, ``log_print_parser_stderr`` are forwarded to AppLogger
 
     Parameters
     ----------
@@ -62,9 +63,15 @@ class SuperGGD:
                  compilation_strategy: Any = None,   # CompilationStrategy.Die
                  compilation_timeout: Optional[float] = None,
                  extra_genes: Optional[list[str]] = None,
+                 output_folder: Optional[str] = None,
+                 log_dump_every_n: int = 1,
+                 log_print_parser_stdout: bool = False,
+                 log_print_parser_stderr: bool = False,
                  **pygad_kwargs):
 
         logging.basicConfig(level=logging.DEBUG)
+
+        get_applogger().configure(output_folder=output_folder, dump_every_n=log_dump_every_n, print_parser_stdout=log_print_parser_stdout, print_parser_stderr=log_print_parser_stderr)
 
         if compilation_strategy is None:
             compilation_strategy = CompilationStrategy.Die
@@ -171,7 +178,7 @@ class SuperGGD:
             parsers_params = get_callable_or_obj(mod.parsers_defaults)
             if not isinstance(parsers_params, dict):
                 raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.parsers_defaults must be (or return) a dict")
-            ggd.init_parsers(**parsers_params)
+            ggd.init_parsers(**parsers_params)  # will be overridden by user later
 
         ggd._module = mod  # Make sure that the module is not unloaded by the gc
         return ggd
@@ -196,19 +203,26 @@ class SuperGGD:
         def update_if_none(lhs, rhs):
             if rhs is not None:
                 if isinstance(lhs, dict):
-                    lhs = lhs | rhs  # Overload old args
+                    return lhs | rhs  # Overload old args
                 else:
-                    lhs = rhs
+                    return rhs
+            else:
+                return lhs  # Leave the old variable
 
-        update_if_none(self._parser_class, parser_class)
-        update_if_none(self._fallback_parser_class, fallback_parser_class)
-        update_if_none(self._parser_args, parser_args)
-        update_if_none(self._fallback_parser_args, fallback_parser_args)
+        self._parser_class = update_if_none(self._parser_class, parser_class)
+        self._fallback_parser_class = update_if_none(self._fallback_parser_class, fallback_parser_class)
+        self._parser_args = update_if_none(self._parser_args, parser_args)
+        self._fallback_parser_args = update_if_none(self._fallback_parser_args, fallback_parser_args)
 
     def run(self) -> pygad.GA:
         """Start the genetic algorithm. Blocks until completion."""
         logger.debug(f"Starting GA, parser class : {self._parser_class}({self._parser_args}), fallback parser : {self._fallback_parser_class}({self._fallback_parser_args})")
-        self._ga.run()
+        try:
+            self._ga.run()
+        except BaseException:
+            get_applogger().dump_all()
+            raise
+        get_applogger().dump_all()
         return self._ga
 
     @property
@@ -238,6 +252,8 @@ class SuperGGD:
         self._pre_states = {}
         self._compile_done.clear()
 
+        get_applogger().begin_generation(self._current_gen)
+
         # Generate grammars
         grammars: list[Any] = []
         for idx in range(n):
@@ -251,6 +267,11 @@ class SuperGGD:
                 g = None
             self._current_grammars[idx] = g
             grammars.append(g)
+            if g is not None:
+                try:
+                    get_applogger().log_grammar(idx, repr(g))
+                except Exception as e:
+                    logger.exception(f"AppLogger::log_grammar raised for individual {idx} : {e}")
 
         valid_indices = [i for i, g in enumerate(grammars) if g is not None]
         valid_grammars = [grammars[i] for i in valid_indices]
@@ -330,4 +351,5 @@ class SuperGGD:
     def _on_generation(self, ga_instance: pygad.GA) -> None:
         """Called by pygad after each generation completes."""
         logger.info("Generation %d complete. Best fitness: %.4f", ga_instance.generations_completed, ga_instance.best_solution()[1])
+        get_applogger().end_generation(self._current_gen)
         self._manager.reset()
