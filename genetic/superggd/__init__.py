@@ -64,6 +64,8 @@ class SuperGGD:
                  extra_genes: Optional[list[str]] = None,
                  **pygad_kwargs):
 
+        logging.basicConfig(level=logging.DEBUG)
+
         if compilation_strategy is None:
             compilation_strategy = CompilationStrategy.Die
         self._grammar_generator = grammar_generator
@@ -85,9 +87,9 @@ class SuperGGD:
 
         # Per-generation state (reset at the top of every generation)
         self._gen_lock = threading.Lock()
-        self._current_gen: int = -1                    # pygad generation counter
-        self._current_grammars: dict[int, Any] = {}    # idx -> Grammar
-        self._pre_states: dict[int, Any] = {}          # idx -> pre_fitness result
+        self._current_gen: int = -1  # pygad generation counter
+        self._current_grammars: dict[int, Any] = {}  # idx -> Grammar
+        self._pre_states: dict[int, Any] = {}  # idx -> pre_fitness result
         self._compile_done = threading.Event()
 
         for reserved in ("fitness_func", "on_generation"):
@@ -205,6 +207,7 @@ class SuperGGD:
 
     def run(self) -> pygad.GA:
         """Start the genetic algorithm. Blocks until completion."""
+        logger.debug(f"Starting GA, parser class : {self._parser_class}({self._parser_args}), fallback parser : {self._fallback_parser_class}({self._fallback_parser_args})")
         self._ga.run()
         return self._ga
 
@@ -217,11 +220,11 @@ class SuperGGD:
         """Convenience wrapper around pygad.GA.best_solution()."""
         return self._ga.best_solution()
 
-    def _new_parser(self) -> Any:
+    def _new_parser(self, idx: int) -> Any:
         """Create new parser instance"""
         if self._parser_class is None or self._parser_args is None:
             raise ValueError("init_parsers() was not called. Configure parser generators using SuperGGD.init_parsers()")
-        return self._parser_class(**self._parser_args)
+        return self._parser_class(solution_idx=idx, **self._parser_args)
 
     def _start_generation(self, ga_instance: pygad.GA) -> None:
         """
@@ -252,7 +255,7 @@ class SuperGGD:
         valid_indices = [i for i, g in enumerate(grammars) if g is not None]
         valid_grammars = [grammars[i] for i in valid_indices]
 
-        parsers = [self._new_parser() for _ in valid_grammars]
+        parsers = [self._new_parser(i) for i in range(len(valid_grammars))]
         self._manager.compile_batch(valid_grammars, parsers)
 
         if self._pre_fitness_fn is not None:

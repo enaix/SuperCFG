@@ -111,8 +111,9 @@ for (std::size_t seq = 1; ; seq++)
 
 
 class SuperCFGParser:
-    def __init__(self, path_to_cling: str = "cling", path_to_supercfg: str = "../", supercfg_args: Optional[SRConfEnum] = None, extra_cling_args: list[str] = [], **kwargs):
+    def __init__(self, solution_idx: int, path_to_cling: str = "cling", path_to_supercfg: str = "../", supercfg_args: Optional[SRConfEnum] = None, extra_cling_args: list[str] = [], **kwargs):
         """Initialize SuperCFG parser generator. Extra arguments are ignored"""
+        self.solution_idx = solution_idx
         self.cling = ClingInstance(path_to_cling, ["-I" + path_to_supercfg] + extra_cling_args)
         self.success_string = "SUPERCFG_READY"
         if supercfg_args is None:
@@ -123,6 +124,7 @@ class SuperCFGParser:
 
     async def compile(self, grammar: Grammar) -> ExecStatus:
         """Compile and wait for the completion"""
+        logger.debug(f"compile() : [{self.solution_idx}] init ...")
         ebnf = self.to_ebnf_repr(grammar)
         parser_enum: list[str] = []
         if SRConfEnum.Lookahead in self.supercfg_conf:
@@ -132,7 +134,10 @@ class SuperCFGParser:
         code = SUPERCFG_SOURCE_SINGLE.replace("SUPERCFG_RULESET_DEF", ebnf).replace("SUPERCFG_SR_PARSER_CONF", ',\n'.join(parser_enum))
 
         await self.cling.compile(code)
-        return await self.cling.wait(self.success_string)
+        status = await self.cling.wait(self.success_string)
+        if status != ExecStatus.Running:
+            logger.warning(f"compile() : [{self.solution_idx}] compilation failed")
+        return status
 
     def status(self) -> ExecStatus:
         return self.cling.status  # Seems to be safe
@@ -146,57 +151,57 @@ class SuperCFGParser:
         try:
             string_enc = encode_input_hex(string)
         except ValueError as e:
-            logger.error("Input string is not ASCII")
+            logger.error(f"run() : [{self.solution_idx}] Input string is not ASCII")
             return False, None
         await self.cling.write_to_stdin(("SUPERCFG_PARSE " + string_enc + "\n"))
         if self.cling.is_exited():
-            logger.error("SuperCFG has unexpectedly exited")
+            logger.error(f"run() : [{self.solution_idx}] SuperCFG has unexpectedly exited")
             return False, None  # we should handle stdout here
         output = await self.cling.readline()
         if output is None:
-            logger.error("SuperCFG has unexpectedly exited")
+            logger.error(f"run() : [{self.solution_idx}] SuperCFG has unexpectedly exited")
             return False, None
 
         out = output.split(' ')
         if len(out) != 3:
-            logger.error("bad SuperCFG output : bad split : %s", output)
+            logger.error(f"run() : [{self.solution_idx}] bad SuperCFG output : bad split : %s", output)
             return False, None  # bad string format
 
         try:
             seq = int(out[2])
         except ValueError:
-            logger.error("could not parse SuperCFG output : bad seq : %s", output)
+            logger.error(f"run() : [{self.solution_idx}] could not parse SuperCFG output : bad seq : %s", output)
             return False, None
 
         if seq != self.cur_seq:
-            logger.error("bad SuperCFG output : seq num does not match : %s", output)
+            logger.error(f"run() : [{self.solution_idx}] bad SuperCFG output : seq num does not match : %s", output)
             # Try to continue parsing anyways
 
         if out[0] == "SUPERCFG_OK":
             try:
                 ast = deserealize_ast_wire(out[1])
             except ValueError as e:
-                logger.error(f"bad SuperCFG output : {e}")
+                logger.error(f"run() : [{self.solution_idx}] bad SuperCFG output : {e}")
                 return False, None  # bad format
             return True, ast
 
         elif out[0] == "SUPERCFG_FAIL":
             if out[1] == "TOKENIZER_FAIL":
-                logger.info("SuperCFG failed, reason : tokenizer failure")
+                logger.info(f"run() : [{self.solution_idx}] SuperCFG failed, reason : tokenizer failure")
                 return False, None
             elif out[1] == "PARSER_FAIL":
-                logger.info("SuperCFG failed, reason : parser failure, no AST produced")
+                logger.info(f"run() : [{self.solution_idx}] SuperCFG failed, reason : parser failure, no AST produced")
                 return False, None
             else:
                 try:
                     ast = deserealize_ast_wire(out[1])
                 except ValueError as e:
-                    logger.info("SuperCFG failed, could not decode AST : %s", out[1])
+                    logger.info(f"run() : [{self.solution_idx}] SuperCFG failed, could not decode AST : %s", out[1])
                     return False, None  # bad format
-                logger.info("SuperCFG failed, returning partial result")
+                logger.info(f"run() : [{self.solution_idx}] SuperCFG failed, returning partial result")
                 return False, ast  # parsing failed, return partial ast
         else:
-            logger.error("bad SuperCFG output : no such command : %s", output)
+            logger.error(f"run() : [{self.solution_idx}] bad SuperCFG output : no such command : %s", output)
             return False, None  # bad string
 
     def shutdown(self):

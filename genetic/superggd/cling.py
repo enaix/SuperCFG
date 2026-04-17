@@ -1,9 +1,12 @@
 import asyncio
 import signal
 from typing import Optional
+import logging
 
 from superggd.base import *
 
+
+logger = logging.getLogger(__name__)
 
 
 class ClingInstance:
