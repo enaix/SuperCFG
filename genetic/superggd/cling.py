@@ -1,5 +1,10 @@
 import asyncio
 import signal
+import os
+import uuid
+import shutil
+import atexit
+import threading
 from typing import Optional
 import logging
 
@@ -7,6 +12,30 @@ from superggd.base import *
 
 
 logger = logging.getLogger(__name__)
+
+
+# Temp directory for cling source files
+CLING_TMP_DIR = "/tmp/superdbg_cling"
+
+_cling_tmp_lock = threading.Lock()
+_cling_tmp_initialized = False
+
+
+def _ensure_cling_tmp_dir() -> None:
+    global _cling_tmp_initialized
+    with _cling_tmp_lock:
+        if _cling_tmp_initialized:
+            return
+        os.makedirs(CLING_TMP_DIR, exist_ok=True)
+        atexit.register(_cleanup_cling_tmp_dir)
+        _cling_tmp_initialized = True
+
+
+def _cleanup_cling_tmp_dir() -> None:
+    try:
+        shutil.rmtree(CLING_TMP_DIR, ignore_errors=True)
+    except Exception as e:
+        logger.exception(f"_cleanup_cling_tmp_dir() : {e}")
 
 
 class ClingInstance:
@@ -18,15 +47,18 @@ class ClingInstance:
         self.status = ExecStatus.Exited
         self.stdout_buffer: str = ""
         self.stderr_buffer: str = ""
+        self.code_path: Optional[str] = None  # path to the .cpp file passed to cling
 
 
     async def compile(self, code: str) -> ExecStatus:
-        """Compile the code, will exit immediately"""
-        self.instance = await asyncio.create_subprocess_exec(self.path_to_cling, *self.extra_args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        """Write the code to a scratch .cpp file and start cling against it. stdin is left free for the running program"""
+        _ensure_cling_tmp_dir()
+        self.code_path = os.path.join(CLING_TMP_DIR, f"parser_{uuid.uuid4().hex}.cpp")
+        with open(self.code_path, "w", encoding="utf-8") as f:
+            f.write(code)
+
+        self.instance = await asyncio.create_subprocess_exec(self.path_to_cling, *self.extra_args, self.code_path, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         self.status = ExecStatus.Compiling
-        assert self.instance.stdin is not None, "ClingInstance::compile() : no stdin"
-        self.instance.stdin.write((code + "\n").encode())
-        await self.instance.stdin.drain()
         return self.status
 
     async def wait(self, success_string: str) -> ExecStatus:

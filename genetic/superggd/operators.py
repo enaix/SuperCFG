@@ -5,7 +5,7 @@ class Term:
     def __init__(self, value: str):
         self.value = value
 
-    def bake_supercfg(self, depth: int) -> str:
+    def bake_supercfg(self, depth: int = 0) -> str:
         return f"Term(cs<\"{self.value}\">())"
 
 class TermsRange:
@@ -14,14 +14,14 @@ class TermsRange:
         self.start = start
         self.end = end
 
-    def bake_supercfg(self, depth: int) -> str:
+    def bake_supercfg(self, depth: int = 0) -> str:
         return f"TermsRange(cs<\"{self.start}\">(), cs<\"{self.end}\">())"
 
 class NTerm:
     def __init__(self, name: str):
         self.name = name
 
-    def bake_supercfg(self, depth: int) -> str:
+    def bake_supercfg(self, depth: int = 0) -> str:
         return f"NTerm(cs<\"{self.name}\">())"
 
 
@@ -136,4 +136,6 @@ class RepeatRange(metaclass=BaseOp, num_ops=1):
 
 class Grammar(metaclass=BaseOp, num_ops=-1):
     """Rules definition"""
-    pass
+    def __init__(self, ops: list[Union[Type[BaseOp], Term, TermsRange, NTerm]], root: NTerm):
+        self.ops = ops
+        self.root = root

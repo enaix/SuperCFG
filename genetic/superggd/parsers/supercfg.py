@@ -36,6 +36,8 @@ constexpr auto conf = mk_sr_parser_conf<
 SUPERCFG_SR_PARSER_CONF
     >();
 
+using VStr = StdStr<char>;
+using TokenType = StdStr<char>;
 
 auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<
     LexerConfEnum::AdvancedLexer,
@@ -43,7 +45,7 @@ auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<
     >());
 
 
-auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf, printer);
+auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf);
 
 for (std::size_t seq = 1; ; seq++)
 {
@@ -94,7 +96,7 @@ for (std::size_t seq = 1; ; seq++)
     // Create a parse tree
     TreeNode<VStr> tree;
 
-    ok = parser.run(tree, json, tokens);
+    ok = parser.run(tree, SUPERCFG_ROOT_NTERM, tokens);
 
     if (!ok) {
         if (tree.nodes.size() > 0 || tree.name.size() > 0)
@@ -125,16 +127,18 @@ class SuperCFGParser:
     async def compile(self, grammar: Grammar) -> ExecStatus:
         """Compile and wait for the completion"""
         logger.debug(f"compile() : [{self.solution_idx}] init ...")
-        ebnf = self.to_ebnf_repr(grammar)
+        ebnf = "constexpr auto ruleset = " + self.to_ebnf_repr(grammar)
         parser_enum: list[str] = []
         if SRConfEnum.Lookahead in self.supercfg_conf:
             parser_enum.append("SRConfEnum::Lookahead")
         if SRConfEnum.HeuristicCtx in self.supercfg_conf:
             parser_enum.append("SRConfEnum::HeuristicCtx")
-        code = SUPERCFG_SOURCE_SINGLE.replace("SUPERCFG_RULESET_DEF", ebnf).replace("SUPERCFG_SR_PARSER_CONF", ',\n'.join(parser_enum))
+        root_symbol = self.to_ebnf_repr(grammar.root)
+        code = SUPERCFG_SOURCE_SINGLE.replace("SUPERCFG_RULESET_DEF", ebnf).replace("SUPERCFG_ROOT_NTERM", root_symbol).replace("SUPERCFG_SR_PARSER_CONF", ',\n'.join(parser_enum))
 
         try:
-            get_applogger().save_artifact(self.solution_idx, "parser.cpp", code)
+            info_string = f"// {self.cling.path_to_cling} {' '.join(self.cling.extra_args)}\n\n"
+            get_applogger().save_artifact(self.solution_idx, "parser.cpp", info_string + code)
         except Exception as e:
             logger.exception(f"compile() : [{self.solution_idx}] save_artifact raised : {e}")
 
@@ -222,5 +226,5 @@ class SuperCFGParser:
             self.cling.kill()
 
 
-    def to_ebnf_repr(self, grammar: Grammar) -> str:
+    def to_ebnf_repr(self, grammar: Type[BaseOp]) -> str:
         return grammar.bake_supercfg()  # the method actually exists
