@@ -222,7 +222,6 @@ class AppLogger:
     def set_extra_params(self, extra_params: dict[str, Any]) -> None:
         """Update params which will be dumped to superggd.txt"""
         with self._lock:
-            print("extra_params:", extra_params)
             self._extra_params = self._extra_params | extra_params
 
     def start(self) -> None:

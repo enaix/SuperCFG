@@ -52,7 +52,7 @@ for (std::size_t seq = 1; ; seq++)
     VStr input, tok, parsed_tok;
     std::cout << "SUPERCFG_READY" << std::endl;
 
-    std::cin >> input;
+    std::getline(std::cin, input);
 
     std::stringstream ss(input);
     if (!std::getline(ss, tok, ' '))
@@ -146,8 +146,11 @@ class SuperCFGParser:
         status = await self.cling.wait(self.success_string)
         if status != ExecStatus.Running:
             logger.warning(f"compile() : [{self.solution_idx}] compilation failed")
+        else:
+            logger.debug(f"compile() : [{self.solution_idx}] parser compiled, waiting for input...")
 
         try:
+            # Dump compilation log
             get_applogger().log_parser_stdout(self.solution_idx, await self.cling.read_all())
             get_applogger().log_parser_stderr(self.solution_idx, await self.cling.read_all_stderr())
         except Exception as e:
@@ -162,7 +165,7 @@ class SuperCFGParser:
             return False, None
 
         self.cur_seq += 1
-        # TODO consume all stdout first, so that we process only parsing output
+        await self.cling.read()  # drain all stdout
         try:
             string_enc = encode_input_hex(string)
         except ValueError as e:
@@ -206,6 +209,9 @@ class SuperCFGParser:
                 return False, None
             elif out[1] == "PARSER_FAIL":
                 logger.info(f"run() : [{self.solution_idx}] SuperCFG failed, reason : parser failure, no AST produced")
+                return False, None
+            elif out[1] == "BAD_INPUT":
+                logger.warning(f"run() : [{self.solution_idx}] SuperCFG failed, reason : could not parse input")
                 return False, None
             else:
                 try:
