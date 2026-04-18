@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class SuperGGD:
     """
     Main SuperGGD instance, handles ``pygad.GA`` and parser generators management. At each step executes parser generators and ``pre_fitness_fn`` in parallel. Also see ``init_parsers``.
-    ``output_folder``, ``log_dump_every_n``, ``log_print_parser_stdout``, ``log_print_parser_stderr`` are forwarded to AppLogger
+    ``output_folder``, ``log_dump_every_n`` are forwarded to AppLogger
 
     Parameters
     ----------
@@ -65,13 +65,11 @@ class SuperGGD:
                  extra_genes: Optional[list[str]] = None,
                  output_folder: Optional[str] = None,
                  log_dump_every_n: int = 1,
-                 log_print_parser_stdout: bool = False,
-                 log_print_parser_stderr: bool = False,
                  **pygad_kwargs):
 
         logging.basicConfig(level=logging.DEBUG)
 
-        get_applogger().configure(output_folder=output_folder, dump_every_n=log_dump_every_n, print_parser_stdout=log_print_parser_stdout, print_parser_stderr=log_print_parser_stderr)
+        get_applogger().configure(output_folder=output_folder, dump_every_n=log_dump_every_n)
 
         if compilation_strategy is None:
             compilation_strategy = CompilationStrategy.Die
@@ -99,6 +97,10 @@ class SuperGGD:
         self._pre_states: dict[int, Any] = {}  # idx -> pre_fitness result
         self._compile_done = threading.Event()
 
+        get_applogger().set_extra_params({
+            "num_parallel": num_parallel, "compilation_strategy": compilation_strategy, "compilation_timeout": compilation_timeout, "extra_genes": extra_genes
+        } | pygad_kwargs)
+
         for reserved in ("fitness_func", "on_generation"):
             if reserved in pygad_kwargs:
                 raise ValueError(f"SuperGGD manages '{reserved}' internally; do not pass it in pygad_kwargs")
@@ -112,6 +114,9 @@ class SuperGGD:
         all_restricted = restricted_params + ["extra_genes"]
         if any([x in kwargs for x in restricted_params]):
             raise ValueError("kwargs must not include grammar_generator, fitness_fn, pre_fitness_fn and extra_genes")
+
+        # Initialize logging
+        get_applogger().configure(output_folder=kwargs.get("output_folder"), dump_every_n=kwargs.get("log_dump_every_n", 1))
 
         if isinstance(module, os.PathLike):
             spec = importlib.util.spec_from_file_location("_superggd_user_module", module)
@@ -214,9 +219,12 @@ class SuperGGD:
         self._parser_args = update_if_none(self._parser_args, parser_args)
         self._fallback_parser_args = update_if_none(self._fallback_parser_args, fallback_parser_args)
 
+        get_applogger().set_extra_params({"parser": self._parser_class.__name__, "fallback_parser": (self._fallback_parser_class or type(None)).__name__, "parser_args": self._parser_args, "fallback_parser_args": self._fallback_parser_args})
+
     def run(self) -> pygad.GA:
         """Start the genetic algorithm. Blocks until completion."""
         logger.debug(f"Starting GA, parser class : {self._parser_class}({self._parser_args}), fallback parser : {self._fallback_parser_class}({self._fallback_parser_args})")
+        get_applogger().start()
         try:
             self._ga.run()
         except BaseException:

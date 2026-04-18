@@ -188,7 +188,7 @@ class _GenerationLog:
 
 
 class AppLogger:
-    """Singleton execution logger for SuperGGD. Stores per-generation parser stdout/stderr and grammar info, flushes to disk every N generations and on error. Thread-safe. Use ``get_applogger()``"""
+    """Singleton execution logger for SuperGGD. Stores per-generation parser stdout/stderr and grammar info, flushes to disk every N generations and on error. Use ``get_applogger()``"""
 
     _instance: Optional["AppLogger"] = None
     _instance_lock = threading.Lock()
@@ -198,29 +198,38 @@ class AppLogger:
         self._configured: bool = False
         self._output_folder: Optional[str] = None
         self._dump_every_n: int = 1
-        self._print_parser_stdout: bool = False
-        self._print_parser_stderr: bool = False
         self._generations: dict[int, _GenerationLog] = {}
         self._current_gen: int = -1
         self._atexit_registered: bool = False
+        self._extra_params: dict[str, Any] = {}
 
     _MARKER_FILE = "superggd.txt"
 
-    def configure(self, output_folder: Optional[str], dump_every_n: int = 1, print_parser_stdout: bool = False, print_parser_stderr: bool = False, extra_params: Optional[dict[str, Any]] = None) -> None:
-        """Configure the logger. If ``output_folder`` is None, logging is disabled. Should be called once from SuperGGD. ``extra_params`` is serialized into the marker file along with the built-in params"""
+    def configure(self, output_folder: Optional[str], dump_every_n: int = 1) -> None:
+        """Configure the logger. If ``output_folder`` is None, logging is disabled. Will process only the first call"""
         with self._lock:
+            if self._configured:
+                return  # Handle this only once
             self._output_folder = output_folder
             self._dump_every_n = max(1, int(dump_every_n))
-            self._print_parser_stdout = print_parser_stdout
-            self._print_parser_stderr = print_parser_stderr
-            if output_folder is not None:
-                self._prepare_output_folder(output_folder)
-                self._write_marker_file(output_folder, extra_params)
-            self._configured = True
+            if self._output_folder is not None:
+                self._prepare_output_folder(self._output_folder)
             if not self._atexit_registered:
                 atexit.register(self._atexit_dump)
                 self._atexit_registered = True
+            self._configured = True
 
+    def set_extra_params(self, extra_params: dict[str, Any]) -> None:
+        """Update params which will be dumped to superggd.txt"""
+        with self._lock:
+            print("extra_params:", extra_params)
+            self._extra_params = self._extra_params | extra_params
+
+    def start(self) -> None:
+        """Write to superggd.txt and start logging"""
+        with self._lock:
+            if self._output_folder is not None:
+                self._write_marker_file(self._output_folder)
 
     @property
     def enabled(self) -> bool:
@@ -257,8 +266,6 @@ class AppLogger:
             return
         with self._lock:
             self._gen_bucket(gen).sol(sol_idx).stdout.append(text)
-        if self._print_parser_stdout:
-            print(text, end="")
 
     def log_parser_stderr(self, sol_idx: int, text: str, gen: Optional[int] = None) -> None:
         """Append parser stderr chunk for a solution within a generation"""
@@ -266,12 +273,10 @@ class AppLogger:
             return
         with self._lock:
             self._gen_bucket(gen).sol(sol_idx).stderr.append(text)
-        if self._print_parser_stderr:
-            print(text, end="")
 
-    def save_artifact(self, sol_idx: int, filename: str, data: Union[str, bytes, bytearray, os.PathLike], gen: Optional[int] = None) -> Optional[str]:
+    def save_artifact(self, filename: str, data: Union[str, bytes, bytearray, os.PathLike], sol_idx: Optional[int] = None, gen: Optional[int] = None) -> Optional[str]:
         """
-        Write an artifact (e.g. generated parser.cpp) straight to ``gen_{gen}/sol_{sol_idx}/{filename}`` without buffering it in memory.
+        Write an artifact to ``gen_{gen}/sol_{sol_idx}/{filename}`` if sol_idx exists (or to gen/{gen}/{filename} otherwise)
 
         ``data`` may be:
         - ``bytes`` / ``bytearray``: written as binary
@@ -291,11 +296,16 @@ class AppLogger:
         if not safe_name or safe_name in (".", ".."):
             raise ValueError(f"AppLogger::save_artifact() : invalid filename {filename!r}")
 
-        sol_dir = os.path.join(self._output_folder, f"gen_{gen}", f"sol_{sol_idx}")
-        dest = os.path.join(sol_dir, safe_name)
+        if sol_idx is not None:
+            sol_dir = os.path.join(self._output_folder, f"gen_{gen}", f"sol_{sol_idx}")
+            dest = os.path.join(sol_dir, safe_name)
+        else:
+            sol_dir = None
+            dest = os.path.join(self._output_folder, safe_name)
         try:
             with self._lock:
-                os.makedirs(sol_dir, exist_ok=True)
+                if sol_dir:
+                    os.makedirs(sol_dir, exist_ok=True)
                 if isinstance(data, (bytes, bytearray)):
                     with open(dest, "wb") as f:
                         f.write(data)
@@ -355,16 +365,14 @@ class AppLogger:
         else:
             raise ValueError(f"AppLogger::configure() : output_folder {folder!r} already exists and is not a SuperGGD output folder (no {self._MARKER_FILE}). Refusing to write into it")
 
-    def _write_marker_file(self, folder: str, extra_params: Optional[dict[str, Any]]) -> None:
+    def _write_marker_file(self, folder: str) -> None:
         """Write the superggd.txt marker with the creation date and execution parameters"""
         params: dict[str, Any] = {
             "output_folder": folder,
             "dump_every_n": self._dump_every_n,
-            "print_parser_stdout": self._print_parser_stdout,
-            "print_parser_stderr": self._print_parser_stderr,
         }
-        if extra_params:
-            params.update(extra_params)
+        if self._extra_params:
+            params.update(self._extra_params)
         path = os.path.join(folder, self._MARKER_FILE)
         with open(path, "w", encoding="utf-8") as f:
             f.write(f"created: {datetime.datetime.now().isoformat(timespec='seconds')}\n")

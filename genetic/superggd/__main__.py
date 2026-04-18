@@ -138,7 +138,13 @@ def main() -> None:
             supercfg_args = [SUPERCFG_SR_CONF_ENUM["EmptyFlag"]]
     else:
         supercfg_args = None
-    ggd.init_parsers(parser_class, parser_args={"path_to_supercfg": args.supercfg, "path_to_cling": args.cling, "extra_cling_args": getattr(args, "cling_args", None), "supercfg_args": supercfg_args})
+    parser_args = {"path_to_supercfg": args.supercfg, "path_to_cling": args.cling}
+    if args.cling_args is not None:
+        parser_args["extra_cling_args"] = args.cling_args
+    if args.supercfg_args is not None:
+        parser_args["supercfg_args"] = args.supercfg_args
+
+    ggd.init_parsers(parser_class, parser_args=parser_args)
 
     ga = ggd.run()
     solution, fitness, idx = ga.best_solution()

@@ -2,8 +2,10 @@ from typing import Any, Optional, Callable
 from collections import OrderedDict
 import itertools as it
 import logging
+import json
 
 from superggd.operators import *
+from superggd.base import *
 from superggd.parsers.supercfg import SRConfEnum
 
 
@@ -43,6 +45,7 @@ class LSystem:
         self._mapping_type = kwargs.get("mapping_type", self._mapping_type)
         self._all_substr = kwargs.get("all_substr", self._all_substr)
         self._num_rules = kwargs.get("num_rules", self._num_rules)
+        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr, "num_rules": self._num_rules})
 
     def post_init(self) -> None:
         if self._target is None:
@@ -95,6 +98,12 @@ class LSystem:
         self.pygad_params["gene_space"].append(range(len(self._axioms)))
         self._gene_axiom_id = len(self.pygad_params["gene_space"]) - 1
 
+        get_applogger().save_artifact("lsystem.json", json.dumps({
+            "gene_groups": self._groups,
+            "symbols": self._symbols,
+            "axioms": self._axioms
+        }))
+
         self.pygad_params["num_genes"] = len(self.pygad_params["gene_space"])
 
         # Gene constraint
@@ -112,6 +121,11 @@ class LSystem:
             self.pygad_params["gene_constraint"] += [
                 None,  # Rule 1+i, gene 0: any group
                 lambda sol, values: [val for val in values if _check_constraint(self._gene_to_substr(sol[0], sol[1]), self._gene_to_substr(sol[2], val), cbi)],  # Rule 1+i, gene 1:
+            ]
+            # lhs rule constraint
+            self.pygad_params["gene_constraint"] += [
+                None,  # Rule 1+i, gene 0: any group
+                lambda sol, values: [val for val in values if not (val >= len(self._symbols) and sol[3] >= len(self._symbols))],  # Check that there is at least 1 rule
             ]
             # Set the remaining as None
             for i in range(len(self.pygad_params["gene_constraint"]), self.pygad_params["num_genes"]):

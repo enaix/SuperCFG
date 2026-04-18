@@ -359,8 +359,13 @@ public:
 template<SRConfEnum... Values>
 constexpr auto mk_sr_parser_conf()
 {
-    constexpr std::uint64_t conf = (static_cast<const std::uint64_t>(Values) | ...);
-    return SRParserConfig<conf>();
+    if constexpr(sizeof...(Values) == 0)
+        return SRParserConfig<0>();
+    else
+    {
+        constexpr std::uint64_t conf = (static_cast<const std::uint64_t>(Values) | ...);
+        return SRParserConfig<conf>();
+    }
 }
 
 

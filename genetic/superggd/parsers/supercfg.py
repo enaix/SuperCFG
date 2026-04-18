@@ -138,7 +138,7 @@ class SuperCFGParser:
 
         try:
             info_string = f"// {self.cling.path_to_cling} {' '.join(self.cling.extra_args)}\n\n"
-            get_applogger().save_artifact(self.solution_idx, "parser.cpp", info_string + code)
+            get_applogger().save_artifact("parser.cpp", info_string + code, sol_idx=self.solution_idx)
         except Exception as e:
             logger.exception(f"compile() : [{self.solution_idx}] save_artifact raised : {e}")
 
@@ -220,6 +220,7 @@ class SuperCFGParser:
             return False, None  # bad string
 
     def shutdown(self):
+        logger.debug(f"[{self.solution_idx}] shutting down...")
         if self.cling.is_exited():
             return
         if not self.cling.shutdown():
