@@ -169,8 +169,15 @@ class LSystem:
         if ast is not None:
             # For now we use average AST depth as the target metric
             depths: list[int] = []
+            values: list[str] = []
             ast.each(lambda node, depth, is_leaf: depths.append(depth) if is_leaf else None)
-            return sum(depths) / float(len(depths))  # E[depths]
+            ast.each(lambda node, depth, is_leaf: values.append(node.value))
+            v = ''.join(values)
+            if v == 0:
+                consumed_perc = 0  # set to 0.01 if we multiply
+            else:
+                consumed_perc = float(len(v)) / float(len(self._target))  # how much % of the string it has consumed, higher - better
+            return 5 * consumed_perc + sum(depths) / float(len(depths))  # E[depths]
         else:
             return 0.0
 
