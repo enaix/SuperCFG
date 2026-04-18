@@ -34,7 +34,7 @@ class ParserInstance:
         return status
 
     def status(self) -> ExecStatus:
-        return self.parser.status
+        return self.parser.status()
 
 
 class ParserManager:

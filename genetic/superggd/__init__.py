@@ -314,7 +314,14 @@ class SuperGGD:
             logger.error("Compilation timed out after %.1fs for generation %d", self._compilation_timeout, self._current_gen)
             status_map = self._manager.status()
 
-        logger.debug("Generation %d: compilation status %s", self._current_gen, {str(g)[:40]: s for g, s in status_map.items()})
+        logger.debug("Generation %d: compilation finished", self._current_gen)
+
+        # Log compile status per solution idx (reverse grammar -> idx lookup)
+        for idx, g in self._current_grammars.items():
+            if g is None:
+                get_applogger().log_compile_status(idx, "GrammarGenFailed")
+            elif g in status_map:
+                get_applogger().log_compile_status(idx, status_map[g])
 
         self._compile_done.set()
 
@@ -337,9 +344,13 @@ class SuperGGD:
 
         self._compile_done.wait()
 
+        get_applogger().log_solution(solution_idx, solution)
+
         grammar = self._current_grammars.get(solution_idx)
         if grammar is None:
             logger.warning("No grammar for individual %d – returning 0.0", solution_idx)
+            get_applogger().log_fitness(solution_idx, 0.0)
+            get_applogger().log_exec_status(solution_idx, "NoGrammar")
             return 0.0
 
         def run_parser(input_string: str) -> Any:
@@ -347,14 +358,19 @@ class SuperGGD:
 
         pre_fn_result = self._pre_states.get(solution_idx)
 
+        exec_status = "Ok"
         try:
             score = self._fitness_fn(solution, solution_idx, grammar, run_parser, pre_fn_result)
             # TODO add multivariate fitness fn support
         except Exception as e:
             logger.exception(f"fitness_fn raised for individual {solution_idx} – returning 0.0 : {e}")
             score = 0.0
+            exec_status = "FitnessRaised"
 
-        return float(score)
+        score = float(score)
+        get_applogger().log_fitness(solution_idx, score)
+        get_applogger().log_exec_status(solution_idx, exec_status)
+        return score
 
     def _on_generation(self, ga_instance: pygad.GA) -> None:
         """Called by pygad after each generation completes."""

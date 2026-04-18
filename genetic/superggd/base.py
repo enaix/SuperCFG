@@ -2,6 +2,7 @@ from enum import Enum, StrEnum
 from typing import Callable, Optional, Any
 import os
 import sys
+import csv
 import threading
 import atexit
 import logging
@@ -167,12 +168,36 @@ def deserealize_ast_wire(encoded: str) -> ASTNode:
 # ===============
 
 
+def _solution_to_list_str(solution: Any) -> str:
+    if solution is None:
+        return ""
+    try:
+        return repr(solution.tolist())
+    except Exception as e:
+        logger.warning(f"Couldn't convert np solution to list : {e}")
+        return repr(solution)
+
+
+def _status_name(status: Any) -> Optional[str]:
+    """Normalize status value (ExecStatus / str / None) to a string"""
+    if status is None:
+        return None
+    if isinstance(status, Enum):
+        return status.name
+    return str(status)
+
+
 @dataclass
 class _SolutionLog:
     """Per-solution accumulated execution state within a single generation"""
     stdout: list[str] = field(default_factory=list)
     stderr: list[str] = field(default_factory=list)
     grammar: Optional[str] = None
+    fitness: Optional[float] = None
+    compile_status: Optional[str] = None
+    exec_status: Optional[str] = None
+    solution: Optional[Any] = None
+    extras: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -202,8 +227,11 @@ class AppLogger:
         self._current_gen: int = -1
         self._atexit_registered: bool = False
         self._extra_params: dict[str, Any] = {}
+        self._extra_csv_fields: list[str] = []
 
     _MARKER_FILE = "superggd.txt"
+    _RESULTS_CSV = "results.csv"
+    _CSV_FIELDS = ("generation", "sol_idx", "fitness", "is_best", "compile_status", "exec_status", "solution")
 
     def configure(self, output_folder: Optional[str], dump_every_n: int = 1) -> None:
         """Configure the logger. If ``output_folder`` is None, logging is disabled. Will process only the first call"""
@@ -258,6 +286,54 @@ class AppLogger:
         with self._lock:
             g = self._gen_bucket(gen)
             g.sol(sol_idx).grammar = grammar_repr
+
+    def log_solution(self, sol_idx: int, solution: Any, gen: Optional[int] = None) -> None:
+        """Record the pygad gene vector for a solution within a generation"""
+        if not self.enabled:
+            return
+        with self._lock:
+            self._gen_bucket(gen).sol(sol_idx).solution = solution
+
+    def log_fitness(self, sol_idx: int, fitness: float, gen: Optional[int] = None) -> None:
+        """Record fitness score for a solution within a generation"""
+        if not self.enabled:
+            return
+        with self._lock:
+            self._gen_bucket(gen).sol(sol_idx).fitness = float(fitness)
+
+    def log_compile_status(self, sol_idx: int, status: Any, gen: Optional[int] = None) -> None:
+        """Record compilation status for a solution within a generation"""
+        if not self.enabled:
+            return
+        with self._lock:
+            self._gen_bucket(gen).sol(sol_idx).compile_status = _status_name(status)
+
+    def register_csv_field(self, name: str) -> None:
+        """Register an extra results.csv column. Must be called before the first generation dump. Reserved field names are rejected"""
+        if not self.enabled:
+            return
+        with self._lock:
+            if name in self._CSV_FIELDS:
+                raise ValueError(f"AppLogger::register_csv_field() : {name!r} is a reserved field")
+            if name not in self._extra_csv_fields:
+                self._extra_csv_fields.append(name)
+
+    def log_extra(self, sol_idx: int, name: str, value: Any, gen: Optional[int] = None) -> None:
+        """Record an extra CSV field value for a solution. ``name`` must have been registered via register_csv_field()"""
+        if not self.enabled:
+            return
+        with self._lock:
+            if name not in self._extra_csv_fields:
+                logger.warning(f"AppLogger::log_extra() : field {name!r} is not registered, ignoring")
+                return
+            self._gen_bucket(gen).sol(sol_idx).extras[name] = value
+
+    def log_exec_status(self, sol_idx: int, status: Any, gen: Optional[int] = None) -> None:
+        """Record execution status for a solution within a generation"""
+        if not self.enabled:
+            return
+        with self._lock:
+            self._gen_bucket(gen).sol(sol_idx).exec_status = _status_name(status)
 
     def log_parser_stdout(self, sol_idx: int, text: str, gen: Optional[int] = None) -> None:
         """Append parser stdout chunk for a solution within a generation"""
@@ -414,11 +490,53 @@ class AppLogger:
                 fully_dumped = False
                 logger.exception(f"AppLogger::_dump_generation() : failed to dump sol_{sol_idx} for gen {gen} : {e}")
 
+        # Append per-solution results to results.csv (generation, sol_idx, fitness, best, statuses)
+        try:
+            self._append_results_csv(gen, bucket)
+        except Exception as e:
+            fully_dumped = False
+            logger.exception(f"AppLogger::_dump_generation() : failed to append CSV for gen {gen} : {e}")
+
         bucket.dumped = True
         # Release the in-memory buffers for this generation to avoid heap growth across long runs.
         # Keep the bucket marker (dumped=True) so repeated dump_all() calls become no-ops
         if fully_dumped:
             bucket.solutions.clear()
+
+    def _append_results_csv(self, gen: int, bucket: _GenerationLog) -> None:
+        """Append one row per solution to results.csv. Best solution = highest fitness in the generation"""
+        assert self._output_folder is not None, "AppLogger::_append_results_csv() : output_folder is None"
+        if not bucket.solutions:
+            return
+        path = os.path.join(self._output_folder, self._RESULTS_CSV)
+        write_header = not os.path.isfile(path)
+
+        # Identify best solution (max fitness; ties -> lowest idx)
+        scored = [(idx, sol.fitness) for idx, sol in bucket.solutions.items() if sol.fitness is not None]
+        best_idx: Optional[int] = None
+        if scored:
+            best_idx = max(scored, key=lambda p: (p[1], -p[0]))[0]
+
+        fieldnames = list(self._CSV_FIELDS) + list(self._extra_csv_fields)
+        with open(path, "a", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            if write_header:
+                writer.writeheader()
+            for idx in sorted(bucket.solutions.keys()):
+                sol = bucket.solutions[idx]
+                row = {
+                    "generation": gen,
+                    "sol_idx": idx,
+                    "fitness": "" if sol.fitness is None else f"{sol.fitness:.10g}",
+                    "is_best": "1" if idx == best_idx else "0",
+                    "compile_status": sol.compile_status or "",
+                    "exec_status": sol.exec_status or "",
+                    "solution": _solution_to_list_str(sol.solution),
+                }
+                for name in self._extra_csv_fields:
+                    val = sol.extras.get(name)
+                    row[name] = "" if val is None else val
+                writer.writerow(row)
 
     def _atexit_dump(self) -> None:
         try:

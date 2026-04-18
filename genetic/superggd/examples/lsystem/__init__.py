@@ -30,7 +30,7 @@ class LSystem:
         self._gene_axiom_id: int = -1  # axiom idx
 
         # Exports
-        self.pygad_params: dict[str, Any] = {"num_generations": 50, "num_parents_mating": 4, "sol_per_pop": 10, "gene_type": int}
+        self.pygad_params: dict[str, Any] = {"num_generations": 1000, "num_parents_mating": 4, "sol_per_pop": 10, "gene_type": int}
         self.parsers_defaults = {"parser_args": {"supercfg_args": [SRConfEnum.EmptyFlag]}}  # Disable lookahead
 
     def populate_argparse_group(self, group: Any) -> None:
@@ -104,6 +104,8 @@ class LSystem:
             "axioms": self._axioms
         }))
 
+        get_applogger().register_csv_field("match")
+
         self.pygad_params["num_genes"] = len(self.pygad_params["gene_space"])
 
         # Gene constraint
@@ -160,6 +162,7 @@ class LSystem:
 
     def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result) -> float:
         ok, ast = run_parser(self._target)
+        get_applogger().log_extra(solution_idx, "match", 1 if ok else 0)
         if ok:
             logger.info("LSystem::run() : matching solution found")
             # TODO add results logging
