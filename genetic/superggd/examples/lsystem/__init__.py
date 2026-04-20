@@ -160,7 +160,7 @@ class LSystem:
             rules.append(Define([NTerm(f"rule_{lhs[i]}"), Alter([Term(lhs[i]), Concat([rhs_to_def(x) for x in rhs[i]])])]))
         # Add axiom rule (if needed)
         if axiom not in lhs:
-            rules.append(Define([NTerm(f"rule_{axiom}", Concat([rhs_to_def(x) for x in axiom]))]))
+            rules.append(Define([NTerm(f"rule_{axiom}"), Concat([rhs_to_def(x) for x in axiom])]))
         return Grammar(rules, root=NTerm(f"rule_{axiom}"))
 
     def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result) -> float:
