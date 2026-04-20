@@ -1,6 +1,7 @@
 import concurrent.futures
 import logging
 import threading
+import time
 from typing import Any, Callable, Optional, Type
 import sys
 import importlib.util
@@ -97,6 +98,11 @@ class SuperGGD:
         self._current_grammars: dict[int, Any] = {}  # idx -> Grammar
         self._pre_states: dict[int, Any] = {}  # idx -> pre_fitness result
         self._compile_done = threading.Event()
+
+        # Timing state
+        self._gen_start_time: float = 0.0
+        self._total_elapsed: float = 0.0
+        self._gens_timed: int = 0
 
         get_applogger().set_extra_params({
             "num_parallel": num_parallel, "compilation_strategy": compilation_strategy, "compilation_timeout": compilation_timeout, "extra_genes": extra_genes
@@ -255,6 +261,7 @@ class SuperGGD:
         """
         population: np.ndarray = ga_instance.population
         n = len(population)
+        self._gen_start_time = time.monotonic()
 
         # TODO properly log history
         self._current_grammars = {}
@@ -375,6 +382,23 @@ class SuperGGD:
 
     def _on_generation(self, ga_instance: pygad.GA) -> None:
         """Called by pygad after each generation completes."""
-        logger.info("Generation %d complete. Best fitness: %.4f", ga_instance.generations_completed, ga_instance.best_solution()[1])
+        elapsed = time.monotonic() - self._gen_start_time
+        self._total_elapsed += elapsed
+        self._gens_timed += 1
+
+        gen_done = ga_instance.generations_completed
+        num_gens = ga_instance.num_generations
+        avg = self._total_elapsed / self._gens_timed
+        remaining = num_gens - gen_done
+        eta_s = avg * remaining
+        eta_h, eta_rem = divmod(int(eta_s), 3600)
+        eta_m, eta_s_part = divmod(eta_rem, 60)
+        eta_str = f"{eta_h:02d}:{eta_m:02d}:{eta_s_part:02d}"
+
+        best_fitness = ga_instance.best_solution()[1]
+        print(f"Gen {gen_done}/{num_gens} | fitness: {best_fitness:.6g} | elapsed: {elapsed:.2f}s | avg: {avg:.2f}s/gen | ETA: {eta_str}", file=sys.stderr)
+        logger.info("Generation %d complete. Best fitness: %.4f", gen_done, best_fitness)
+
+        get_applogger().log_gen_elapsed(elapsed, self._current_gen)
         get_applogger().end_generation(self._current_gen)
         self._manager.reset()

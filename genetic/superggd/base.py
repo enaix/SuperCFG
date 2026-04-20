@@ -204,6 +204,7 @@ class _SolutionLog:
 class _GenerationLog:
     """Per-generation execution state"""
     solutions: dict[int, _SolutionLog] = field(default_factory=dict)
+    elapsed_s: Optional[float] = None
     dumped: bool = False
 
     def sol(self, idx: int) -> _SolutionLog:
@@ -242,7 +243,7 @@ class AppLogger:
 
     _MARKER_FILE = "superggd.txt"
     _RESULTS_CSV = "results.csv"
-    _CSV_FIELDS = ("generation", "sol_idx", "fitness", "is_best", "compile_status", "exec_status", "solution")
+    _CSV_FIELDS = ("generation", "sol_idx", "fitness", "is_best", "compile_status", "exec_status", "solution", "gen_elapsed_s")
 
     def configure(self, output_folder: Optional[str], dump_every_n: int = 1, min_priority: ArtifactPriority = ArtifactPriority.Debug) -> None:
         """Configure the logger. If ``output_folder`` is None, logging is disabled. Will process only the first call"""
@@ -346,6 +347,13 @@ class AppLogger:
             return
         with self._lock:
             self._gen_bucket(gen).sol(sol_idx).exec_status = _status_name(status)
+
+    def log_gen_elapsed(self, elapsed_s: float, gen: Optional[int] = None) -> None:
+        """Record elapsed wall-clock time (seconds) for a generation"""
+        if not self.enabled:
+            return
+        with self._lock:
+            self._gen_bucket(gen).elapsed_s = float(elapsed_s)
 
     def log_parser_stdout(self, sol_idx: int, text: str, gen: Optional[int] = None) -> None:
         """Append parser stdout chunk for a solution within a generation"""
@@ -557,6 +565,7 @@ class AppLogger:
                     "compile_status": sol.compile_status or "",
                     "exec_status": sol.exec_status or "",
                     "solution": _solution_to_list_str(sol.solution),
+                    "gen_elapsed_s": "" if bucket.elapsed_s is None else f"{bucket.elapsed_s:.4f}",
                 }
                 for name in self._extra_csv_fields:
                     val = sol.extras.get(name)
