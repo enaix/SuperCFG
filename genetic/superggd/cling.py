@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 # Temp directory for cling source files
-CLING_TMP_DIR = "/tmp/superdbg_cling"
+CLING_TMP_DIR = f"/tmp/superdbg_cling_{uuid.uuid4().hex}"
 
 _cling_tmp_lock = threading.Lock()
 _cling_tmp_initialized = False
