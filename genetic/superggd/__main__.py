@@ -33,6 +33,7 @@ def main() -> None:
         p.add_argument("--compilation-timeout", type=float, help="Max seconds to wait for batch compilation")
         p.add_argument("--output-folder", "-o", metavar="PATH", help="Folder to write per-generation logs")
         p.add_argument("--log-dump-every-n", type=int, help="Dump logs every N generations")
+        p.add_argument("--log-min-priority", choices=["debug", "high", "panic"], default="debug", help="Minimum artifact priority to write (debug: all; high: grammar only; panic: no files)")
 
         s_cfg = p.add_argument_group(title="supercfg parser options")
         s_cfg.add_argument("--cling", "-l", metavar="PATH", default="cling", help="Path to the cling executable")
@@ -114,6 +115,8 @@ def main() -> None:
         kwargs["output_folder"] = args.output_folder
     if getattr(args, "log_dump_every_n", None) is not None:
         kwargs["log_dump_every_n"] = args.log_dump_every_n
+    if getattr(args, "log_min_priority", None) is not None:
+        kwargs["log_min_priority"] = ArtifactPriority(args.log_min_priority)
 
     # Load module args
     #if kwargs.keys() & module_args.keys():

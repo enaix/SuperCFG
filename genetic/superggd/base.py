@@ -212,6 +212,16 @@ class _GenerationLog:
         return self.solutions[idx]
 
 
+class ArtifactPriority(StrEnum):
+    """Artifact priority level, some artifacts are only needed for debugging info"""
+    Debug = "debug",  # Stdout/stderr and other files
+    High = "high",  # Artifacts which are important for finding the exact solution, like each solution grammar
+    Panic = "panic",  # Disable all artifact writes (no files, no directories created)
+
+
+_PRIORITY_LEVEL: dict["ArtifactPriority", int] = {ArtifactPriority.Debug: 0, ArtifactPriority.High: 1, ArtifactPriority.Panic: 2}
+
+
 class AppLogger:
     """Singleton execution logger for SuperGGD. Stores per-generation parser stdout/stderr and grammar info, flushes to disk every N generations and on error. Use ``get_applogger()``"""
 
@@ -223,6 +233,7 @@ class AppLogger:
         self._configured: bool = False
         self._output_folder: Optional[str] = None
         self._dump_every_n: int = 1
+        self._min_priority: ArtifactPriority = ArtifactPriority.Debug
         self._generations: dict[int, _GenerationLog] = {}
         self._current_gen: int = -1
         self._atexit_registered: bool = False
@@ -233,13 +244,14 @@ class AppLogger:
     _RESULTS_CSV = "results.csv"
     _CSV_FIELDS = ("generation", "sol_idx", "fitness", "is_best", "compile_status", "exec_status", "solution")
 
-    def configure(self, output_folder: Optional[str], dump_every_n: int = 1) -> None:
+    def configure(self, output_folder: Optional[str], dump_every_n: int = 1, min_priority: ArtifactPriority = ArtifactPriority.Debug) -> None:
         """Configure the logger. If ``output_folder`` is None, logging is disabled. Will process only the first call"""
         with self._lock:
             if self._configured:
                 return  # Handle this only once
             self._output_folder = output_folder
             self._dump_every_n = max(1, int(dump_every_n))
+            self._min_priority = ArtifactPriority(min_priority)
             if self._output_folder is not None:
                 self._prepare_output_folder(self._output_folder)
             if not self._atexit_registered:
@@ -349,7 +361,7 @@ class AppLogger:
         with self._lock:
             self._gen_bucket(gen).sol(sol_idx).stderr.append(text)
 
-    def save_artifact(self, filename: str, data: Union[str, bytes, bytearray, os.PathLike], sol_idx: Optional[int] = None, gen: Optional[int] = None) -> Optional[str]:
+    def save_artifact(self, filename: str, data: Union[str, bytes, bytearray, os.PathLike], sol_idx: Optional[int] = None, gen: Optional[int] = None, priority: ArtifactPriority = ArtifactPriority.Debug) -> Optional[str]:
         """
         Write an artifact to ``gen_{gen}/sol_{sol_idx}/{filename}`` if sol_idx exists (or to gen/{gen}/{filename} otherwise)
 
@@ -358,10 +370,12 @@ class AppLogger:
         - ``os.PathLike``: treated as a source file path, copied into place
         - ``str``: if it points to an existing file, copied; otherwise written as text
 
-        Returns the destination path or None if logging is disabled
+        Returns the destination path or None if logging is disabled or priority is below the minimum (only for per-solution artifacts)
         """
         if not self.enabled:
             return None
+        if sol_idx is not None and not self._priority_passes(priority):
+            return None  # Only check priority for per-solution artifacts
         if gen is None:
             gen = self._current_gen
         assert self._output_folder is not None, "AppLogger::save_artifact() : output_folder is None"
@@ -440,11 +454,16 @@ class AppLogger:
         else:
             raise ValueError(f"AppLogger::configure() : output_folder {folder!r} already exists and is not a SuperGGD output folder (no {self._MARKER_FILE}). Refusing to write into it")
 
+    def _priority_passes(self, priority: ArtifactPriority) -> bool:
+        """Return True if priority is at or above the configured minimum"""
+        return _PRIORITY_LEVEL[priority] >= _PRIORITY_LEVEL[self._min_priority]
+
     def _write_marker_file(self, folder: str) -> None:
         """Write the superggd.txt marker with the creation date and execution parameters"""
         params: dict[str, Any] = {
             "output_folder": folder,
             "dump_every_n": self._dump_every_n,
+            "min_priority": self._min_priority,
         }
         if self._extra_params:
             params.update(self._extra_params)
@@ -469,21 +488,27 @@ class AppLogger:
         if bucket is None:
             return
         gen_dir = os.path.join(self._output_folder, f"gen_{gen}")
-        os.makedirs(gen_dir, exist_ok=True)
+        write_grammar = self._priority_passes(ArtifactPriority.High)
+        write_stdio = self._priority_passes(ArtifactPriority.Debug)
 
         # Per-solution grammar / stdout / stderr
         fully_dumped = True
         for sol_idx, sol in bucket.solutions.items():
             sol_dir = os.path.join(gen_dir, f"sol_{sol_idx}")
             try:
+                do_grammar = write_grammar and sol.grammar is not None
+                do_stdout = write_stdio and bool(sol.stdout)
+                do_stderr = write_stdio and bool(sol.stderr)
+                if not (do_grammar or do_stdout or do_stderr):
+                    continue
                 os.makedirs(sol_dir, exist_ok=True)
-                if sol.grammar is not None:
+                if do_grammar:
                     with open(os.path.join(sol_dir, "grammar.txt"), "w", encoding="utf-8") as f:
                         f.write(sol.grammar)
-                if sol.stdout:
+                if do_stdout:
                     with open(os.path.join(sol_dir, "stdout.txt"), "w", encoding="utf-8") as f:
                         f.write("".join(sol.stdout))
-                if sol.stderr:
+                if do_stderr:
                     with open(os.path.join(sol_dir, "stderr.txt"), "w", encoding="utf-8") as f:
                         f.write("".join(sol.stderr))
             except Exception as e:

@@ -65,11 +65,12 @@ class SuperGGD:
                  extra_genes: Optional[list[str]] = None,
                  output_folder: Optional[str] = None,
                  log_dump_every_n: int = 1,
+                 log_min_priority: ArtifactPriority = ArtifactPriority.Debug,
                  **pygad_kwargs):
 
         logging.basicConfig(level=logging.DEBUG)
 
-        get_applogger().configure(output_folder=output_folder, dump_every_n=log_dump_every_n)
+        get_applogger().configure(output_folder=output_folder, dump_every_n=log_dump_every_n, min_priority=log_min_priority)
 
         if compilation_strategy is None:
             compilation_strategy = CompilationStrategy.Die
@@ -116,7 +117,7 @@ class SuperGGD:
             raise ValueError("kwargs must not include grammar_generator, fitness_fn, pre_fitness_fn and extra_genes")
 
         # Initialize logging
-        get_applogger().configure(output_folder=kwargs.get("output_folder"), dump_every_n=kwargs.get("log_dump_every_n", 1))
+        get_applogger().configure(output_folder=kwargs.get("output_folder"), dump_every_n=kwargs.get("log_dump_every_n", 1), min_priority=kwargs.get("log_min_priority", ArtifactPriority.Debug))
 
         if isinstance(module, os.PathLike):
             spec = importlib.util.spec_from_file_location("_superggd_user_module", module)

@@ -138,7 +138,7 @@ class SuperCFGParser:
 
         try:
             info_string = f"// {self.cling.path_to_cling} {' '.join(self.cling.extra_args)}\n\n"
-            get_applogger().save_artifact("parser.cpp", info_string + code, sol_idx=self.solution_idx)
+            get_applogger().save_artifact("parser.cpp", info_string + code, sol_idx=self.solution_idx, priority=ArtifactPriority.Debug)
         except Exception as e:
             logger.exception(f"compile() : [{self.solution_idx}] save_artifact raised : {e}")
 
