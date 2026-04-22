@@ -20,7 +20,7 @@ TARGET_COLOR = "#00ff00"
 
 def load_results(output_folder: str) -> pd.DataFrame:
     df = pd.read_csv(os.path.join(output_folder, "results.csv"))
-    df["solution_arr"] = df["solution"].apply(lambda s: np.array(ast.literal_eval(s)) if isinstance(s, str) and s else np.array([]))
+    df["solution_arr"] = df["solution"].apply(lambda s: np.fromstring(s[1:-1], sep=", ") if isinstance(s, str) and s else np.array([]))
     return df
 
 
