@@ -349,9 +349,9 @@ public:
      * @param match Match candidate
      */
     template<class TSymbol>
-    constexpr bool check_ctx(const TSymbol& match, auto& prettyprinter = NoPrettyPrinter())
+    constexpr bool check_ctx(const TSymbol& match, auto& prettyprinter)
     {
-        bool res = do_check_ctx(match);
+        bool res = do_check_ctx(match, prettyprinter);
         prettyprinter.update_heur_ctx_at_check(match, res);
         return res;
     }
@@ -522,12 +522,20 @@ protected:
         }
     }
 
+
+    template<class TSymbol>
+    constexpr bool do_check_ctx(const TSymbol& match)
+    {
+        auto printer = NoPrettyPrinter();
+        return do_check_ctx(match, printer);
+    }
+
     /**
      * @brief Check if a match can exist in current ctx
      * @param match Match candidate
      */
     template<class TSymbol>
-    constexpr bool do_check_ctx(const TSymbol& match)
+    constexpr bool do_check_ctx(const TSymbol& match, auto& prettyprinter)
     {
         if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
         {
@@ -535,7 +543,15 @@ protected:
             for (const std::size_t pos : idx)  // rules where it cannot be present
             {
                 if (context[pos] > 0)
+                {
+                    prettyprinter.debug_message([&](auto add_text, auto add_symbol){
+                        add_text("Discarded rule");
+                        add_symbol(match);
+                        add_text("at");
+                        add_text(std::to_string(pos));
+                    }, __FILE__, __LINE__);
                     return false;
+                }
             }
         }
         return true;
