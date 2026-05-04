@@ -1076,6 +1076,9 @@ public:
     template<class Tree>
     void update_ast(const Tree& tree) {}
 
+    template<class VStr, class TokenTSet>
+    void set_input_str(const std::vector<Token<VStr, TokenTSet>>& tokens, std::size_t i) {}
+
     template<std::size_t N, class TMatches, class TFix, class CTODO, class GSymbol>
     void update_heur_ctx_at_next(const std::array<std::size_t, N>& context, const TMatches& nterms, const std::vector<TFix>& pre, const std::vector<TFix>& post, const CTODO prefix, const CTODO postfix, const std::vector<GSymbol>& stack) {}
 

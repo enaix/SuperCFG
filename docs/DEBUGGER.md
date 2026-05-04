@@ -12,6 +12,23 @@ The example of the UI is provided in `extra/dbg.cpp`, and the `DBGPrinter` class
 
 In order to change the keybinds, pass the keybind index from the `keybinds` map (0 - default) to `DBGPrinter<KEYBIND_ID>`. You may delegate new keybinds in this map.
 
+## Debug prints
+
+If you wish to pause the execution of the debugger at some particular line of code, call the `DBGPrinter::debug_message`:
+
+```
+prettyprinter.debug_message([&](auto add_text, auto add_symbol){
+    add_text("Permissive handler: adding nonzero prefix ");
+    add_symbol(symbol);
+    add_text(" for rule ");
+    add_symbol(rule);
+    add_text(" at pos ");
+    add_text(std::to_string(pre));
+}, __FILE__, __LINE__);
+```
+
+This will show a debug window with the provided text while pausing the program execution.
+
 ## Parser structures troubleshooting
 
 Sometimes the debugger is not enough, and you may need to obtain the exact template instantiations. You may use the following compilation flags in order to inspect the intermediate parser generator structures.

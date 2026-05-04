@@ -407,6 +407,8 @@ public:
         // Initialize point at zero
         std::vector<GSymbolV> stack{GSymbolV(tokens[0].value, tokens[0].type)};
         std::size_t i = 1;
+        if constexpr (enabled<SRConfEnum::PrettyPrint>())
+            printer.set_input_str(tokens, i);
 
         while (true) //(i < tokens.size())
         {
@@ -429,7 +431,8 @@ public:
                     // TODO replace Token class with GSymbol
                     tok = GSymbolV(tokens[j].value, tokens[j].type); // take the next term from the tokens
                 }
-                while (!printer.process_at_heur_ctx()) {}
+                if constexpr (enabled<SRConfEnum::PrettyPrint>())
+                    while (!printer.process_at_heur_ctx()) {}
                 // ambiguity resolved
             }
 
@@ -442,6 +445,8 @@ public:
 
                 stack.push_back(GSymbolV(tokens[i].value, tokens[i].type));
                 i++;
+                if constexpr (enabled<SRConfEnum::PrettyPrint>())
+                    printer.set_input_str(tokens, i);
                 //if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "[sh] s: [";
             } //else if constexpr (enabled<SRConfEnum::PrettyPrint>()) std::cout << "[re] s: [";
             //if constexpr (enabled<SRConfEnum::PrettyPrint>()) { prettyprint(stack); std::cout << "]" << std::endl; }

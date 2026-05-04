@@ -108,7 +108,7 @@ template<char key> static constexpr char PressShift() { if constexpr (key > 'Z')
 template<char key> static constexpr char PressRegular() { if constexpr (key <= 'Z') { return key - 'A' + 'a'; } else return key; }
 
 
-static constexpr char keybinds[2][17] = {
+static constexpr char keybinds[2][18] = {
     {   // DEFAULT
         '\t', // Next Win
         // Main menu
@@ -120,6 +120,7 @@ static constexpr char keybinds[2][17] = {
         PressCtrl<'P'>(), // Prefs (Settings)
         // Open Win
         PressRegular<'E'>(), // EBNF Repr
+        PressRegular<'I'>(), // View Input
         PressRegular<'R'>(), // Reverse rules
         PressRegular<'T'>(), // Terms type map
         PressRegular<'F'>(), // Fix Heur
@@ -143,6 +144,7 @@ static constexpr char keybinds[2][17] = {
         PressRegular<'P'>(), // Prefs (Settings)
         // Open Win
         PressRegular<'E'>(), // EBNF Repr
+        PressRegular<'I'>(), // View Input
         PressRegular<'R'>(), // Reverse rules
         PressRegular<'T'>(), // Terms type map
         PressRegular<'F'>(), // Fix Heur
@@ -160,6 +162,7 @@ static constexpr char keybinds[2][17] = {
 
 enum class KeyIdx : int
 {
+    // Enums order should be the same as in keybinds
     // Main menu
     NextWin,
     OpenWin,
@@ -170,6 +173,7 @@ enum class KeyIdx : int
     Settings,
     // Open Win
     EBNFRepr,
+    InputStr,
     ReverseRules,
     TermsTypeMap,
     FixHeur,
@@ -197,17 +201,17 @@ enum class PrinterMode : std::size_t
 
 enum class PrinterWindows
 {
-    // Windows which need to be updated
+    // Window order in enum should not be changed, since it is used in saved prefs
     Stack,
     Descend,
     AST,
     HeurCtx,
     DebugMsg,    // Right now only a single debug window is supported
-    // Static windows
     EBNF,
     RRTree,
     FixHeur, // Updated once during init
     TermsTypeMap,
+    InputStr,
 
     None // End of enum
 };
@@ -260,6 +264,7 @@ public:
         _widgets[(std::size_t)PrinterWindows::RRTree] = make_rr_tree(rr_tree);
         _widgets[(std::size_t)PrinterWindows::FixHeur] = make_empty_fix();
         _widgets[(std::size_t)PrinterWindows::HeurCtx] = make_empty_heur_ctx();
+        _widgets[(std::size_t)PrinterWindows::InputStr] = make_empty_input_str();
 
         std::vector<std::basic_string<TChar>> errors;
         bool ok = load(errors);
@@ -389,6 +394,12 @@ public:
         update_widget(make_ast(tree), PrinterWindows::AST);
     }
 
+    template<class VStr, class TokenTSet>
+    void set_input_str(const std::vector<Token<VStr, TokenTSet>>& tokens, std::size_t i)
+    {
+        update_widget(make_input_str(tokens, i), PrinterWindows::InputStr);
+    }
+
     void set_empty_descend()
     {
         update_widget(Widget<TChar>(WidgetLayout::Vertical, {
@@ -468,6 +479,14 @@ protected:
     {
         return Widget<TChar>(WidgetLayout::Vertical, {
             Widget<TChar>(std::basic_string<TChar>("HEUR CTX"), Colors::Primary, Quad(1,0,1,0)),
+            Widget<TChar>(std::basic_string<TChar>("Step over to generate data"), Colors::Secondary, Quad(1,0,1,0))
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
+    }
+
+    Widget<TChar> make_empty_input_str()
+    {
+        return Widget<TChar>(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("INPUT"), Colors::Primary, Quad(1,0,1,0)),
             Widget<TChar>(std::basic_string<TChar>("Step over to generate data"), Colors::Secondary, Quad(1,0,1,0))
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
     }
@@ -1016,6 +1035,26 @@ protected:
         return debug;
     }
 
+    template<class VStr, class TokenTSet>
+    Widget<TChar> make_input_str(const std::vector<Token<VStr, TokenTSet>>& tokens, std::size_t i)
+    {
+        Widget<TChar> input(WidgetLayout::Horizontal, {}, Colors::None);
+
+        for (std::size_t j = 0; j < tokens.size(); j++)
+        {
+            Colors color;
+            if (j < i) // Highlight
+                color = Colors::Accent3;
+            else
+                color = Colors::Accent2;
+            input.add_child(Widget<TChar>(std::basic_string<TChar>(tokens[j].value), color));
+        }
+        return Widget<TChar>(WidgetLayout::Vertical, {
+            Widget<TChar>(std::basic_string<TChar>("INPUT"), Colors::Primary, Quad(1,0,1,0)),
+            input
+        }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
+    }
+
     template<class VStr, class TokenTSet, class TSymbol>
     Widget<TChar> make_descend(const std::vector<GrammarSymbol<VStr, TokenTSet>>& stack, const TSymbol& rule, std::size_t idx, std::size_t candidate, std::size_t total, std::size_t parsed, bool found)
     {
@@ -1317,6 +1356,11 @@ protected:
                     {
                     case get_key<KeyIdx::EBNFRepr>():
                         winstack.push(_widgets[(std::size_t)PrinterWindows::EBNF], 0, (int)PrinterWindows::EBNF); // EBNF
+                        _mode = PrinterMode::Normal;
+                        winstack.overlays[0] = make_bottom_overlay();
+                        return true;
+                    case get_key<KeyIdx::InputStr>():
+                        winstack.push(_widgets[(std::size_t)PrinterWindows::InputStr], 0, (int)PrinterWindows::InputStr); // INPUT
                         _mode = PrinterMode::Normal;
                         winstack.overlays[0] = make_bottom_overlay();
                         return true;
@@ -1667,6 +1711,8 @@ protected:
                 return Widget<TChar>(WidgetLayout::Horizontal, {
                         Widget<TChar>(get_keybind_text<KeyIdx::EBNFRepr>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("EBNF Repr"), Colors::Primary),
+                        Widget<TChar>(get_keybind_text<KeyIdx::InputStr>(), Colors::Accent3),
+                        Widget<TChar>(std::basic_string<TChar>("View Input"), Colors::Primary),
                         Widget<TChar>(get_keybind_text<KeyIdx::ReverseRules>(), Colors::Accent3),
                         Widget<TChar>(std::basic_string<TChar>("Rev Rules"), Colors::Primary),
                         Widget<TChar>(get_keybind_text<KeyIdx::TermsTypeMap>(), Colors::Accent3),
