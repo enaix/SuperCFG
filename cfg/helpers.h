@@ -496,6 +496,11 @@ namespace cfg_helpers
 } // cfg_helpers
 
 
+/*
+ * Type morphing: cast Src<T1, T2, ..., Tn> into Target<f(T1), f(T2), ..., f(Tn)>
+ */
+
+
 /**
  * @brief Type morphing function that constructs a type Target<T...> using morph<int> lambda. To be used with decltype()
  * @tparam Target Target class template (std::variant, std::tuple)
@@ -812,6 +817,26 @@ struct is_homogeneous<std::array<T, N>>
 };
 
 template<class Src> static constexpr bool is_homogeneous_v = is_homogeneous<Src>::value;
+
+
+template<class T>
+struct is_tuple
+{
+    static constexpr bool value = false;
+};
+
+
+/**
+ * @brief Check if a type is the std::tuple
+ */
+template<class... T>
+struct is_tuple<std::tuple<T...>>
+{
+    static constexpr bool value = true;
+};
+
+
+template<class T> static constexpr bool is_tuple_v = is_tuple<T>::value;
 
 
 /**

@@ -71,3 +71,5 @@ Can be enabled with `-DCMAKE_CXX_FLAGS=-DDBG_PRINT_TERMS_TYPE_MAP` and overriden
 ### Other structures
 
 Reverse rules tree: `-DCMAKE_CXX_FLAGS=-DDBG_PRINT_RR_TREE`, `-DCMAKE_CXX_FLAGS=-DNO_DBG_PRINT_RR_TREE`
+
+Full reverse rules tree (from `rc1_get_full_rrtree`) logging is not implemented properly right now, but you may uncomment the debug print statement (search for `DBG_PRINT_RR_TREE_FULL` statement in `extra/superdbg.h`) and launch the debugger.

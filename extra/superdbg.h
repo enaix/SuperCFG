@@ -104,7 +104,7 @@ static constexpr BoxStyle printer_theme_box_style[] = {
 
 // Press modifiers
 template<char key> static constexpr char PressCtrl() { if constexpr (key > 'Z') { return key - 'a' + 1; } else return key - 'A' + 1; }
-template<char key> static constexpr char PressShift() { if constexpr (key > 'Z') { return key; } else return key - 'A' + 'a'; }
+//template<char key> static constexpr char PressShift() { if constexpr (key > 'Z') { return key; } else return key - 'A' + 'a'; }
 template<char key> static constexpr char PressRegular() { if constexpr (key <= 'Z') { return key - 'A' + 'a'; } else return key; }
 
 
@@ -301,11 +301,26 @@ public:
     }
 
 
-    template<class TMatches, class TRules, class AllTerms, class TermsDefs, class NTermsPosPairs, class TermsPosPairs, class FixLimits>
-    void init_ctx_classes(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const TermsDefs& terms2nterms, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t, const FixLimits& limits)
+    template<class TMatches, class TRules, class AllTerms, class TermsDefs, class NTermsPosPairs, class TermsPosPairs, class FixLimits, class FullRRTree>
+    void init_ctx_classes(const TMatches& rules, const TRules& all_rr, const AllTerms& all_t, const TermsDefs& terms2nterms, const NTermsPosPairs& pairs_nt, const TermsPosPairs& pairs_t, const FixLimits& limits, const FullRRTree& full_rr)
     {
         update_widget(make_rules_fix(rules, all_rr, all_t, pairs_nt, pairs_t, limits), PrinterWindows::FixHeur);
         update_widget(make_terms_type_map(all_t, terms2nterms), PrinterWindows::TermsTypeMap);
+
+        // DBG_PRINT_RR_TREE_FULL Uncomment this to get the full RR tree
+        /*debug_message([&](auto add_text, auto add_symbol){
+            add_text("Full RR (rule id -> [rules...]): ");
+            tuple_each(full_rr, [&](const std::size_t i, const auto& elem){
+                std::string res("[");
+                for (std::size_t v : elem) {
+                    res += std::to_string(v) + ", ";
+                }
+                res += "], ";
+                add_text(res);
+            });
+        }, __FILE__, __LINE__);*/
+        //update_widget(make_rr_tree(full_rr), PrinterWindows::FullRRTree);
+        // TODO add proper Full RR Tree
     }
 
     bool process() // Returns true if the stack can progress further
@@ -454,6 +469,7 @@ public:
         while (winstack.find((int)PrinterWindows::DebugMsg) != -1)
         {
             while(!process()) {}
+            // TODO fix interrupt logic
         }
     }
 
