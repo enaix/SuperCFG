@@ -82,7 +82,7 @@ public:
 };
 
 
-template<class TMatches, class NTermsPosPairs, class TermsPosPairs, class TRules, class TTerms, class FullRRTree, class FixLimits>
+template<class TMatches, class NTermsPosPairs, class TermsPosPairs, class TRules, class TTerms, class RRTree, class FullRRTree, class FixLimits>
 class ContextManager
 {
 public:
@@ -94,16 +94,18 @@ public:
 
     std::vector<CtxMeta> prefix; // non-ambiguous prefix match (we may have multiple matches)
     std::vector<CtxMeta> postfix; // ditto
+    std::size_t starting_symbol; // index of the starting nterm (needed for restricted ctx check)
 
     TMatches matches;
     NTermsPosPairs pos_nterm;
     TermsPosPairs pos_term;
     TRules rules; // all rules
     TTerms t_terms; // all terms
+    RRTree rr_tree;
     FullRRTree rr_all;
     FixLimits limits;
 
-    constexpr ContextManager(const TMatches& m, const NTermsPosPairs& p_nterm, const TermsPosPairs& p_term, const TRules& r, const TTerms& all_terms, const FullRRTree& rr_all, const FixLimits& limits) : matches(m), pos_nterm(p_nterm), pos_term(p_term), rules(r), t_terms(all_terms), rr_all(rr_all), limits(limits) {}
+    constexpr ContextManager(const TMatches& m, const NTermsPosPairs& p_nterm, const TermsPosPairs& p_term, const TRules& r, const TTerms& all_terms, const RRTree& rr_tree, const FullRRTree& rr_all, const FixLimits& limits) : matches(m), pos_nterm(p_nterm), pos_term(p_term), rules(r), t_terms(all_terms), rr_tree(rr_tree), rr_all(rr_all), limits(limits) {}
 
     /**
      * @brief Reset the context of the array. Should be performed at the start of parsing
@@ -117,6 +119,14 @@ public:
         postfix_todo.reset();
         prefix.clear();
         postfix.clear();
+        starting_symbol = std::numeric_limits<std::size_t>::max();
+    }
+
+    template<class TSymbol>
+    void set_starting_symbol(const TSymbol& nterm)
+    {
+        constexpr std::size_t index = get_ctx_index<0, std::decay_t<TSymbol>>();
+        starting_symbol = index;
     }
 
     /**
@@ -537,7 +547,7 @@ protected:
     template<class TSymbol>
     constexpr bool do_check_ctx(const TSymbol& match, auto& prettyprinter)
     {
-        if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
+        /*if constexpr (std::tuple_size_v<std::decay_t<FullRRTree>> > 0)
         {
             const auto& idx = get_rr_all(match);
             for (const std::size_t pos : idx)  // rules where it cannot be present
@@ -554,7 +564,61 @@ protected:
                 }
             }
         }
-        return true;
+        return true;*/
+        return do_check_ctx_restrictive(match, prettyprinter);
+    }
+
+
+    /**
+     * @brief Same as do_check_ctx, but is more restrictive
+     */
+    template<class TSymbol>
+    constexpr bool do_check_ctx_restrictive(const TSymbol& match, auto& prettyprinter)
+    {
+        /*
+         * for each related rule of match:
+         *     if exists(rule.prefix) and rule is not a part of prefix:
+         *         return true
+         *     else
+         *         return false
+         */
+        constexpr std::size_t index = get_ctx_index<0, std::decay_t<TSymbol>>();  // get idx of match
+        const auto& rr = std::get<index>(rr_tree.tree);  // Get related rules
+
+        bool ok = tuple_each_or_return(rr, [&](const std::size_t i, const auto& rule){
+            /*prettyprinter.debug_message([&](auto add_text, auto add_symbol){
+                add_text("Match ");
+                add_symbol(match);
+                add_text(" has RR ");
+                add_symbol(rule);
+            }, __FILE__, __LINE__);*/
+            // Check if prefix exists by looking at limits
+            constexpr std::size_t rule_id = get_ctx_index<0, std::decay_t<decltype(rule)>>();  // get idx of the related rule
+            const auto [max_pre, min_post] = std::get<rule_id>(limits);
+
+            if constexpr (decltype(max_pre)::value != std::numeric_limits<std::size_t>::max())  // check that some prefix exists in the related rule
+            {
+                /*prettyprinter.debug_message([&](auto add_text, auto add_symbol){
+                    add_text("Rule ");
+                    add_symbol(rule);
+                    add_text(" has a prefix of size ");
+                    add_text(std::to_string(max_pre));
+                }, __FILE__, __LINE__);*/
+                // TODO check if match is not a part of the rule prefix (otherwise we wouldn't be able to reduce the prefix in the first place)
+                if (context[rule_id] > 0) return true;
+                else return false;  // try next
+            } else {
+                // Prefix doesn't exist for this rule, so we cannot check if this match is present in this rule at all
+                return true;
+            }
+        });
+        if (ok) return true;
+
+        prettyprinter.debug_message([&](auto add_text, auto add_symbol){
+            add_text("Discarded rule ");
+            add_symbol(match);
+        }, __FILE__, __LINE__);
+        return false;
     }
 };
 
@@ -581,7 +645,7 @@ constexpr auto make_ctx_manager(const RulesDef& rules, const RRTree& tree, const
 
     //static_assert(std::tuple_size_v<std::decay_t<decltype(tree.defs)>> == std::tuple_size_v<std::decay_t<decltype(pairs_nt)>>, "bad pairs_nt");
     prettyprinter.init_ctx_classes(defs_flatten, h_pre.unique_rr, terms_tmap.terms, terms_tmap.nterms, pairs_nt, pairs_t, fix_limits, h_pre.full_rr);
-    return ContextManager<decltype(defs_flatten), decltype(pairs_nt), decltype(pairs_t), decltype(h_pre.unique_rr), decltype(terms_tmap.terms), decltype(h_pre.full_rr), decltype(fix_limits)>(defs_flatten, pairs_nt, pairs_t, h_pre.unique_rr, terms_tmap.terms, h_pre.full_rr, fix_limits);
+    return ContextManager<decltype(defs_flatten), decltype(pairs_nt), decltype(pairs_t), decltype(h_pre.unique_rr), decltype(terms_tmap.terms), RRTree, decltype(h_pre.full_rr), decltype(fix_limits)>(defs_flatten, pairs_nt, pairs_t, h_pre.unique_rr, terms_tmap.terms, tree, h_pre.full_rr, fix_limits);
 }
 
 
