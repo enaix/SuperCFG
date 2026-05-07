@@ -419,7 +419,18 @@ public:
 
                 auto tok = stack.back();
 
-                for (std::size_t j = 0; !ctx_mgr.next(tok, stack, symbols_ht, printer); j++)
+                // OFFLINE MODE
+                if (!ctx_mgr.next(tok, stack, symbols_ht, printer))
+                {
+                    // Ambiguity found
+                    printer.debug_message([&](auto add_text, auto add_symbol){
+                        add_text("Ctx mgr ambiguity found");
+                    }, __FILE__, __LINE__);
+                }
+
+                // ONLINE MODE
+                // This logic is incorrect, as next() requires correct stack size
+                /*for (std::size_t j = 0; !ctx_mgr.next(tok, stack, symbols_ht, printer); j++)
                 {
                     while (!printer.process_at_heur_ctx()) {}
                     // Ambiguity found, move tok
@@ -430,7 +441,7 @@ public:
                     }
                     // TODO replace Token class with GSymbol
                     tok = GSymbolV(tokens[j].value, tokens[j].type); // take the next term from the tokens
-                }
+                }*/
                 if constexpr (enabled<SRConfEnum::PrettyPrint>())
                     while (!printer.process_at_heur_ctx()) {}
                 // ambiguity resolved
