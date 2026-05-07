@@ -194,7 +194,7 @@ public:
                 {
                     // we can also perform additional end-of-stack check (does the prefix+postfix fit?)
 
-                    for (std::size_t j = 0; j < prefix.size(); )
+                    for (int j = prefix.size() - 1; j >= 0; j--)  // TODO verify that j.fix is always decreasing
                     {
                         // we're currently matching non-ambiguous ctx, this code handles the ongoing match
                         // applied prefix or postfix are non-blocking: new matches can happen (in case if we have nested symbols)
@@ -202,25 +202,49 @@ public:
                         {
                             // prefix is non-empty and is the same as the current rule
                             // use _fix as the starting pos
-                            if (stack_size - 1 - prefix[j].fix != pre) [[unlikely]] // same rule, different symbol - looks counterintuitive
+                            // TODO disabling this check introduced another problem that existing prefix != this rule actually exists (see rule member)
+                            // ! This check is incorrect, since the partially reduced prefix may mismatch at any point
+                            // TODO add verification that all prefix symbols were visited, or that the prefix fully matches
+                            /*if (stack_size - 1 - prefix[j].fix != pre) [[unlikely]] // same rule, different symbol - looks counterintuitive
                             {
                                 // we have already applied the ctx, unexpected behavior
                                 prettyprinter.guru_meditation("expected static prefix to match with runtime, got a mismatch", __FILE__, __LINE__);
                                 assert(stack_size - 1 - prefix[j].fix == pre && "next() : guru meditation : expected static prefix to match with runtime, got a mismatch");
-                            }
+                            }*/
                             if (stack_size - 1 - prefix[j].fix == max_pre)
                             {
                                 // we reached the end
-                                prefix.erase(prefix.begin() + j); // no need to move j
-                            } else j++;
-                        } else j++;
+                                prefix.erase(prefix.begin() + j); // ok to move j
+                            }
+                        }
                     }
 
                     if (prefix_todo[rule_id] != max_t())
                     {
+                        // Check which candidates should be dropped from prefix_todo
                         // use _todo as the starting pos
+                        // TODO (important) This way of checking for bad todo candidates is incorrect, we should check the full rr tree instead
                         // TODO add optional (if pre == max_pre - 1 -> apply)
                         // TODO check the case where pre == 0
+
+                        // GREEDY RESOLVER - allow everything until we find the last element of prefix
+                        /*auto fix_todo = prefix_todo[rule_id];
+                        if (stack_size - 1 - fix_todo == max_pre)
+                        {
+                            // Pick the first one greedily. Works fine in an offline parse, if the prefixes don't overlap
+                            for (std::size_t k = 0; k < prefix_todo.size(); k++)
+                            {
+                                // We also must validate that the LHS is actually of this symbol (which makes the current implementation totally broken)
+                                // Erase all todos with the same starting pos, since we apply the current one right now. This doesn't work in complex cases
+                                if (k != rule_id && prefix_todo[k] == fix_todo)
+                                    prefix_todo.remove(rule_id);
+                                // Since we have applied the current symbol as prefix, apply the context
+                                context[rule_id]++;
+                                prefix_todo.remove(rule_id);
+                            }
+                        }*/
+
+                        // LITERAL RESOLVER - drop on single inconsistency, expects prefixes to be literal
                         if (stack_size - 1 - prefix_todo[rule_id] == pre)
                         {
                             // FOUND
@@ -276,30 +300,47 @@ public:
                     // we can also perform additional end-of-stack check (does the prefix+postfix fit?)
                     // also we should check that the prefix rule matches (link prefixes and postfixes together)
 
-                    for (std::size_t j = 0; j < postfix.size(); )
+                    for (int j = postfix.size() - 1; j >= 0; j--)  // Also verify that the order of fix is correct
                     {
                         // we're currently matching non-ambiguous ctx
                         // applied prefix or postfix are blocking: no new matches can happen
                         if (postfix[j].rule_id == rule_id)
                         {
                             // use _fix as the starting pos
-                            if (postfix[j].fix + post != stack_size - 1) [[unlikely]]
+                            // Same as in prefix: this is a bad check
+                            /*if (postfix[j].fix + post != stack_size - 1) [[unlikely]]
                             {
                                 // we have already applied the ctx, unexpected behavior
                                 // ASSERT
                                 prettyprinter.guru_meditation("expected static postfix to match with runtime, got a mismatch", __FILE__, __LINE__);
                                 assert(postfix[j].fix + post == stack_size - 1 && "next() : guru meditation : expected static postfix to match with runtime, got a mismatch");
-                            }
+                            }*/
                             if (post_dist == 0)
                             {
                                 // we reached the end
                                 // FOUND
-                                postfix.erase(postfix.begin() + j); // no need to move j
-                            } else j++;
-                        } else j++;
+                                // TODO verify the correctness of this check
+                                postfix.erase(postfix.begin() + j); // ok to move j
+                            }
+                        }
                     }
                     if (postfix_todo[rule_id] != max_t())
                     {
+                        // GREEDY RESOLVER
+                        /*auto fix_todo = postfix_todo[rule_id];
+                        if (stack_size - 1 - fix_todo == max_pre)
+                        {
+                            // Pick the first one greedily. Works fine in an offline parse, if the prefixes don't overlap
+                            for (std::size_t k = 0; k < postfix_todo.size(); k++)
+                            {
+                                // Erase all todos with the same starting pos, since we apply the current one right now. This doesn't work in complex cases
+                                if (k != rule_id && postfix_todo[k] == fix_todo)
+                                    postfix_todo.remove(rule_id);
+                                postfix_todo.remove(rule_id);
+                            }
+                        }*/
+
+                        // LITERAL RESOLVER
                         // use _todo as the starting pos
                         if (postfix_todo[rule_id] + post == stack_size - 1)
                         {
@@ -312,10 +353,14 @@ public:
                     } else {
                         // first match
 
+                        // TODO check that the last added prefix rule is different
                         if (post == 0)
                         {
                             // FOUND
-                            postfix_todo.add(rule_id, stack_size - 1);
+                            if (do_check_ctx(rule))
+                            {
+                                postfix_todo.add(rule_id, stack_size - 1);
+                            }
                         } else {
                             // we need different logic for handling cases when prefix != 0
                             // permissive handler:
@@ -411,6 +456,7 @@ public:
         // We can optimize this part by moving this to runtime
         //const auto fix_rt = h_type_morph<std::array<std::pair<std::size_t, std::size_t>, std::tuple_size_v<std::decay_t<FixLimits>>>, true>([]<std::size_t i>(const auto& src){ const auto p = std::get<i>(src); return std::make_pair((std::size_t)p.first, (std::size_t)p.second); }, IntegralWrapper<std::tuple_size_v<std::decay_t<FixLimits>>>{}, limits);
 
+        // TODO Currently, we crash if some symbol is reduced. This may cause some false-positive crashes
         // Check if positions are invalidated after this operation
         for (const auto& pre : prefix)
         {
@@ -442,7 +488,7 @@ public:
             {
                 if (prefix_todo[i] >= new_stack_size)
                 {
-                    // We possibly need to eliminate candidate, but for now we should crash
+                    // TODO We need to eliminate this candidate, but for now we should crash
                     prettyprinter.guru_meditation("prefix todo prefix found in the reduced symbol", __FILE__, __LINE__);
                     assert(prefix_todo[i] < new_stack_size && "apply_reduce() : guru meditation : prefix todo found in the reduced symbol");
                 }
@@ -584,6 +630,7 @@ protected:
          */
         constexpr std::size_t index = get_ctx_index<0, std::decay_t<TSymbol>>();  // get idx of match
         const auto& rr = std::get<index>(rr_tree.tree);  // Get related rules
+        // TODO check for a lower level of inclusion, since there may be rr -> rr -> symbol
 
         bool ok = tuple_each_or_return(rr, [&](const std::size_t i, const auto& rule){
             /*prettyprinter.debug_message([&](auto add_text, auto add_symbol){
@@ -598,14 +645,21 @@ protected:
 
             if constexpr (decltype(max_pre)::value != std::numeric_limits<std::size_t>::max())  // check that some prefix exists in the related rule
             {
-                /*prettyprinter.debug_message([&](auto add_text, auto add_symbol){
-                    add_text("Rule ");
-                    add_symbol(rule);
-                    add_text(" has a prefix of size ");
-                    add_text(std::to_string(max_pre));
-                }, __FILE__, __LINE__);*/
-                // TODO check if match is not a part of the rule prefix (otherwise we wouldn't be able to reduce the prefix in the first place)
                 if (context[rule_id] > 0) return true;
+                // TODO check if match is not a part of the rule prefix (otherwise we wouldn't be able to reduce the prefix in the first place)
+                // ELSE we check if the parent rule is in todo (we need to allow all possible candidates here)
+                if (prefix_todo[rule_id] != std::numeric_limits<std::size_t>::max())
+                {
+                    prettyprinter.debug_message([&](auto add_text, auto add_symbol){
+                        add_text("Prefix TODO has a rule ");
+                        add_symbol(rule);
+                        add_text(", allowing ");
+                        add_symbol(match);
+                        add_text(" here...");
+                    }, __FILE__, __LINE__);
+                    return true;
+                }
+
                 else return false;  // try next
             } else {
                 // Prefix doesn't exist for this rule, so we cannot check if this match is present in this rule at all
