@@ -419,7 +419,7 @@ public:
 
                 auto tok = stack.back();
 
-                // OFFLINE MODE
+                // ONLINE MODE
                 if (!ctx_mgr.next(tok, stack, symbols_ht, printer))
                 {
                     // Ambiguity found
@@ -428,7 +428,7 @@ public:
                     }, __FILE__, __LINE__);
                 }
 
-                // ONLINE MODE
+                // OFFLINE MODE
                 // This logic is incorrect, as next() requires correct stack size
                 /*for (std::size_t j = 0; !ctx_mgr.next(tok, stack, symbols_ht, printer); j++)
                 {
@@ -447,7 +447,7 @@ public:
                 // ambiguity resolved
             }
 
-            if (!reduce_lookahead_runtime(stack, &node, tokens, i, printer))
+            if (!reduce_lookahead_runtime(stack, root, &node, tokens, i, printer))
             {
                 // Shift operation
                 if (i == tokens.size()) [[unlikely]]
@@ -613,7 +613,8 @@ protected:
         return false;
     }
 
-    bool reduce_lookahead_runtime(std::vector<GSymbolV>& stack, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind, TPrinter& printer)
+    template<class RootSymbol>
+    bool reduce_lookahead_runtime(std::vector<GSymbolV>& stack, const RootSymbol& root_s, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind, TPrinter& printer)
     {
         if constexpr (enabled<SRConfEnum::Lookahead>())
         {
@@ -621,15 +622,15 @@ protected:
             {
                 //if constexpr (enabled<SRConfEnum::PrettyPrint>())
                 //    std::cout << "l: " << tokens[tokens_ind].type << std::endl;
-                return reduce_runtime(stack, root, tokens, tokens_ind, tokens[tokens_ind].type, printer);
+                return reduce_runtime(stack, root_s, root, tokens, tokens_ind, tokens[tokens_ind].type, printer);
             }
             // Disable lookahead check
-            return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type(), printer);
-        } else return reduce_runtime(stack, root, tokens, tokens_ind, std::false_type(), printer);
+            return reduce_runtime(stack, root_s, root, tokens, tokens_ind, std::false_type(), printer);
+        } else return reduce_runtime(stack, root_s, root, tokens, tokens_ind, std::false_type(), printer);
     }
 
-    template<class LookaheadS>
-    bool reduce_runtime(std::vector<GSymbolV>& stack, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind, const LookaheadS& lookahead, TPrinter& printer)
+    template<class LookaheadS, class RootSymbol>
+    bool reduce_runtime(std::vector<GSymbolV>& stack, const RootSymbol& root_s, Tree* root, const std::vector<TokenV>& tokens, std::size_t tokens_ind, const LookaheadS& lookahead, TPrinter& printer)
     {
         // First loop over the stack
         // Greedy mode: check longer substr first
@@ -784,8 +785,13 @@ protected:
                     // It is cheaper to perform context check now
                     if constexpr (enabled<SRConfEnum::HeuristicCtx>())
                     {
-                        if (!ctx_mgr.check_ctx(match, printer))
-                            return false; // not allowed in current ctx
+                        if (std::is_same_v<std::decay_t<decltype(match)>, std::decay_t<RootSymbol>> && i == 0)
+                        {
+                            // Do not perform check_ctx, since it's the root symbol
+                        } else {
+                            if (!ctx_mgr.check_ctx(match, printer))
+                                return false; // not allowed in current ctx
+                        }
                     }
 
                     // Get definition of the common type
