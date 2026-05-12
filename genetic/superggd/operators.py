@@ -64,9 +64,9 @@ class BaseOp(type):
         attrs["bake_supercfg"] = bake_supercfg
         attrs["__repr__"] = _repr
 
-        def init(instance, ops: list[Union[Type[BaseOp], Term, TermsRange, NTerm]]):
-            instance.ops = ops
-            if num_ops != -1 and len(ops) != num_ops:
+        def init(instance, *args: list[Union[Type[BaseOp], Term, TermsRange, NTerm]]):
+            instance.ops = args
+            if num_ops != -1 and len(args) != num_ops:
                 raise TypeError(f"Operator {name} can only accept {num_ops} arguments")
 
         if "__init__" not in attrs:
@@ -119,23 +119,23 @@ class End(metaclass=BaseOp, num_ops=-1):
     pass
 
 class RepeatExact(metaclass=BaseOp, num_ops=1):
-    def __init__(self, M: int, ops: list[Union[Type[BaseOp], Term, TermsRange, NTerm]]):
+    def __init__(self, M: int, *args: list[Union[Type[BaseOp], Term, TermsRange, NTerm]]):
         self.M = M
-        self.ops = ops
+        self.ops = args
 
 class RepeatGE(metaclass=BaseOp, num_ops=1):
-    def __init__(self, M: int, ops: list[Union[Type[BaseOp], Term, TermsRange, NTerm]]):
+    def __init__(self, M: int, *args: list[Union[Type[BaseOp], Term, TermsRange, NTerm]]):
         self.M = M
-        self.ops = ops
+        self.ops = args
 
 class RepeatRange(metaclass=BaseOp, num_ops=1):
-    def __init__(self, M: int, N: int, ops: list[Union[Type[BaseOp], Term, TermsRange, NTerm]]):
+    def __init__(self, M: int, N: int, *args: list[Union[Type[BaseOp], Term, TermsRange, NTerm]]):
         self.M = M
         self.N = N
-        self.ops = ops
+        self.ops = args
 
 class Grammar(metaclass=BaseOp, num_ops=-1):
     """Rules definition"""
-    def __init__(self, ops: list[Union[Type[BaseOp], Term, TermsRange, NTerm]], root: NTerm):
-        self.ops = ops
+    def __init__(self, root: NTerm, *args: list[Union[Type[BaseOp], Term, TermsRange, NTerm]]):
         self.root = root
+        self.ops = args
