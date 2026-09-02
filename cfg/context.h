@@ -205,12 +205,12 @@ public:
                             // TODO disabling this check introduced another problem that existing prefix != this rule actually exists (see rule member)
                             // ! This check is incorrect, since the partially reduced prefix may mismatch at any point
                             // TODO add verification that all prefix symbols were visited, or that the prefix fully matches
-                            /*if (stack_size - 1 - prefix[j].fix != pre) [[unlikely]] // same rule, different symbol - looks counterintuitive
+                            if (stack_size - 1 - prefix[j].fix != pre) [[unlikely]] // same rule, different symbol - looks counterintuitive
                             {
                                 // we have already applied the ctx, unexpected behavior
                                 prettyprinter.guru_meditation("expected static prefix to match with runtime, got a mismatch", __FILE__, __LINE__);
                                 assert(stack_size - 1 - prefix[j].fix == pre && "next() : guru meditation : expected static prefix to match with runtime, got a mismatch");
-                            }*/
+                            }
                             // TODO this seems to be incorrect if the prefix has duplicate symbols. We need to check for the whole path
                             if (stack_size - 1 - prefix[j].fix == max_pre)
                             {
@@ -483,20 +483,20 @@ public:
 
         // TODO Currently, we crash if some symbol is reduced. This may cause some false-positive crashes
         // Check if positions are invalidated after this operation
-        /*for (const auto& pre : prefix)
+        for (const auto& pre : prefix)
         {
             if (pre.fix >= new_stack_size)
             {
-                prettyprinter.debug_message([&](auto add_text, auto add_symbol){
+                /*prettyprinter.debug_message([&](auto add_text, auto add_symbol){
                     add_text(std::to_string(pre.fix));
                     add_text(" >= new stack size ");
                     add_text(std::to_string(new_stack_size));
-                }, __FILE__, __LINE__);
+                }, __FILE__, __LINE__);*/
                 // TODO partially reduced prefix technically shouldn't be in the reduced symbol, but we should check this
                 prettyprinter.guru_meditation("partially matched prefix found in the reduced symbol", __FILE__, __LINE__);
                 assert(pre.fix < new_stack_size && "apply_reduce() : guru meditation : partially matched prefix found in the reduced symbol");
             }
-        }*/
+        }
         /*for (int j = postfix.size() - 1; j >= 0; j--)
         {
             // postfix.fix is increasing (not post_dist)
@@ -516,11 +516,11 @@ public:
                 {
                     prefix_todo.remove(i);
                 }
-                /*if (prefix_todo[i] >= new_stack_size)
+                if (prefix_todo[i] >= new_stack_size)
                 {
                     prettyprinter.guru_meditation("prefix todo prefix found in the reduced symbol", __FILE__, __LINE__);
                     assert(prefix_todo[i] < new_stack_size && "apply_reduce() : guru meditation : prefix todo found in the reduced symbol");
-                }*/
+                }
             }
             if (postfix_todo[i] != std::numeric_limits<std::size_t>::max())
             {
@@ -530,11 +530,11 @@ public:
                 {
                     postfix_todo.remove(i);
                 }
-                /*if (postfix_todo[i] >= new_stack_size)
+                if (postfix_todo[i] >= new_stack_size)
                 {
                     prettyprinter.guru_meditation("postfix todo found in the reduced symbol", __FILE__, __LINE__);
                     assert(postfix_todo[i] < new_stack_size && "apply_reduce() : guru meditation : postfix todo found in the reduced symbol");
-                }*/
+                }
             }
         }
 
