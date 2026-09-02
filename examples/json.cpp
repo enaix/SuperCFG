@@ -90,7 +90,7 @@ int main()
     // TreeNode<VStr> is the AST class
     auto parser = make_sr_parser<VStr, TokenType, TreeNode<VStr>>(ruleset, lexer, conf, printer);
 
-    StdStr<char> in("[\"abc\",\"asdf\",{\"a\":1,\"b\":\"a\"}]");
+    StdStr<char> in("[\"abc\",\"as3f\",{\"a\":1,\"b\":\"a\"}]");
     bool ok;
     auto tokens = lexer.run(in, ok);
 

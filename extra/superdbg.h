@@ -108,7 +108,7 @@ template<char key> static constexpr char PressCtrl() { if constexpr (key > 'Z') 
 template<char key> static constexpr char PressRegular() { if constexpr (key <= 'Z') { return key - 'A' + 'a'; } else return key; }
 
 
-static constexpr char keybinds[2][18] = {
+static constexpr char keybinds[2][19] = {
     {   // DEFAULT
         '\t', // Next Win
         // Main menu
@@ -132,6 +132,7 @@ static constexpr char keybinds[2][18] = {
         PressCtrl<'W'>(), // WritePrefs
         PressCtrl<'D'>(), // DefaultPrefs
         PressRegular<'H'>(), // Pause at Heur Ctx match
+        PressRegular<'D'>(), // Verbose Debug
     },
     {   // NO CTRL
         '\t', // Next Win
@@ -156,6 +157,7 @@ static constexpr char keybinds[2][18] = {
         PressRegular<'W'>(), // WritePrefs
         PressRegular<'D'>(), // DefaultPrefs
         PressRegular<'H'>(), // Pause at Heur Ctx match
+        PressRegular<'D'>(), // Verbose Debug
     },
 };
 
@@ -185,6 +187,7 @@ enum class KeyIdx : int
     WritePrefs,
     DefaultPrefs,
     PauseAtHeurCtx,
+    EnableDebug,
 };
 
 
@@ -237,10 +240,11 @@ protected:
     // settings
     PrinterThemes _theme;
     bool _pause_at_heur_ctx;
+    bool _enable_debug;
 
 public:
     DBGPrinter(PrinterThemes theme = PrinterThemes::BIOSBlue) : terminal(std::cout), style(printer_themes[(std::size_t)theme]), _mode(PrinterMode::Normal), _keybind_idx(0), _style_select(PrinterThemes::Panic), _cur_box_style(printer_theme_box_style[(std::size_t)theme]),
-                                                                _pause_at_heur_ctx(false), _widgets{}, _theme(theme)
+                                                                _pause_at_heur_ctx(false), _enable_debug(false), _widgets{}, _theme(theme)
     {
         terminal.init_renderer();
         std::srand(std::time({}));
@@ -462,6 +466,7 @@ public:
     // Blocking !!
     void debug_message(auto build_widget, const char* file, int line)
     {
+        if (!_enable_debug) return;
         // build_widget should take the add_text and add_symbol functions, which construct the final widget
         winstack.push(make_debug_win(build_widget, file, line), 0, (int)PrinterWindows::DebugMsg); //, (std::size_t)IPWindowFlags::Modal);
         // block input
@@ -1001,6 +1006,18 @@ protected:
             Widget<TChar>(std::basic_string<TChar>("with the grammar configuration and parser input"), Colors::Primary, Quad(1,0,1,0)),
         }, Colors::None, Quad(), Quad(1,1,1,1), &_cur_box_style);
 
+        Widget<TChar> bell_btn(std::basic_string<TChar>("<bell>"), Colors::Primary, Quad(1,1,1,1));
+        bell_btn.set_selectable(true);
+        bell_btn.on_event = [](Widget<TChar>* self, WindowStack<TChar>* window, const IPEvent& ev, const std::vector<int>& path) -> bool
+        {
+            if (ev.type == EventType::Select || ev.type == EventType::Click)
+            {
+                decltype(terminal)::bell();
+                return true;
+            }
+            return false;
+        };
+
         Widget<TChar> abort_btn(std::basic_string<TChar>("<ABORT>"), Colors::Primary, Quad(1,1,1,1));
         abort_btn.set_selectable(true);
         abort_btn.on_event = [](Widget<TChar>* self, WindowStack<TChar>* window, const IPEvent& ev,
@@ -1013,7 +1030,9 @@ protected:
             }
             return false;
         };
-        alert.add_child(abort_btn);
+
+        Widget<TChar> btns(WidgetLayout::Horizontal, {bell_btn, abort_btn}, Colors::None);
+        alert.add_child(btns);
         return alert;
     }
 
@@ -1439,6 +1458,11 @@ protected:
                         kill_settings_win();
                         show_settings_win();
                         return true;
+                    case get_key<KeyIdx::EnableDebug>(): // D
+                        _enable_debug = !_enable_debug;
+                        kill_settings_win();
+                        show_settings_win();
+                        return true;
                     case 27:  // esc
                         kill_settings_win();
                         _mode = PrinterMode::Normal;
@@ -1760,12 +1784,16 @@ protected:
 
     void show_settings_win()
     {
+        auto add_bool_pref = [&]<KeyIdx key>(bool var, const auto& text){
+            return Widget<TChar>(WidgetLayout::Horizontal, {
+                (var ? Widget<TChar>(std::basic_string<TChar>("[*]"), Colors::Selected) : Widget<TChar>(std::basic_string<TChar>("[ ]"), Colors::Disabled)),
+                Widget<TChar>(get_keybind_text<key>(), Colors::Accent3),
+                Widget<TChar>(std::basic_string<TChar>(text), Colors::Primary),
+            }, Colors::None, Quad(), Quad(1,0,1,0));
+        };
         Widget<TChar> settings(WidgetLayout::Vertical, {
-            Widget<TChar>(WidgetLayout::Horizontal, {
-                (_pause_at_heur_ctx ? Widget<TChar>(std::basic_string<TChar>("[*]"), Colors::Selected) : Widget<TChar>(std::basic_string<TChar>("[ ]"), Colors::Disabled)),
-                Widget<TChar>(get_keybind_text<KeyIdx::PauseAtHeurCtx>(), Colors::Accent3),
-                Widget<TChar>(std::basic_string<TChar>("Pause at Heur Ctx next()"), Colors::Primary),
-            }, Colors::None, Quad(), Quad(1,0,1,0)),
+            add_bool_pref.template operator()<KeyIdx::PauseAtHeurCtx>(_pause_at_heur_ctx, "Pause at Heur Ctx next()"),
+            add_bool_pref.template operator()<KeyIdx::EnableDebug>(_enable_debug, "Show verbose debug prints"),
         }, Colors::None, Quad(2,3,2,3), Quad(), &_cur_box_style);
 
         winstack.push(settings, (std::size_t)IPWindowFlags::Modal);
@@ -1782,6 +1810,7 @@ protected:
         std::ofstream of(".superdbg.conf");
         if (!of) return false;
         of << "pause_at_heur_ctx: " << _pause_at_heur_ctx << std::endl;
+        of << "enable_debug: " << _enable_debug << std::endl;
         of << "theme: " << (std::size_t)_theme << std::endl;
         // Window stack
         std::size_t num = 0;
@@ -1831,6 +1860,7 @@ protected:
             } else {
                 // There ideally should be a hashtable/lut with settings, but the boilerplate would be pretty large
                 if (key == "pause_at_heur_ctx") { _pause_at_heur_ctx = (val == "1"); }
+                else if (key == "enable_debug") { _enable_debug = (val == "1"); }
                 else if (key == "theme")
                 {
                     try
