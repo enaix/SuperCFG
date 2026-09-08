@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 class SuperGGD:
     """
-    Main SuperGGD instance, handles ``pygad.GA`` and parser generators management. At each step executes parser generators and ``pre_fitness_fn`` in parallel. Also see ``init_parsers``.
+    Main SuperGGD instance, handles ``pygad.GA`` and parser generators management. At each step executes parser generators and ``pre_fn`` in parallel. Also see ``init_parsers``.
     ``output_folder``, ``log_dump_every_n`` are forwarded to AppLogger
 
     Parameters
@@ -33,13 +33,17 @@ class SuperGGD:
 
     fitness_fn:
         ``(solution, solution_idx, grammar, run_parser, pre_fn_result) -> float``
-        Called *after* all parser generators are compiled and all ``pre_fitness_fn`` exited.
+        Called *after* all parser generators are compiled and all ``pre_fn`` exited.
         ``run_parser(input_string) -> tuple[bool, Optional[ASTNode]]``
-        ``pre_fn_result`` is the ``pre_fitness_fn`` result (None if not set).
+        ``pre_fn_result`` is the ``pre_fn`` result (None if not set).
 
-    pre_fitness_fn (optional):
+    loss_fn:
+        Same as ``fitness_fn``, but instead of maximization the minimization task is performed.
+        Either ``loss_fn`` or ``fitness_fn`` must be defined.
+
+    pre_fn (optional):
         ``(solution, solution_idx, grammar) -> Any``
-        Runs concurrently with parser compilation. Its return value is forwarded as ``pre_fn_result`` to ``fitness_fn``.
+        Runs concurrently with parser compilation. Its return value is forwarded as ``pre_fn_result`` to ``fitness_fn``/``loss_fn``.
 
     num_parallel:
         How many parser generators to compile at once. Ideally should match the number of CPU cores, limited by the amount of available memory.
@@ -57,9 +61,10 @@ class SuperGGD:
         Every remaining keyword argument is forwarded to ``pygad.GA``. Do not pass ``fitness_func`` or ``on_generation``.
     """
 
-    def __init__(self, grammar_generator: Callable[[np.ndarray, int], Any],
-                 fitness_fn: Callable, *,
-                 pre_fitness_fn: Optional[Callable] = None,
+    def __init__(self, grammar_generator: Callable[[np.ndarray, int], Any], *,
+                 fitness_fn: Optional[Callable] = None,
+                 loss_fn: Optional[Callable] = None,
+                 pre_fn: Optional[Callable] = None,
                  num_parallel: int = 1,
                  compilation_strategy: Any = None,   # CompilationStrategy.Die
                  compilation_timeout: Optional[float] = None,
@@ -76,8 +81,16 @@ class SuperGGD:
         if compilation_strategy is None:
             compilation_strategy = CompilationStrategy.Die
         self._grammar_generator = grammar_generator
+
+        if fitness_fn is None and loss_fn is None:
+            raise ValueError("Either one of fitness_fn or loss_fn must be provided")
+        elif fitness_fn is not None and loss_fn is not None:
+            raise ValueError("Both fitness_fn and loss_fn cannot be defined at the same time")
         self._fitness_fn = fitness_fn
-        self._pre_fitness_fn = pre_fitness_fn
+        self._loss_fn = loss_fn
+        self._mode = "fitness" if self._fitness_fn is not None else "loss"
+
+        self._pre_fn = pre_fn
         self._compilation_timeout = compilation_timeout
         if extra_genes is None:
             self._extra_genes: list[str] = []
@@ -105,7 +118,7 @@ class SuperGGD:
         self._gens_timed: int = 0
 
         get_applogger().set_extra_params({
-            "num_parallel": num_parallel, "compilation_strategy": compilation_strategy, "compilation_timeout": compilation_timeout, "extra_genes": extra_genes
+            "mode": self._mode, "num_parallel": num_parallel, "compilation_strategy": compilation_strategy, "compilation_timeout": compilation_timeout, "extra_genes": extra_genes
         } | pygad_kwargs)
 
         for reserved in ("fitness_func", "on_generation"):
@@ -116,11 +129,11 @@ class SuperGGD:
 
     @staticmethod
     def from_module(module: Union[os.PathLike, Any], module_args: dict[str, Any], **kwargs) -> SuperGGD:
-        """Initialize SuperGGD with the specified module, kwargs must not include ``grammar_generator``, ``fitness_fn``, ``pre_fitness_fn`` and ``extra_genes``. module_args may also define module-specific args"""
-        restricted_params = ["grammar_generator", "fitness_fn", "pre_fitness_fn", "extra_genes"]
+        """Initialize SuperGGD with the specified module, kwargs must not include ``grammar_generator``, ``fitness_fn``, ``loss_fn``, ``pre_fn`` and ``extra_genes``. module_args may also define module-specific args"""
+        restricted_params = ["grammar_generator", "fitness_fn", "loss_fn", "pre_fn", "extra_genes"]
         all_restricted = restricted_params + ["extra_genes"]
         if any([x in kwargs for x in restricted_params]):
-            raise ValueError("kwargs must not include grammar_generator, fitness_fn, pre_fitness_fn and extra_genes")
+            raise ValueError("kwargs must not include grammar_generator, fitness_fn, loss_fn, pre_fn and extra_genes")
 
         # Initialize logging
         get_applogger().configure(output_folder=kwargs.get("output_folder"), dump_every_n=kwargs.get("log_dump_every_n", 1), min_priority=kwargs.get("log_min_priority", ArtifactPriority.Debug))
@@ -151,9 +164,19 @@ class SuperGGD:
                 raise ValueError(f"In module {module}, SUPERGGD_MODULE_EXPORT.post_init must be a callable")
             mod.post_init()
 
-        for attr in ("grammar_generator", "fitness_fn", "pygad_params"):
+        for attr in ("grammar_generator", "pygad_params"):
             if not hasattr(mod, attr):
                 raise ValueError(f"User module {module} must define SUPERGGD_MODULE_EXPORT.{attr}")
+
+        # fetch fitness_fn / loss_fn
+        has_fitness = hasattr(mod, "fitness_fn")
+        has_loss = hasattr(mod, "loss_fn")
+        if not has_fitness and not has_loss:
+            raise ValueError(f"User module {module} must define either SUPERGGD_MODULE_EXPORT.fitness_fn or SUPERGGD_MODULE_EXPORT.loss_fn")
+        elif has_fitness and has_loss:
+            raise ValueError(f"User module {module} cannot define both SUPERGGD_MODULE_EXPORT.fitness_fn and SUPERGGD_MODULE_EXPORT.loss_fn at the same time")
+        mod_fitness = mod.fitness_fn if has_fitness else None
+        mod_loss = mod.loss_fn if has_loss else None
 
         # get pygad params
         params = get_callable_or_obj(mod.pygad_params)
@@ -183,7 +206,7 @@ class SuperGGD:
 
             kwargs = kw_defaults | kwargs  # Overload elements in defaults with user-provided kwargs
 
-        ggd = SuperGGD(grammar_generator=mod.grammar_generator, fitness_fn=mod.fitness_fn, pre_fitness_fn=getattr(mod, "pre_fitness_fn", None), **kwargs)
+        ggd = SuperGGD(grammar_generator=mod.grammar_generator, fitness_fn=mod_fitness, loss_fn=mod_loss, pre_fn=getattr(mod, "pre_fitness_fn", None), **kwargs)
 
         # get default parsers params, will be overriden with the next init_parsers() call
         if hasattr(mod, "parsers_defaults"):
@@ -246,8 +269,13 @@ class SuperGGD:
         return self._ga
 
     def best_solution(self):
-        """Convenience wrapper around pygad.GA.best_solution()."""
+        """Convenience wrapper around pygad.GA.best_solution(). Note: in loss mode, value must be multiplied by -1.0 in order to obtain actual loss"""
         return self._ga.best_solution()
+
+    @property
+    def mode(self):
+        """Current execution mode, either fitness or loss"""
+        return self._mode
 
     def _new_parser(self, idx: int) -> Any:
         """Create new parser instance"""
@@ -257,7 +285,7 @@ class SuperGGD:
 
     def _start_generation(self, ga_instance: pygad.GA) -> None:
         """
-        Called at the start of each new generation. Handles parsers compilation and fitness_fn/pre_fitness_fn execution
+        Called at the start of each new generation. Handles parsers compilation and fitness_fn/loss_fn/pre_fn execution
         """
         population: np.ndarray = ga_instance.population
         n = len(population)
@@ -295,16 +323,16 @@ class SuperGGD:
         parsers = [self._new_parser(i) for i in range(len(valid_grammars))]
         self._manager.compile_batch(valid_grammars, parsers)
 
-        if self._pre_fitness_fn is not None:
+        if self._pre_fn is not None:
             def _run_pre(idx: int) -> tuple[int, Any]:
                 grammar = self._current_grammars[idx]
                 if grammar is None:
                     return idx, None
                 try:
-                    if self._pre_fitness_fn is not None:
-                        state = self._pre_fitness_fn(population[idx], idx, grammar)
+                    if self._pre_fn is not None:
+                        state = self._pre_fn(population[idx], idx, grammar)
                 except Exception:
-                    logger.exception("pre_fitness_fn raised for individual %d", idx)
+                    logger.exception("pre_fn raised for individual %d", idx)
                     state = None
                 return idx, state
 
@@ -356,9 +384,9 @@ class SuperGGD:
 
         grammar = self._current_grammars.get(solution_idx)
         if grammar is None:
-            logger.warning("No grammar for individual %d – returning 0.0", solution_idx)
-            get_applogger().log_fitness(solution_idx, 0.0)
             get_applogger().log_exec_status(solution_idx, "NoGrammar")
+            logger.warning("No grammar for individual %d – returning 0.0", solution_idx)
+            # Removed logging here
             return 0.0
 
         def run_parser(input_string: str) -> Any:
@@ -367,16 +395,28 @@ class SuperGGD:
         pre_fn_result = self._pre_states.get(solution_idx)
 
         exec_status = "Ok"
+        assert self._fitness_fn is not None != self._loss_fn is not None, "Either self._fitness_fn or self._loss_fn must be defined"
         try:
-            score = self._fitness_fn(solution, solution_idx, grammar, run_parser, pre_fn_result)
+            if self._fitness_fn is not None:
+                score = self._fitness_fn(solution, solution_idx, grammar, run_parser, pre_fn_result)
+            else:
+                loss: float = self._loss_fn(solution, solution_idx, grammar, run_parser, pre_fn_result)
+                score = -1.0 * loss
             # TODO add multivariate fitness fn support
         except Exception as e:
-            logger.exception(f"fitness_fn raised for individual {solution_idx} – returning 0.0 : {e}")
+            if self._mode == "fitness":
+                logger.exception(f"{self._mode} calculation failed for individual {solution_idx} – returning score=0.0 : {e}")
+            else:
+                logger.exception(f"{self._mode} calculation failed for individual {solution_idx} – returning score=0.0 : {e}")
             score = 0.0
             exec_status = "FitnessRaised"
 
         score = float(score)
-        get_applogger().log_fitness(solution_idx, score)
+        if exec_status == "ok":
+            if self._mode == "fitness":
+                get_applogger().log_fitness(solution_idx, score)
+            else:
+                get_applogger().log_loss(solution_idx, loss)
         get_applogger().log_exec_status(solution_idx, exec_status)
         return score
 
@@ -395,9 +435,11 @@ class SuperGGD:
         eta_m, eta_s_part = divmod(eta_rem, 60)
         eta_str = f"{eta_h:02d}:{eta_m:02d}:{eta_s_part:02d}"
 
-        best_fitness = ga_instance.best_solution()[1]
-        print(f"Gen {gen_done}/{num_gens} | fitness: {best_fitness:.6g} | elapsed: {elapsed:.2f}s | avg: {avg:.2f}s/gen | ETA: {eta_str}", file=sys.stderr)
-        logger.info("Generation %d complete. Best fitness: %.4f", gen_done, best_fitness)
+        best_val = ga_instance.best_solution()[1]
+        if self._mode == "loss":
+            best_val *= -1.0
+        print(f"Gen {gen_done}/{num_gens} | {self._mode}: {best_val:.6g} | elapsed: {elapsed:.2f}s | avg: {avg:.2f}s/gen | ETA: {eta_str}", file=sys.stderr)
+        logger.info(f"Generation %d complete. Best {self._mode}: %.4f", gen_done, best_val)
 
         get_applogger().log_gen_elapsed(elapsed, self._current_gen)
         get_applogger().end_generation(self._current_gen)

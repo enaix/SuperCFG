@@ -150,9 +150,9 @@ def main() -> None:
     ggd.init_parsers(parser_class, parser_args=parser_args)
 
     ga = ggd.run()
-    solution, fitness, idx = ga.best_solution()
+    solution, s, idx = ga.best_solution()
     print(f"\nBest solution (index {idx}): {solution}")
-    print(f"Best fitness : {fitness}")
+    print(f"Best {ggd.mode()} : {s}")
 
 
 if __name__ == "__main__":

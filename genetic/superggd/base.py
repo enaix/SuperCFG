@@ -194,6 +194,7 @@ class _SolutionLog:
     stderr: list[str] = field(default_factory=list)
     grammar: Optional[str] = None
     fitness: Optional[float] = None
+    loss: Optional[float] = None
     compile_status: Optional[str] = None
     exec_status: Optional[str] = None
     solution: Optional[Any] = None
@@ -243,7 +244,7 @@ class AppLogger:
 
     _MARKER_FILE = "superggd.txt"
     _RESULTS_CSV = "results.csv"
-    _CSV_FIELDS = ("generation", "sol_idx", "fitness", "is_best", "compile_status", "exec_status", "solution", "gen_elapsed_s")
+    _CSV_FIELDS = ("generation", "sol_idx", "fitness", "loss", "is_best", "compile_status", "exec_status", "solution", "gen_elapsed_s")
 
     def configure(self, output_folder: Optional[str], dump_every_n: int = 1, min_priority: ArtifactPriority = ArtifactPriority.Debug) -> None:
         """Configure the logger. If ``output_folder`` is None, logging is disabled. Will process only the first call"""
@@ -313,6 +314,13 @@ class AppLogger:
             return
         with self._lock:
             self._gen_bucket(gen).sol(sol_idx).fitness = float(fitness)
+
+    def log_loss(self, sol_idx: int, loss: float, gen: Optional[int] = None) -> None:
+        """Record loss for a solution within a generation"""
+        if not self.enabled:
+            return
+        with self._lock:
+            self._gen_bucket(gen).sol(sol_idx).loss = float(loss)
 
     def log_compile_status(self, sol_idx: int, status: Any, gen: Optional[int] = None) -> None:
         """Record compilation status for a solution within a generation"""
@@ -561,6 +569,7 @@ class AppLogger:
                     "generation": gen,
                     "sol_idx": idx,
                     "fitness": "" if sol.fitness is None else f"{sol.fitness:.10g}",
+                    "loss": "" if sol.loss is None else f"{sol.loss:.10g}",
                     "is_best": "1" if idx == best_idx else "0",
                     "compile_status": sol.compile_status or "",
                     "exec_status": sol.exec_status or "",
