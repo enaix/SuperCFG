@@ -20,12 +20,15 @@ int lsystem_tiling()
     constexpr auto d_one = Define(one, Alter(Term(cs<"1">()), Concat(Term(cs<"1">()), Term(cs<"1">()))));
     constexpr auto ruleset = RulesDef(d_zero, d_one);
 
+    constexpr auto d_zero_short = Define(zero, Alter(Term(cs<"0">()), Term(cs<"1[0]0">())));
+    constexpr auto d_one_short = Define(one, Alter(Term(cs<"1">()), Term(cs<"11">())));
+    constexpr auto ruleset_short = RulesDef(d_zero_short, d_one_short);
+
     using VStr = StdStr<char>; // Variable string class inherited from std::string<TChar>
     using TokenType = StdStr<char>; // Class used for storing a token type in runtime
 
-    // Create the shift-reduce parser
     // TreeNode<VStr> is the AST class
-    auto parser = TilingParser<VStr, TreeNode<VStr>, std::decay_t<decltype(ruleset)>>(ruleset);
+    auto parser = TilingParser<VStr, TreeNode<VStr>, std::decay_t<decltype(ruleset_short)>>(ruleset_short);
 
     while(true)
     {

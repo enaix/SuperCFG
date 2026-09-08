@@ -20,6 +20,11 @@ public:
         * Rules must be defined in the following notation:
         * RulesDef(Define(nterm, Alter(term_lhs, Concat(terms_rhs))),
         *          ...);
+        *   OR
+        * RulesDef(Define(nterm, Alter(term_lhs, term_rhs)),
+        *          ...);
+        *
+        * term_lhs must be a single symbol
         */
         const auto lhs = grammar_to_lhs();  // std::array of VStr
         const auto rhs = grammar_to_rhs();  // ditto
@@ -98,6 +103,7 @@ public:
             }
         }
         res = dp[input.size()];
+
         // save the {i,AST} mapping
         /*std::cout << "parent: {";
         for (const auto& p : subtrees)
@@ -132,8 +138,13 @@ protected:
             const auto& op_alter = std::get<1>(std::get<i>(defs.terms).terms);
             static_assert(get_operator<decltype(op_alter)>() == OpType::Alter, "Bad tiling parser grammar format: expected Define(..., Alter(lhs, Concat(rhs_i))), found not Alter");
             const auto& concat_s = std::get<1>(op_alter.terms);
-            static_assert(get_operator<decltype(concat_s)>() == OpType::Concat, "Bad tiling parser grammar format: expected Define(..., Alter(lhs, Concat(rhs_i))), found not Concat");
-            return VStr(concat_to_str(concat_s.terms, std::make_integer_sequence<std::size_t, std::tuple_size_v<std::decay_t<decltype(concat_s.terms)>>>()));
+            if constexpr (is_term<decltype(concat_s)>())
+            {
+                return VStr(concat_s.name);
+            } else {
+                static_assert(get_operator<decltype(concat_s)>() == OpType::Concat, "Bad tiling parser grammar format: expected Define(..., Alter(lhs, Concat(rhs_i))), found not Concat");
+                return VStr(concat_to_str(concat_s.terms, std::make_integer_sequence<std::size_t, std::tuple_size_v<std::decay_t<decltype(concat_s.terms)>>>()));
+            }
         }, IntegralWrapper<RulesSymbol::size()>{}, _rules);
     }
 
