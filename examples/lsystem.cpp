@@ -169,15 +169,16 @@ def r(s):
 
     // Configure the parser with desired options
     constexpr auto conf = mk_sr_parser_conf<
-        SRConfEnum::PrettyPrint  // Enable pretty printing for debugging
+        //SRConfEnum::PrettyPrint  // Enable pretty printing for debugging
         //SRConfEnum::Lookahead// Enable lookahead(1)
         >();//SRConfEnum::HeuristicCtx>();
 
     // Initialize the tokenizer
     auto lexer = make_lexer<VStr, TokenType>(ruleset, mk_lexer_conf<LexerConfEnum::AdvancedLexer, LexerConfEnum::HandleDuplicates>());
 
-    DBGPrinter printer;
-    printer.init_signal_handler();
+    //DBGPrinter printer;
+    NoPrettyPrinter printer;
+    //printer.init_signal_handler();
 
     // Create the shift-reduce parser
     // TreeNode<VStr> is the AST class
