@@ -71,7 +71,7 @@ int lsystem()
     // Binary tree
     constexpr auto zero = NTerm(cs<"zero">());
     constexpr auto one = NTerm(cs<"one">());
-    constexpr auto d_zero = Define(zero, Alter(Term(cs<"0">()), Concat(one, Term(cs<"[">()), zero, Term(cs<"]">()), zero)));
+    constexpr auto d_zero = Define(zero, Alter(Term(cs<"0">()), Concat(one, Term(cs<"[">()), zero, Term(cs<"]">()))));
     constexpr auto d_one = Define(one, Alter(Term(cs<"1">()), Concat(one, one)));
     constexpr auto ruleset = RulesDef(d_zero, d_one);
 
@@ -90,82 +90,6 @@ int lsystem()
     //
     // pick two longest repeating strings
     //
-    /*
-
-    Code with step-over:
-def r2(s):
-    pr = {}
-    sls = {}
-    all_subs = [] # should be an orderedset
-    for l in range(1, len(s)):
-        for start in range(0, len(s) - 1):
-            # Get all possible substrings
-            sub = s[start:start + l]
-            if sub not in all_subs:
-                all_subs.append(sub)
-
-    for sub in all_subs:
-        # scan for the positions:
-        start = 0
-        while start < (len(s) - len(sub) + 1):
-            if s[start:start + len(sub)] == sub:
-                if pr.get(sub) is not None:
-                    pr[sub] += 1
-                    sls[sub].append((start, start + len(sub)))
-                else:
-                    pr[sub] = 1
-                    sls[sub] = [(start, start + len(sub))]
-                start += len(sub) # skip over
-            else:
-                start += 1
-    return pr, sls
-
-    Find strings which are strongly mut.excl. with each other:
-
-def mut_strong(pr, sls):
-    mut = {}
-    cbi = {}  # cannot be in
-    for i, sub in enumerate(pr.keys()):
-        for j, s2 in enumerate(pr.keys()):
-            if j == i or (not sub in s2) or len(sls[sub]) == 0 or len(sls[sub]) != len(sls[s2]):
-                continue
-            # also skip subs of size 1
-            if pr[sub] == 1 or pr[s2] == 1:
-                continue
-            # Check strong condition
-            # We assume that sls is sorted
-            for k in range(len(sls[s2])):
-                if not (sls[sub][k][0] >= sls[s2][k][0] and sls[sub][k][1] <= sls[s2][k][1]):
-                    continue
-            if mut.get(s2) is not None:
-                mut[s2].append(sub)
-            else:
-                mut[s2] = [sub]
-            if cbi.get(sub) is not None:
-                cbi[sub].append(s2)
-            else:
-                cbi[sub] = [s2]
-    return mut, cbi
-
-
-
-    BROKEN:
-def r(s):
-    pr = {}
-    for l in range(1, len(s)):
-        for start in range(0, len(s) - 1, l):
-            if start + l >= len(s):
-                break
-            sub = s[start:start + l]
-            if sub in s:
-                if pr.get(sub) is not None:
-                    pr[sub] += 1
-                else:
-                    pr[sub] = 1
-    return pr
-
-
-     */
 
     using VStr = StdStr<char>; // Variable string class inherited from std::string<TChar>
     using TokenType = StdStr<char>; // Class used for storing a token type in runtime
@@ -203,7 +127,7 @@ def r(s):
 
         if (!ok) {
             std::cout << "lsystem() : lexer failed" << std::endl;
-            return 1;
+            //return 1;
         }
 
         // Create a parse tree
@@ -215,7 +139,7 @@ def r(s):
 
         if (!ok) {
             std::cout << "lsystem() : parser failed" << std::endl;
-            return 1;
+            //return 1;
         }
 
         // Process the parse tree
@@ -241,5 +165,6 @@ def r(s):
 
 int main()
 {
-    return lsystem_tiling();
+    //return lsystem_tiling();
+    return lsystem();
 }

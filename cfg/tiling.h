@@ -36,14 +36,16 @@ public:
         VStr res, cur = input;
         std::size_t depth = 0;
         std::vector<std::pair<std::size_t, Tree>> subtrees;
-        while (depth < maxdepth && step(cur, lhs, rhs, names, res, subtrees)) { /*std::cout << "res=\"" << res << "\"" << std::endl;*/ cur = res; ok = true; depth++; }
+
+        // if found=true but ok=false, we still continue to speculatively parse the string
+        while (depth < maxdepth && step(cur, lhs, rhs, names, res, subtrees, ok)) { /*std::cout << "res=\"" << res << "\"" << std::endl;*/ cur = res; depth++; }
         for (const auto& p : subtrees)
             node.add(p.second);
         node.add_value(res);  // set axiom
         return res;
     }
 
-    bool step(const VStr& input, const auto& lhs, const auto& rhs, const auto& names, VStr& res, std::vector<std::pair<std::size_t, Tree>>& subtrees)
+    bool step(const VStr& input, const auto& lhs, const auto& rhs, const auto& names, VStr& res, std::vector<std::pair<std::size_t, Tree>>& subtrees, bool& ok)
     {
         std::vector<VStr> dp(input.size() + 1, VStr(""));
         std::vector<bool> is_init(input.size() + 1, false);
@@ -104,17 +106,55 @@ public:
         }
         res = dp[input.size()];
 
-        // save the {i,AST} mapping
-        /*std::cout << "parent: {";
-        for (const auto& p : subtrees)
-            std::cout << "i=" << p.first << " " << p.second.value << ", ";
-        std::cout << "}" << std::endl;*/
-        if (found)  // do not overwrite subtrees
+        if (!found) return false;  // do not overwrite subtrees
+
+        if (!res.empty())
+        {
+            ok = true;
+
+            // save the {i,AST} mapping
+            /*std::cout << "parent: {";
+            for (const auto& p : subtrees)
+                std::cout << "i=" << p.first << " " << p.second.value << ", ";
+            std::cout << "}" << std::endl;*/
             subtrees = trees[input.size()];
-        /*std::cout << "new: {";
-        for (const auto& p : subtrees)
-            std::cout << "i=" << p.first << " " << p.second.value << ", ";
-        std::cout << "}" << std::endl;*/
+            /*std::cout << "new: {";
+            for (const auto& p : subtrees)
+                std::cout << "i=" << p.first << " " << p.second.value << ", ";
+            std::cout << "}" << std::endl;*/
+        }
+        else
+        {
+            // speculatively parse
+#if 0
+            // heuristic 1: find the last dp
+            for (int i = input.size(); i >= 0; i--)
+            {
+                if (!dp[i].empty())
+                {
+                    res = dp[i];
+                    subtrees = trees[i];
+                    break;
+                }
+            }
+#endif
+
+#if 1
+            // heuristic 1: find the last dp
+            std::size_t dp_max = 0, maxidx = 0;
+            for (std::size_t i = 0; i <= input.size(); i++)
+            {
+                if (dp[i].size() >= dp_max)  // prefer last by default
+                {
+                    dp_max = dp[i].size();
+                    maxidx = i;
+                }
+            }
+            res = dp[maxidx];
+            subtrees = trees[maxidx];
+#endif
+        }
+
         return found;
     }
 
