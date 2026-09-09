@@ -14,21 +14,26 @@
 int lsystem_tiling()
 {
     // Binary tree
-    constexpr auto zero = NTerm(cs<"zero">());
+    /*constexpr auto zero = NTerm(cs<"zero">());
     constexpr auto one = NTerm(cs<"one">());
     constexpr auto d_zero = Define(zero, Alter(Term(cs<"0">()), Concat(Term(cs<"1">()), Term(cs<"[">()), Term(cs<"0">()), Term(cs<"]">()), Term(cs<"0">()))));
     constexpr auto d_one = Define(one, Alter(Term(cs<"1">()), Concat(Term(cs<"1">()), Term(cs<"1">()))));
-    constexpr auto ruleset = RulesDef(d_zero, d_one);
+    constexpr auto ruleset = RulesDef(d_zero, d_one);*/
 
-    constexpr auto d_zero_short = Define(zero, Alter(Term(cs<"0">()), Term(cs<"1[0]0">())));
+    /*constexpr auto d_zero_short = Define(zero, Alter(Term(cs<"0">()), Term(cs<"1[0]0">())));
     constexpr auto d_one_short = Define(one, Alter(Term(cs<"1">()), Term(cs<"11">())));
-    constexpr auto ruleset_short = RulesDef(d_zero_short, d_one_short);
+    constexpr auto ruleset = RulesDef(d_zero_short, d_one_short);*/
+
+    // Koch curve
+    constexpr auto f = NTerm(cs<"f">());
+    constexpr auto d_f = Define(f, Alter(Term(cs<"F">()), Term(cs<"F+F-F-F+F">())));
+    constexpr auto ruleset = RulesDef(d_f);
 
     using VStr = StdStr<char>; // Variable string class inherited from std::string<TChar>
     using TokenType = StdStr<char>; // Class used for storing a token type in runtime
 
     // TreeNode<VStr> is the AST class
-    auto parser = TilingParser<VStr, TreeNode<VStr>, std::decay_t<decltype(ruleset_short)>>(ruleset_short);
+    auto parser = TilingParser<VStr, TreeNode<VStr>, std::decay_t<decltype(ruleset)>>(ruleset);
 
     while(true)
     {
@@ -69,11 +74,18 @@ int lsystem_tiling()
 int lsystem()
 {
     // Binary tree
-    constexpr auto zero = NTerm(cs<"zero">());
+    /*constexpr auto zero = NTerm(cs<"zero">());
     constexpr auto one = NTerm(cs<"one">());
-    constexpr auto d_zero = Define(zero, Alter(Term(cs<"0">()), Concat(one, Term(cs<"[">()), zero, Term(cs<"]">()))));
+    constexpr auto d_zero = Define(zero, Alter(Term(cs<"0">()), Concat(one, Term(cs<"[">()), zero, Term(cs<"]">()), zero)));
     constexpr auto d_one = Define(one, Alter(Term(cs<"1">()), Concat(one, one)));
     constexpr auto ruleset = RulesDef(d_zero, d_one);
+    constexpr auto root = zero;*/
+
+    // Koch curve
+    constexpr auto f = NTerm(cs<"f">());
+    constexpr auto d_f = Define(f, Alter(Term(cs<"F">()), Concat(f, Term(cs<"+">()), f, Term(cs<"-">()), f, Term(cs<"-">()), f, Term(cs<"+">()), f)));
+    constexpr auto ruleset = RulesDef(d_f);
+    constexpr auto root = f;
 
     // Target string: 1111[11[1[0]0]1[0]0]11[1[0]0]1[0]0
     // Common subsequences of len 2 (with step over):
@@ -134,7 +146,7 @@ int lsystem()
         TreeNode<VStr> tree;
 
         volatile std::chrono::steady_clock::time_point p_start = std::chrono::steady_clock::now();
-        ok = parser.run(tree, zero, tokens, printer);
+        ok = parser.run(tree, root, tokens, printer);
         volatile std::chrono::steady_clock::time_point p_end = std::chrono::steady_clock::now();
 
         if (!ok) {
@@ -165,6 +177,6 @@ int lsystem()
 
 int main()
 {
-    //return lsystem_tiling();
-    return lsystem();
+    return lsystem_tiling();
+    //return lsystem();
 }

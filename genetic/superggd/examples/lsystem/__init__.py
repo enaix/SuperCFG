@@ -13,6 +13,59 @@ logger = logging.getLogger(__name__)
 
 type SubstrMap = OrderedDict[str, tuple[int, list[tuple[int, int]]]]
 
+# Helper functions
+# ================
+
+'''
+https://github.com/jamfromouterspace/levenshtein/
+Jamiel Rahi
+GPL 2019
+'''
+def levenshtein(a, b, ratio=False):
+    if a == '' :
+        return len(b)
+    if b == '' :
+        return len(a)
+
+    n = len(a)
+    m = len(b)
+    # lev = np.zeros((n+1,m+1))
+    lev = [[0 for i in range(m+1)] for j in range(n+1)]
+
+    for i in range(0,n+1) :
+        lev[i][0] = i
+    for i in range(0,m+1) :
+        lev[0][i] = i
+
+    for i in range(1,n+1) :
+        for j in range(1,m+1) :
+            insertion = lev[i-1][j] + 1
+            deletion = lev[i][j-1] + 1
+            substitution = lev[i-1][j-1] + (1 if a[i-1]!= b[j-1] else 0)
+            lev[i][j] = min(insertion,deletion,substitution)
+
+    if ratio :
+        return (n+m-lev[n][m])/(n+m)
+    else :
+        return lev[n][m]
+
+
+def get_lsystem_edit_dist(rules: dict, axiom: str, maxdepth: int, target: str) -> float:
+    s = axiom
+    len_delta = abs(len(target) - len(s))
+    edit_dist = levenshtein(s, target)
+
+    for _ in range(maxdepth):
+        s = "".join(rules.get(ch, ch) for ch in s)  # expand_lsystem
+        new_delta = abs(len(target) - len(s))
+        if new_delta > len_delta:
+            return edit_dist
+        len_delta = new_delta
+        edit_dist = float(levenshtein(s, target))
+
+    return edit_dist
+
+
 class LSystem:
     def __init__(self) -> None:
         self._target: Optional[str] = None
@@ -134,8 +187,69 @@ class LSystem:
                 self.pygad_params["gene_constraint"].append(None)
 
     def grammar_generator(self, solution, solution_idx: int) -> Grammar:
+        lhs, rhs, axiom = self._solution_to_grammar(solution)
+
+        # Generate the ruleset
+        rhs_to_def = lambda x: NTerm(f"rule_{x}") if x in lhs else Term(x)  # Use terminal if symbol is a constant, else use the nterm
+        rules: list[Type[BaseOp]] = []
+        for i in range(self._num_rules):
+            if lhs[i] == "":
+                continue
+            rules.append(Define(NTerm(f"rule_{lhs[i]}"), Alter(Term(lhs[i]), Concat(*[rhs_to_def(x) for x in rhs[i]]))))
+        # Add axiom rule (if needed)
+        if axiom not in lhs:
+            rules.append(Define(NTerm(f"rule_{axiom}"), Concat(*[rhs_to_def(x) for x in axiom])))
+        return Grammar(NTerm(f"rule_{axiom}"), *rules)
+
+    def pre_fn(self, solution, solution_idx: int, grammar: Grammar) -> Optional[float]:
+        lhs, rhs, axiom = self._solution_to_grammar(solution)
+        rules = dict(zip(lhs, rhs))
+
+        edit_min = None
+        for a in self._axioms:
+            edit = get_lsystem_edit_dist(rules, a, 7, self._target)
+            if edit_min is None:
+                edit_min = edit
+            else:
+                if edit < edit_min:
+                    edit_min = edit
+
+        return edit_min
+
+    def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result: Optional[float]) -> float:
+        ok, ast = run_parser(self._target)
+        get_applogger().log_extra(solution_idx, "match", 1 if ok else 0)
+
+        if pre_fn_result is None:
+            edit_dist = 0.0
+        else:
+            edit_dist = pre_fn_result
+
+        if ok:
+            logger.info("LSystem::run() : matching solution found")
+            # TODO add results logging
+        if ast is not None:
+            # For now we use average AST depth as the target metric
+            depths: list[int] = []
+            values: list[str] = []
+            ast.each(lambda node, depth, is_leaf: depths.append(depth) if is_leaf else None)
+            ast.each(lambda node, depth, is_leaf: values.append(node.value))
+            v = ''.join(values)
+            if len(v) == 0:
+                consumed_perc = 0.0  # set to 0.01 if we multiply
+            else:
+                consumed_perc = float(len(v)) / float(len(self._target))  # how much % of the string it has consumed, higher - better
+            return (-edit_dist) + 5 * consumed_perc + sum(depths) / float(len(depths))  # E[depths]
+        else:
+            return 0.0
+
+    # Gene mapping helpers
+    # ====================
+    def _solution_to_grammar(self, solution) -> tuple[list[str], list[str], str]:
+        """Convert a solution to its lsystem grammar components"""
         rhs: list[str] = []
         lhs: list[str] = []
+
         # Get rule rhs
         for i0, i1 in self._gene_groups_idx:
             rhs.append(self._gene_to_substr(solution[i0], solution[i1]))
@@ -150,43 +264,8 @@ class LSystem:
 
         # Get axiom
         axiom = self._axioms[solution[self._gene_axiom_id]]
-
-        # Generate the ruleset
-        rhs_to_def = lambda x: NTerm(f"rule_{x}") if x in lhs else Term(x)  # Use terminal if symbol is a constant, else use the nterm
-        rules: list[Type[BaseOp]] = []
-        for i in range(self._num_rules):
-            if lhs[i] == "":
-                continue
-            rules.append(Define(NTerm(f"rule_{lhs[i]}"), Alter(Term(lhs[i]), Concat(*[rhs_to_def(x) for x in rhs[i]]))))
-        # Add axiom rule (if needed)
-        if axiom not in lhs:
-            rules.append(Define(NTerm(f"rule_{axiom}"), Concat(*[rhs_to_def(x) for x in axiom])))
-        return Grammar(NTerm(f"rule_{axiom}"), *rules)
-
-    def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result) -> float:
-        ok, ast = run_parser(self._target)
-        get_applogger().log_extra(solution_idx, "match", 1 if ok else 0)
-        if ok:
-            logger.info("LSystem::run() : matching solution found")
-            # TODO add results logging
-        if ast is not None:
-            # For now we use average AST depth as the target metric
-            depths: list[int] = []
-            values: list[str] = []
-            ast.each(lambda node, depth, is_leaf: depths.append(depth) if is_leaf else None)
-            ast.each(lambda node, depth, is_leaf: values.append(node.value))
-            v = ''.join(values)
-            if v == 0:
-                consumed_perc = 0  # set to 0.01 if we multiply
-            else:
-                consumed_perc = float(len(v)) / float(len(self._target))  # how much % of the string it has consumed, higher - better
-            return 5 * consumed_perc + sum(depths) / float(len(depths))  # E[depths]
-        else:
-            return 0.0
-
-    # Gene mapping helpers
-    # ====================
-
+        return lhs, rhs, axiom
+    
     def _gene_to_substr(self, gene0: int, gene1: int) -> str:
         """Map the gene value to the rule rhs string"""
         #if self._mapping_type == "lex":

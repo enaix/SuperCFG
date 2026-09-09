@@ -150,7 +150,7 @@ public:
                     maxidx = i;
                 }
             }
-            res = dp[maxidx];
+            res = dp[maxidx]; /*+ std::string(input.begin() + maxidx, input.end());*/  // append the rest of the input
             subtrees = trees[maxidx];
 #endif
         }
