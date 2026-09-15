@@ -2,3 +2,5 @@ __pycache__/
 build/
 .mypy_cache
 .ipynb_checkpoints
+genetic/run*
+genetic/RUN*

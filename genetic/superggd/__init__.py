@@ -384,7 +384,7 @@ class SuperGGD:
 
         grammar = self._current_grammars.get(solution_idx)
         if grammar is None:
-            get_applogger().log_exec_status(solution_idx, "NoGrammar")
+            get_applogger().log_exec_status(solution_idx, FitnessExecStatus.NoGrammar)
             logger.warning("No grammar for individual %d – returning 0.0", solution_idx)
             # Removed logging here
             return 0.0
@@ -394,8 +394,8 @@ class SuperGGD:
 
         pre_fn_result = self._pre_states.get(solution_idx)
 
-        exec_status = "Ok"
-        assert self._fitness_fn is not None != self._loss_fn is not None, "Either self._fitness_fn or self._loss_fn must be defined"
+        exec_status = FitnessExecStatus.Ok
+        assert (self._fitness_fn is not None) != (self._loss_fn is not None), "Either self._fitness_fn or self._loss_fn must be defined"
         try:
             if self._fitness_fn is not None:
                 score = self._fitness_fn(solution, solution_idx, grammar, run_parser, pre_fn_result)
@@ -409,10 +409,10 @@ class SuperGGD:
             else:
                 logger.exception(f"{self._mode} calculation failed for individual {solution_idx} – returning score=0.0 : {e}")
             score = 0.0
-            exec_status = "FitnessRaised"
+            exec_status = FitnessExecStatus.FitnessRaised
 
         score = float(score)
-        if exec_status == "ok":
+        if exec_status is FitnessExecStatus.Ok:
             if self._mode == "fitness":
                 get_applogger().log_fitness(solution_idx, score)
             else:

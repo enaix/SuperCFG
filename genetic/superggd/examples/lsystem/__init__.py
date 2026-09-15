@@ -83,7 +83,7 @@ class LSystem:
         self._gene_axiom_id: int = -1  # axiom idx
 
         # Exports
-        self.pygad_params: dict[str, Any] = {"num_generations": 1000, "num_parents_mating": 4, "sol_per_pop": 10, "gene_type": int}
+        self.pygad_params: dict[str, Any] = {"num_generations": 1000, "num_parents_mating": 4, "sol_per_pop": 10, "gene_type": int, "mutation_num_genes": 3}
         self.parsers_defaults = {"parser_args": {"supercfg_args": [SRConfEnum.EmptyFlag]}}  # Disable lookahead
 
     def populate_argparse_group(self, group: Any) -> None:

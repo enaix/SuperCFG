@@ -17,10 +17,17 @@ logger = logging.getLogger(__name__)
 
 
 class ExecStatus(Enum):
-    """Basic execution status for a program"""
+    """Basic execution status for a program, used exclusively for subprocesses (like Cling JIT)"""
     Compiling = 0,
     Running = 1,
     Exited = 2  # Indicates compilation error for a JIT compiler
+
+
+class FitnessExecStatus(StrEnum):
+    """Execution status of the fitness/loss evaluation for a single solution"""
+    Ok = "Ok"
+    NoGrammar = "NoGrammar"
+    FitnessRaised = "FitnessRaised"
 
 
 class CompilationStrategy(StrEnum):
