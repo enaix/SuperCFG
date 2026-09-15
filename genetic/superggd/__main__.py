@@ -35,7 +35,7 @@ def main() -> None:
         p.add_argument("--output-folder", "-o", metavar="PATH", help="Folder to write per-generation logs")
         p.add_argument("--log-dump-every-n", type=int, help="Dump logs every N generations")
         p.add_argument("--log-min-priority", type=str.lower, choices=["debug", "high", "panic"], default="debug", help="Minimum artifact priority to write (debug: all; high: grammar only; panic: no files)")
-        p.add_argument("--cli-level", type=str.upper, choices=["debug", "info", "warning", "error", "critical"], default="warning", help="CLI output logging level")
+        p.add_argument("--cli-level", type=str.upper, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], default="WARNING", help="CLI output logging level")
 
         s_cfg = p.add_argument_group(title="supercfg parser options")
         s_cfg.add_argument("--cling", "-l", metavar="PATH", default="cling", help="Path to the cling executable")

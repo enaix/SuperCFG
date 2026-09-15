@@ -240,8 +240,15 @@ class LSystem:
             else:
                 consumed_perc = float(len(v)) / float(len(self._target))  # how much % of the string it has consumed, higher - better
             return (-edit_dist) + 5 * consumed_perc + sum(depths) / float(len(depths))  # E[depths]
+        # note: it seems that edit_dist rewards longer rules more, which in turn causes us to diverge
         else:
             return 0.0
+
+    def on_gen(self, ga_instance) -> None:
+        solution = ga_instance.best_solution()[0]
+        lhs, rhs, axiom = self._solution_to_grammar(solution)
+        rules = dict(zip(lhs, rhs))
+        logger.info(f"best grammar: {rules}")
 
     # Gene mapping helpers
     # ====================

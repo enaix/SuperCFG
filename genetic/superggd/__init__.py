@@ -45,6 +45,10 @@ class SuperGGD:
         ``(solution, solution_idx, grammar) -> Any``
         Runs concurrently with parser compilation. Its return value is forwarded as ``pre_fn_result`` to ``fitness_fn``/``loss_fn``.
 
+    on_gen (optional):
+        ``(ga_instance) -> None``
+        User-defined on_generation callback.
+
     num_parallel:
         How many parser generators to compile at once. Ideally should match the number of CPU cores, limited by the amount of available memory.
 
@@ -65,6 +69,7 @@ class SuperGGD:
                  fitness_fn: Optional[Callable] = None,
                  loss_fn: Optional[Callable] = None,
                  pre_fn: Optional[Callable] = None,
+                 on_gen: Optional[Callable] = None,
                  num_parallel: int = 1,
                  compilation_strategy: Any = None,   # CompilationStrategy.Die
                  compilation_timeout: Optional[float] = None,
@@ -89,6 +94,7 @@ class SuperGGD:
         self._mode = "fitness" if self._fitness_fn is not None else "loss"
 
         self._pre_fn = pre_fn
+        self._on_gen = on_gen
         self._compilation_timeout = compilation_timeout
         if extra_genes is None:
             self._extra_genes: list[str] = []
@@ -127,8 +133,8 @@ class SuperGGD:
 
     @staticmethod
     def from_module(module: Union[os.PathLike, Any], module_args: dict[str, Any], **kwargs) -> SuperGGD:
-        """Initialize SuperGGD with the specified module, kwargs must not include ``grammar_generator``, ``fitness_fn``, ``loss_fn``, ``pre_fn`` and ``extra_genes``. module_args may also define module-specific args"""
-        restricted_params = ["grammar_generator", "fitness_fn", "loss_fn", "pre_fn", "extra_genes"]
+        """Initialize SuperGGD with the specified module, kwargs must not include ``grammar_generator``, ``fitness_fn``, ``loss_fn``, ``pre_fn``, ``on_gen`` and ``extra_genes``. module_args may also define module-specific args"""
+        restricted_params = ["grammar_generator", "fitness_fn", "loss_fn", "pre_fn", "on_gen", "extra_genes"]
         all_restricted = restricted_params + ["extra_genes"]
         if any([x in kwargs for x in restricted_params]):
             raise ValueError("kwargs must not include grammar_generator, fitness_fn, loss_fn, pre_fn and extra_genes")
@@ -204,7 +210,7 @@ class SuperGGD:
 
             kwargs = kw_defaults | kwargs  # Overload elements in defaults with user-provided kwargs
 
-        ggd = SuperGGD(grammar_generator=mod.grammar_generator, fitness_fn=mod_fitness, loss_fn=mod_loss, pre_fn=getattr(mod, "pre_fitness_fn", None), **kwargs)
+        ggd = SuperGGD(grammar_generator=mod.grammar_generator, fitness_fn=mod_fitness, loss_fn=mod_loss, pre_fn=getattr(mod, "pre_fitness_fn", None), on_gen=getattr(mod, "on_gen", None), **kwargs)
 
         # get default parsers params, will be overriden with the next init_parsers() call
         if hasattr(mod, "parsers_defaults"):
@@ -438,6 +444,11 @@ class SuperGGD:
             best_val *= -1.0
         print(f"Gen {gen_done}/{num_gens} | {self._mode}: {best_val:.6g} | elapsed: {elapsed:.2f}s | avg: {avg:.2f}s/gen | ETA: {eta_str}", file=sys.stderr)
         logger.info(f"Generation %d complete. Best {self._mode}: %.4f", gen_done, best_val)
+        if self._on_gen is not None:
+            try:
+                self._on_gen(ga_instance)
+            except Exception as e:
+                logger.exception(f"on_gen callback failed : {e}")
 
         get_applogger().log_gen_elapsed(elapsed, self._current_gen)
         get_applogger().end_generation(self._current_gen)
