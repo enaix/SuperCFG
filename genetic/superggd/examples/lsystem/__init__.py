@@ -50,7 +50,7 @@ def levenshtein(a, b, ratio=False):
         return lev[n][m]
 
 
-def get_lsystem_edit_dist(rules: dict, axiom: str, maxdepth: int, target: str) -> float:
+def get_lsystem_edit_dist(rules: dict, axiom: str, maxdepth: int, target: str, ratio: bool) -> float:
     s = axiom
     len_delta = abs(len(target) - len(s))
     edit_dist = levenshtein(s, target)
@@ -61,7 +61,7 @@ def get_lsystem_edit_dist(rules: dict, axiom: str, maxdepth: int, target: str) -
         if new_delta > len_delta:
             return edit_dist
         len_delta = new_delta
-        edit_dist = float(levenshtein(s, target))
+        edit_dist = float(levenshtein(s, target, ratio))
 
     return edit_dist
 
@@ -72,6 +72,9 @@ class LSystem:
         self._mapping_type: str = "lex"
         self._all_substr: bool = False
         self._num_rules: int = 2
+        self._alpha: float = 5.0
+        self._beta: float = 0.0
+        self._map_axiom: bool = False
 
         # Generated
         self._groups: list[tuple[int, SubstrMap]] = []  # rule rhs groups
@@ -83,14 +86,17 @@ class LSystem:
         self._gene_axiom_id: int = -1  # axiom idx
 
         # Exports
-        self.pygad_params: dict[str, Any] = {"num_generations": 1000, "num_parents_mating": 4, "sol_per_pop": 10, "gene_type": int, "mutation_num_genes": 3}
+        self.pygad_params: dict[str, Any] = {"num_generations": 150, "num_parents_mating": 4, "sol_per_pop": 10, "gene_type": int} # , "mutation_num_genes": 2}
         self.parsers_defaults = {"parser_args": {"supercfg_args": [SRConfEnum.EmptyFlag]}}  # Disable lookahead
 
     def populate_argparse_group(self, group: Any) -> None:
         group.add_argument("--lsystem", required=True, help="Target l-system string")
         group.add_argument("--mapping-type", choices=["naive", "lex", "seed"], default=self._mapping_type, help="l-system gene mapping algorithm; naive: merge by inclusion count, lex: merge by lex order, seed: merge by lex order and seed")
         group.add_argument("--all-substr", action="store_true", help="Consider all l-system rule candidates, including those which occur only once")
-        group.add_argument("--num_rules", type=int, default=self._num_rules, help="Max number of lsystem rules")
+        group.add_argument("--num-rules", type=int, default=self._num_rules, help="Max number of lsystem rules")
+        group.add_argument("--alpha", type=float, default=self._alpha, help="Parsed string percentage multiplier [0.0, 1.0] -> [0.0, a]")
+        group.add_argument("--beta", type=float, default=self._beta, help="Edit distance multiplier [0.0, 1.0] -> [0.0, b]")
+        group.add_argument("--map-axiom", type=bool, default=self._map_axiom, help="Add axiom genes")
 
     def init_args(self, **kwargs):
         # Note: some arguments may be missing, argparse is not guaranteed to be called
@@ -98,7 +104,10 @@ class LSystem:
         self._mapping_type = kwargs.get("mapping_type", self._mapping_type)
         self._all_substr = kwargs.get("all_substr", self._all_substr)
         self._num_rules = kwargs.get("num_rules", self._num_rules)
-        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr, "num_rules": self._num_rules})
+        self._alpha = kwargs.get("alpha", self._alpha)
+        self._beta = kwargs.get("beta", self._beta)
+        self._map_axiom = kwargs.get("map_axiom", self._map_axiom)
+        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr, "num_rules": self._num_rules, "alpha": self._alpha, "beta": self._beta, "map_axiom": self._map_axiom})
 
     def post_init(self) -> None:
         if self._target is None:
@@ -148,7 +157,8 @@ class LSystem:
 
         # Add axiom (consider up to size 2)
         self._axioms = self._symbols + list(it.product(''.join(self._symbols), repeat=2))  # axioms of size 1 are more likely
-        self.pygad_params["gene_space"].append(range(len(self._axioms)))
+        if self._map_axiom:  # We store axiom candidates, but do not add these genes
+            self.pygad_params["gene_space"].append(range(len(self._axioms)))
         self._gene_axiom_id = len(self.pygad_params["gene_space"]) - 1
 
         get_applogger().save_artifact("lsystem.json", json.dumps({
@@ -197,7 +207,7 @@ class LSystem:
                 continue
             rules.append(Define(NTerm(f"rule_{lhs[i]}"), Alter(Term(lhs[i]), Concat(*[rhs_to_def(x) for x in rhs[i]]))))
         # Add axiom rule (if needed)
-        if axiom not in lhs:
+        if self._map_axiom and axiom not in lhs:
             rules.append(Define(NTerm(f"rule_{axiom}"), Concat(*[rhs_to_def(x) for x in axiom])))
         return Grammar(NTerm(f"rule_{axiom}"), *rules)
 
@@ -207,7 +217,7 @@ class LSystem:
 
         edit_min = None
         for a in self._axioms:
-            edit = get_lsystem_edit_dist(rules, a, 7, self._target)
+            edit = get_lsystem_edit_dist(rules, a, 7, self._target, True)  # use levenshtein ratio
             if edit_min is None:
                 edit_min = edit
             else:
@@ -239,7 +249,7 @@ class LSystem:
                 consumed_perc = 0.0  # set to 0.01 if we multiply
             else:
                 consumed_perc = float(len(v)) / float(len(self._target))  # how much % of the string it has consumed, higher - better
-            return (-edit_dist) + 5 * consumed_perc + sum(depths) / float(len(depths))  # E[depths]
+            return (-edit_dist)*self._beta + self._alpha * consumed_perc + sum(depths) / float(len(depths))  # E[depths]
         # note: it seems that edit_dist rewards longer rules more, which in turn causes us to diverge
         else:
             return 0.0
@@ -270,7 +280,10 @@ class LSystem:
                 lhs.append(self._symbols[val])
 
         # Get axiom
-        axiom = self._axioms[solution[self._gene_axiom_id]]
+        if self._map_axiom:
+            axiom = self._axioms[solution[self._gene_axiom_id]]
+        else:
+            axiom = self._axioms[0]  # return the first axiom
         return lhs, rhs, axiom
     
     def _gene_to_substr(self, gene0: int, gene1: int) -> str:

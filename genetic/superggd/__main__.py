@@ -157,7 +157,7 @@ def main() -> None:
     ga = ggd.run()
     solution, s, idx = ga.best_solution()
     print(f"\nBest solution (index {idx}): {solution}")
-    print(f"Best {ggd.mode()} : {s}")
+    print(f"Best {ggd.mode} : {s}")
 
 
 if __name__ == "__main__":
