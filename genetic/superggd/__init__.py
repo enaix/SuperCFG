@@ -74,8 +74,6 @@ class SuperGGD:
                  log_min_priority: ArtifactPriority = ArtifactPriority.Debug,
                  **pygad_kwargs):
 
-        logging.basicConfig(level=logging.DEBUG)
-
         get_applogger().configure(output_folder=output_folder, dump_every_n=log_dump_every_n, min_priority=log_min_priority)
 
         if compilation_strategy is None:
