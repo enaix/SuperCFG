@@ -86,7 +86,7 @@ class LSystem:
         self._gene_axiom_id: int = -1  # axiom idx
 
         # Exports
-        self.pygad_params: dict[str, Any] = {"num_generations": 150, "num_parents_mating": 4, "sol_per_pop": 10, "gene_type": int} # , "mutation_num_genes": 2}
+        self.pygad_params: dict[str, Any] = {"num_generations": 200, "num_parents_mating": 4, "sol_per_pop": 10, "gene_type": int} # , "mutation_num_genes": 2}
         self.parsers_defaults = {"parser_args": {"supercfg_args": [SRConfEnum.EmptyFlag]}}  # Disable lookahead
 
     def populate_argparse_group(self, group: Any) -> None:
@@ -258,7 +258,7 @@ class LSystem:
         solution = ga_instance.best_solution()[0]
         lhs, rhs, axiom = self._solution_to_grammar(solution)
         rules = dict(zip(lhs, rhs))
-        logger.info(f"best grammar: {rules}")
+        print(f"lsystem : best grammar : {rules}")
 
     # Gene mapping helpers
     # ====================
