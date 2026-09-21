@@ -137,7 +137,7 @@ class SuperGGD:
         restricted_params = ["grammar_generator", "fitness_fn", "loss_fn", "pre_fn", "on_gen", "extra_genes"]
         all_restricted = restricted_params + ["extra_genes"]
         if any([x in kwargs for x in restricted_params]):
-            raise ValueError("kwargs must not include grammar_generator, fitness_fn, loss_fn, pre_fn and extra_genes")
+            raise ValueError("kwargs must not include grammar_generator, fitness_fn, loss_fn, pre_fn, on_gen and extra_genes")
 
         # Initialize logging
         get_applogger().configure(output_folder=kwargs.get("output_folder"), dump_every_n=kwargs.get("log_dump_every_n", 1), min_priority=kwargs.get("log_min_priority", ArtifactPriority.Debug))

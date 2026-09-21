@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 class ExecStatus(Enum):
     """Basic execution status for a program, used exclusively for subprocesses (like Cling JIT)"""
-    Compiling = 0,
-    Running = 1,
+    Compiling = 0
+    Running = 1
     Exited = 2  # Indicates compilation error for a JIT compiler
 
 
@@ -32,8 +32,8 @@ class FitnessExecStatus(StrEnum):
 
 class CompilationStrategy(StrEnum):
     """How to handle compilation errors"""
-    Die = "die",  # Give up on the grammar and stop SuperGGD
-    Skip = "skip", # Give up on the grammar and continue execution
+    Die = "die"  # Give up on the grammar and stop SuperGGD
+    Skip = "skip"  # Give up on the grammar and continue execution
 
 
 @dataclass
