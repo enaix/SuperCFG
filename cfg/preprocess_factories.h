@@ -580,8 +580,10 @@ namespace cfg_helpers
     template<class TSymbol, class TVisitedTuple, class TRuleTree>
     constexpr auto rc1_full_rrtree_recurse(const TSymbol& symbol, const TVisitedTuple& visited, const TRuleTree& rules)
     {
+        // Recursively iterate over each element of rr tree
+        // Visited tuple only works in the direct chain rr -> rr -> rr
         if constexpr (tuple_contains_v<std::decay_t<TSymbol>, std::decay_t<TVisitedTuple>>)
-            return std::tuple<>();
+            return std::tuple<>();  // Found the loop: this element was already encountered
         else
         {
             const auto& related = rules.get(symbol);
@@ -603,6 +605,7 @@ namespace cfg_helpers
     template<std::size_t N, std::array<std::size_t, N> ctx, std::size_t i, std::size_t MAX>
     constexpr auto ctx_inv()
     {
+        // Drop i-th rule from the tuple (to avoid self-insertions)
         if constexpr ([&](){
             for (std::size_t j = 0; j < N; j++)
             {
@@ -633,11 +636,6 @@ namespace cfg_helpers
         const auto& def = std::get<0>(std::get<depth>(defs).terms);
         // iterate over related rules and recurse until we find a loop
         const auto related = tuple_unique(rc1_full_rrtree_recurse(def, std::tuple<>(), rules));
-        if constexpr (do_prettyprint)
-        {
-            std::cout << def.type() << " -> ";
-            print_symbols_tuple(related);
-        }
 
         constexpr std::size_t M = std::tuple_size_v<std::decay_t<decltype(related)>>;
         // Convert explicit symbols into idx
@@ -645,23 +643,21 @@ namespace cfg_helpers
             return rc1_get_ctx_index<0, std::decay_t<std::tuple_element_t<i, std::decay_t<decltype(related)>>>, std::decay_t<TRules>>();
         }, IntegralWrapper<M>{}, related);
 
+        // Calculate inverse
         constexpr std::size_t ctx_size_inv = std::tuple_size_v<std::decay_t<TRules>> - M;
         constexpr auto ctx_inv_tup = ctx_inv<M, related_idx, 0, std::tuple_size_v<std::decay_t<TRules>>>();
         constexpr auto related_idx_inv = h_type_morph<std::array<std::size_t, ctx_size_inv>, true>([&]<std::size_t i>(const auto& src){ return std::get<i>(ctx_inv_tup); }, IntegralWrapper<ctx_size_inv>{}, ctx_inv_tup);
-
-        if constexpr (do_prettyprint)
-        {
-            std::cout << ", idx : {";
-            for (std::size_t idx : related_idx) std::cout << idx << " ";
-            std::cout << "}, inv : {";
-            for (std::size_t idx : related_idx_inv) std::cout << idx << " ";
-            std::cout << "}" << std::endl;
-        }
 
         if constexpr (depth + 1 < std::tuple_size_v<TDefsTuple>)
             return std::tuple_cat(std::make_tuple(related_idx_inv), rc1_get_full_rrtree<do_prettyprint, depth+1>(defs, rules, all_rules));
         else
             return std::make_tuple(related_idx_inv);
+
+        // No inverse
+        /*if constexpr (depth + 1 < std::tuple_size_v<TDefsTuple>)
+            return std::tuple_cat(std::make_tuple(related_idx), rc1_get_full_rrtree<do_prettyprint, depth+1>(defs, rules, all_rules));
+        else
+            return std::make_tuple(related_idx);*/
     }
 
     template<std::size_t i, class TRange, class TSybmol>
@@ -900,7 +896,9 @@ template<bool do_prettyprint, HeuristicFeatures features, class RRTree>
 constexpr auto make_heuristic_preprocessor(const RRTree& tree)
 {
     // all related rules - we optimize out rules that do not contain any other elements
-    const auto all_related_rules = tuple_unique(tuple_flatten_layer(tree.tree));
+    //const auto all_related_rules = tuple_unique(tuple_flatten_layer(tree.tree));
+    // pass just the list of all rules to avoid complex rule id mappings
+    const auto all_related_rules = tuple_morph([&]<std::size_t i>(const auto& src){ return std::get<0>(std::get<i>(src).terms); }, tree.defs);
     if constexpr((std::uint64_t)features & (std::uint64_t)HeuristicFeatures::ContextManagement)
     {
         const auto rr_all = cfg_helpers::rc1_get_full_rrtree<do_prettyprint, 0>(tree.defs, tree, all_related_rules);
