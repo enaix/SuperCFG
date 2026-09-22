@@ -3,6 +3,8 @@ from collections import OrderedDict
 import itertools as it
 import logging
 import json
+import re
+import copy
 
 from superggd.operators import *
 from superggd.base import *
@@ -74,6 +76,7 @@ class LSystem:
         self._num_rules: int = 2
         self._alpha: float = 5.0
         self._beta: float = 0.0
+        self._gamma: float = 0.0
         self._map_axiom: bool = False
 
         # Generated
@@ -96,6 +99,7 @@ class LSystem:
         group.add_argument("--num-rules", type=int, default=self._num_rules, help="Max number of lsystem rules")
         group.add_argument("--alpha", type=float, default=self._alpha, help="Parsed string percentage multiplier [0.0, 1.0] -> [0.0, a]")
         group.add_argument("--beta", type=float, default=self._beta, help="Edit distance multiplier [0.0, 1.0] -> [0.0, b]")
+        group.add_argument("--gamma", type=float, default=self._gamma, help="Tiling distance multiplier [0.0, 1.0] -> [0.0, g]")
         group.add_argument("--map-axiom", type=bool, default=self._map_axiom, help="Add axiom genes")
 
     def init_args(self, **kwargs):
@@ -106,8 +110,9 @@ class LSystem:
         self._num_rules = kwargs.get("num_rules", self._num_rules)
         self._alpha = kwargs.get("alpha", self._alpha)
         self._beta = kwargs.get("beta", self._beta)
+        self._gamma = kwargs.get("gamma", self._gamma)
         self._map_axiom = kwargs.get("map_axiom", self._map_axiom)
-        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr, "num_rules": self._num_rules, "alpha": self._alpha, "beta": self._beta, "map_axiom": self._map_axiom})
+        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr, "num_rules": self._num_rules, "alpha": self._alpha, "beta": self._beta, "gamma": self._gamma, "map_axiom": self._map_axiom})
 
     def post_init(self) -> None:
         if self._target is None:
@@ -211,7 +216,7 @@ class LSystem:
             rules.append(Define(NTerm(f"rule_{axiom}"), Concat(*[rhs_to_def(x) for x in axiom])))
         return Grammar(NTerm(f"rule_{axiom}"), *rules)
 
-    def pre_fn(self, solution, solution_idx: int, grammar: Grammar) -> Optional[float]:
+    def pre_fn(self, solution, solution_idx: int, grammar: Grammar) -> tuple[Optional[float], float]:
         lhs, rhs, axiom = self._solution_to_grammar(solution)
         rules = dict(zip(lhs, rhs))
 
@@ -224,16 +229,23 @@ class LSystem:
                 if edit < edit_min:
                     edit_min = edit
 
-        return edit_min
+        if len(rules) == 2:
+            tiling_dist = float(LSystem._tiling_distance_RE(copy.deepcopy(self._target), rhs[0], rhs[1], lhs[0], lhs[1])) / len(self._target)
+        else:
+            tiling_dist = 0.0
 
-    def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result: Optional[float]) -> float:
+        return (edit_min, tiling_dist)
+
+    def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result: tuple[Optional[float], float]) -> float:
         ok, ast = run_parser(self._target)
         get_applogger().log_extra(solution_idx, "match", 1 if ok else 0)
 
         if pre_fn_result is None:
             edit_dist = 0.0
+            tiling_dist = 0.0
         else:
-            edit_dist = pre_fn_result
+            edit_dist = 0.0 if pre_fn_result[0] is None else pre_fn_result[0]
+            tiling_dist = pre_fn_result[1]
 
         if ok:
             logger.info("LSystem::run() : matching solution found")
@@ -247,9 +259,10 @@ class LSystem:
             v = ''.join(values)
             if len(v) == 0:
                 consumed_perc = 0.0  # set to 0.01 if we multiply
+                tiling_dist = 0.0
             else:
                 consumed_perc = float(len(v)) / float(len(self._target))  # how much % of the string it has consumed, higher - better
-            return (-edit_dist)*self._beta + self._alpha * consumed_perc + sum(depths) / float(len(depths))  # E[depths]
+            return (-edit_dist)*self._beta + (-tiling_dist)*self._gamma + self._alpha * consumed_perc + sum(depths) / float(len(depths))  # E[depths]
         # note: it seems that edit_dist rewards longer rules more, which in turn causes us to diverge
         else:
             return 0.0
@@ -457,6 +470,97 @@ class LSystem:
         # TODO reindex seed ids to be strictly sequential
         return s1_seeds, next_seed
 
+    @staticmethod
+    def _merge_idx_first(rhs1: str, rhs2: str, idx1: list[int], idx2: list[int]) -> list[int]:
+        # merge indices while prioritizing idx1, returns idx2
+        i = 0; j = 0
+        n1 = len(rhs1); n2 = len(rhs2)
+        while i < len(idx1) and j < len(idx2):
+            start1 = idx1[i]
+            start2 = idx2[j]
+            end1 = start1 + n1
+            end2 = start2 + n2
+            # check for intersection  (we need to call this twice to do )
+            # [   ( ]   )  or  [  (   )  ]
+            check_inter = lambda a_start, a_end, b_start, b_end: (b_start < a_end and b_end > a_start) or (a_start < b_end and a_end > b_start)
+
+            if check_inter(start1, end1, start2, end2) or check_inter(start2, end2, start1, end1):  # cfg/base.h : check_intersect_ranges()
+                idx2.pop(j)  # inefficient
+                continue  # do not increment j
+
+            # check which counter to move
+            if i + 1 >= len(idx1):
+                j += 1
+            elif j + 1 >= len(idx2):
+                i += 1
+            else:
+                # check which start will be closer (is this a correct metric???)
+                # do we have to calculate distance here?
+                next1 = idx1[i + 1]
+                next2 = idx2[j + 1]
+                if next1 < next2:
+                    i += 1
+                else:
+                    j += 1
+        return idx2
+
+    @staticmethod
+    def _tiling_distance_RE(s: str, sub1: str, sub2: str, a: str, b: str) -> int:
+        # Find how many terms are not fully consumed
+        # ideally O(n)*O(replace), but here it's much worse, works only with D0L
+        # We assume that the first reduction we take is the most optimal (11 -> a, 1111 is reduced like [11][11])
+
+        def get_dist(res):
+            dist = 0
+            terms = set(s) - set([a, b])
+            for i in range(len(s)):
+                if s[i] not in terms:
+                    dist += 1
+            return dist
+
+        # null rule checks
+        if len(a) == 0 and len(b) == 0:
+            return get_dist(s)
+        if len(a) == 0:
+            return get_dist(s.replace(sub2, b))
+        elif len(b) == 0:
+            return get_dist(s.replace(sub1, a))
+
+
+        idx1 = [m.start() for m in re.finditer(re.escape(sub1), s)]
+        idx2 = [m.start() for m in re.finditer(re.escape(sub2), s)]
+        # merge indices
+        # we need a strategy for handling collisions
+        # =============
+
+        # simple strategy: pick the largest rule
+        if sub1 > sub2:
+            idx2 = LSystem._merge_idx_first(sub1, sub2, idx1, idx2)
+        else:
+            idx1 = LSystem._merge_idx_first(sub2, sub1, idx2, idx1)
+
+        # substitute the result (inefficient)
+        i = len(idx1) - 1; j = len(idx2) - 1
+        n1 = len(sub1); n2 = len(sub2)
+        erase = lambda idx, n: s[:idx] + s[idx + n:]
+
+        while i >= 0 or j >= 0:
+            if i >= 0 and j >= 0:
+                # we can do this, since idx are not overlapping
+                if idx1[i] > idx2[j]:  # pick which one is larger, so that we don't corrupt the indices
+                    s = erase(idx1[i], n1)
+                    i -= 1
+                else:
+                    s = erase(idx2[j], n2)
+                    j -= 1
+            elif i >= 0:
+                s = erase(idx1[i], n1)
+                i -= 1
+            else: # j > 0
+                s = erase(idx2[j], n2)
+                j -= 1
+
+        return get_dist(s)
 
 
 SUPERGGD_MODULE_EXPORT = LSystem()
