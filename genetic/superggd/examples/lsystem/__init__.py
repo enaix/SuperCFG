@@ -193,10 +193,11 @@ class LSystem:
                 lambda sol, values: [val for val in values if _check_constraint(self._gene_to_substr(sol[0], sol[1]), self._gene_to_substr(sol[2], val), cbi)],  # Rule 1+i, gene 1:
             ]
             # lhs rule constraint
-            self.pygad_params["gene_constraint"] += [
-                None,  # Rule 1+i, gene 0: any group
-                lambda sol, values: [val for val in values if not (val >= len(self._symbols) and sol[3] >= len(self._symbols))],  # Check that there is at least 1 rule
-            ]
+            # TODO recheck this constraint
+            #self.pygad_params["gene_constraint"] += [
+            #    None,  # Rule 1+i, gene 0: any group
+            #    lambda sol, values: [val for val in values if not (val >= len(self._symbols) and sol[3] >= len(self._symbols))],  # Check that there is at least 1 rule
+            #]
             # Set the remaining as None
             for i in range(len(self.pygad_params["gene_constraint"]), self.pygad_params["num_genes"]):
                 self.pygad_params["gene_constraint"].append(None)
@@ -255,7 +256,7 @@ class LSystem:
             depths: list[int] = []
             values: list[str] = []
             ast.each(lambda node, depth, is_leaf: depths.append(depth) if is_leaf else None)
-            ast.each(lambda node, depth, is_leaf: values.append(node.value))
+            ast.each(lambda node, depth, is_leaf: values.append(node.value) if is_leaf else '')
             v = ''.join(values)
             if len(v) == 0:
                 consumed_perc = 0.0  # set to 0.01 if we multiply
