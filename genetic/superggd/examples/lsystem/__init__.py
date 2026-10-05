@@ -126,7 +126,7 @@ class LSystem:
             pr_f = pr
         mut, cbi, pairs = self._mut_strong(pr_f)  # get mutex
         # Add missing keys to cbi
-        for s1 in set(pr) - set(cbi):
+        for s1 in set(pr) - set(cbi):  # it seems that the stability of cbi is not critical
             cbi[s1] = []
 
         if self._mapping_type == "naive":
@@ -154,7 +154,7 @@ class LSystem:
             self._gene_groups_idx.append([2*i, 2*i+1])  # idx of gene0 and gene1
 
         # Populate rule symbols (lhs), for now we only consider single-symbol rules
-        self._symbols = list(set(self._target))
+        self._symbols = list(sorted(set(self._target)))
         gene2 = range(len(self._symbols) + 1)  # We also add an empty rule
         for i in range(self._num_rules):
             self.pygad_params["gene_space"].append(gene2)
@@ -193,11 +193,11 @@ class LSystem:
                 lambda sol, values: [val for val in values if _check_constraint(self._gene_to_substr(sol[0], sol[1]), self._gene_to_substr(sol[2], val), cbi)],  # Rule 1+i, gene 1:
             ]
             # lhs rule constraint
-            # TODO recheck this constraint
-            #self.pygad_params["gene_constraint"] += [
-            #    None,  # Rule 1+i, gene 0: any group
-            #    lambda sol, values: [val for val in values if not (val >= len(self._symbols) and sol[3] >= len(self._symbols))],  # Check that there is at least 1 rule
-            #]
+            # TODO fix this constraint
+            self.pygad_params["gene_constraint"] += [
+                None,  # Rule 1+i, gene 0: any group
+                lambda sol, values: [val for val in values if not (val >= len(self._symbols) and sol[3] >= len(self._symbols))],  # Check that there is at least 1 rule
+            ]
             # Set the remaining as None
             for i in range(len(self.pygad_params["gene_constraint"]), self.pygad_params["num_genes"]):
                 self.pygad_params["gene_constraint"].append(None)
@@ -256,7 +256,7 @@ class LSystem:
             depths: list[int] = []
             values: list[str] = []
             ast.each(lambda node, depth, is_leaf: depths.append(depth) if is_leaf else None)
-            ast.each(lambda node, depth, is_leaf: values.append(node.value) if is_leaf else '')
+            ast.each(lambda node, depth, is_leaf: values.append(node.value))  # works correctly only with supercfg
             v = ''.join(values)
             if len(v) == 0:
                 consumed_perc = 0.0  # set to 0.01 if we multiply
@@ -469,7 +469,7 @@ class LSystem:
                     s1_seeds[s2] = new_seed
 
         # TODO reindex seed ids to be strictly sequential
-        return s1_seeds, next_seed
+        return s1_seeds, next_seed  # these are not guaranteed to be stable
 
     @staticmethod
     def _merge_idx_first(rhs1: str, rhs2: str, idx1: list[int], idx2: list[int]) -> list[int]:

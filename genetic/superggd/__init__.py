@@ -210,7 +210,7 @@ class SuperGGD:
 
             kwargs = kw_defaults | kwargs  # Overload elements in defaults with user-provided kwargs
 
-        ggd = SuperGGD(grammar_generator=mod.grammar_generator, fitness_fn=mod_fitness, loss_fn=mod_loss, pre_fn=getattr(mod, "pre_fitness_fn", None), on_gen=getattr(mod, "on_gen", None), **kwargs)
+        ggd = SuperGGD(grammar_generator=mod.grammar_generator, fitness_fn=mod_fitness, loss_fn=mod_loss, pre_fn=getattr(mod, "pre_fn", None), on_gen=getattr(mod, "on_gen", None), **kwargs)
 
         # get default parsers params, will be overriden with the next init_parsers() call
         if hasattr(mod, "parsers_defaults"):
