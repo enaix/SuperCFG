@@ -77,6 +77,7 @@ class LSystem:
         self._alpha: float = 5.0
         self._beta: float = 0.0
         self._gamma: float = 0.0
+        self._omega: float = 1.0
         self._map_axiom: bool = False
 
         # Generated
@@ -87,6 +88,7 @@ class LSystem:
         self._gene_groups_idx: list[list[int]] = [] # gene groups idx for each rule
         self._gene_symbols_idx: list[int] = [] # rule (lhs) symbol idx for each rule
         self._gene_axiom_id: int = -1  # axiom idx
+        self._dummy_axiom: str = ""
 
         # Exports
         self.pygad_params: dict[str, Any] = {"num_generations": 200, "num_parents_mating": 4, "sol_per_pop": 10, "gene_type": int} # , "mutation_num_genes": 2}
@@ -100,7 +102,8 @@ class LSystem:
         group.add_argument("--alpha", type=float, default=self._alpha, help="Parsed string percentage multiplier [0.0, 1.0] -> [0.0, a]")
         group.add_argument("--beta", type=float, default=self._beta, help="Edit distance multiplier [0.0, 1.0] -> [0.0, b]")
         group.add_argument("--gamma", type=float, default=self._gamma, help="Tiling distance multiplier [0.0, 1.0] -> [0.0, g]")
-        group.add_argument("--map-axiom", type=bool, default=self._map_axiom, help="Add axiom genes")
+        group.add_argument("--omega", type=float, default=self._omega, help="Mean AST height multiplier")
+        group.add_argument("--map-axiom", action="store_true", default=self._map_axiom, help="Add axiom genes")
 
     def init_args(self, **kwargs):
         # Note: some arguments may be missing, argparse is not guaranteed to be called
@@ -111,8 +114,9 @@ class LSystem:
         self._alpha = kwargs.get("alpha", self._alpha)
         self._beta = kwargs.get("beta", self._beta)
         self._gamma = kwargs.get("gamma", self._gamma)
+        self._omega = kwargs.get("omega", self._omega)
         self._map_axiom = kwargs.get("map_axiom", self._map_axiom)
-        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr, "num_rules": self._num_rules, "alpha": self._alpha, "beta": self._beta, "gamma": self._gamma, "map_axiom": self._map_axiom})
+        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr, "num_rules": self._num_rules, "alpha": self._alpha, "beta": self._beta, "gamma": self._gamma, "omega": self._omega, "map_axiom": self._map_axiom})
 
     def post_init(self) -> None:
         if self._target is None:
@@ -162,6 +166,8 @@ class LSystem:
 
         # Add axiom (consider up to size 2)
         self._axioms = self._symbols + list(it.product(''.join(self._symbols), repeat=2))  # axioms of size 1 are more likely
+        # Add a dummy axiom which is never parsed (only used if map_axiom is False)
+        self._dummy_axiom = chr(ord(max(self._symbols)) + 1)
         if self._map_axiom:  # We store axiom candidates, but do not add these genes
             self.pygad_params["gene_space"].append(range(len(self._axioms)))
         self._gene_axiom_id = len(self.pygad_params["gene_space"]) - 1
@@ -173,6 +179,7 @@ class LSystem:
         }))
 
         get_applogger().register_csv_field("match")
+        get_applogger().register_csv_field("pre_fn_result")
 
         self.pygad_params["num_genes"] = len(self.pygad_params["gene_space"])
 
@@ -196,7 +203,7 @@ class LSystem:
             # TODO fix this constraint
             self.pygad_params["gene_constraint"] += [
                 None,  # Rule 1+i, gene 0: any group
-                lambda sol, values: [val for val in values if not (val >= len(self._symbols) and sol[3] >= len(self._symbols))],  # Check that there is at least 1 rule
+                lambda sol, values: [val for val in values if not (val >= len(self._symbols) and sol[4] >= len(self._symbols))],  # Check that there is at least 1 rule
             ]
             # Set the remaining as None
             for i in range(len(self.pygad_params["gene_constraint"]), self.pygad_params["num_genes"]):
@@ -213,9 +220,15 @@ class LSystem:
                 continue
             rules.append(Define(NTerm(f"rule_{lhs[i]}"), Alter(Term(lhs[i]), Concat(*[rhs_to_def(x) for x in rhs[i]]))))
         # Add axiom rule (if needed)
-        if self._map_axiom and axiom not in lhs:
-            rules.append(Define(NTerm(f"rule_{axiom}"), Concat(*[rhs_to_def(x) for x in axiom])))
-        return Grammar(NTerm(f"rule_{axiom}"), *rules)
+        if self._map_axiom:
+            axiom_name = f"rule_{axiom}"
+            if axiom not in lhs:
+                rules.append(Define(NTerm(axiom_name), Concat(*[rhs_to_def(x) for x in axiom])))
+        else:
+            # We need to add a dummy rule
+            axiom_name = "dummy_axiom"
+            rules.append(Define(NTerm("dummy_axiom"), Term(self._dummy_axiom)))
+        return Grammar(NTerm(axiom_name), *rules)
 
     def pre_fn(self, solution, solution_idx: int, grammar: Grammar) -> tuple[Optional[float], float]:
         lhs, rhs, axiom = self._solution_to_grammar(solution)
@@ -248,6 +261,8 @@ class LSystem:
             edit_dist = 0.0 if pre_fn_result[0] is None else pre_fn_result[0]
             tiling_dist = pre_fn_result[1]
 
+        get_applogger().log_extra(solution_idx, "pre_fn_result", f"{edit_dist}.6f {tiling_dist}.6f")
+
         if ok:
             logger.info("LSystem::run() : matching solution found")
             # TODO add results logging
@@ -263,7 +278,7 @@ class LSystem:
                 tiling_dist = 0.0
             else:
                 consumed_perc = float(len(v)) / float(len(self._target))  # how much % of the string it has consumed, higher - better
-            return (-edit_dist)*self._beta + (-tiling_dist)*self._gamma + self._alpha * consumed_perc + sum(depths) / float(len(depths))  # E[depths]
+            return (-edit_dist)*self._beta + (-tiling_dist)*self._gamma + self._alpha * consumed_perc + self._omega * sum(depths) / float(len(depths))  # E[depths]
         # note: it seems that edit_dist rewards longer rules more, which in turn causes us to diverge
         else:
             return 0.0
@@ -297,7 +312,7 @@ class LSystem:
         if self._map_axiom:
             axiom = self._axioms[solution[self._gene_axiom_id]]
         else:
-            axiom = self._axioms[0]  # return the first axiom
+            axiom = self._dummy_axiom
         return lhs, rhs, axiom
     
     def _gene_to_substr(self, gene0: int, gene1: int) -> str:
