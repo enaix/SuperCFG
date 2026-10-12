@@ -577,9 +577,9 @@ class LSystem:
         # Find how many terms are not fully consumed
         def get_dist(res):
             dist = 0
-            terms = set(s) - set([a, b])
-            for i in range(len(s)):
-                if s[i] not in terms:
+            terms = set(res) - set([a, b])
+            for i in range(len(res)):
+                if res[i] not in terms:
                     dist += 1
             return dist
 
