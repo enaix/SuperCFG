@@ -312,6 +312,8 @@ class AppLogger:
         """Record the pygad gene vector for a solution within a generation"""
         if not self.enabled:
             return
+        if hasattr(solution, "copy"):
+            solution = solution.copy()
         with self._lock:
             self._gen_bucket(gen).sol(sol_idx).solution = solution
 

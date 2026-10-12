@@ -283,9 +283,8 @@ class LSystem:
         else:
             return 0.0
 
-    def on_gen(self, ga_instance) -> None:
-        solution = ga_instance.best_solution()[0]
-        lhs, rhs, axiom = self._solution_to_grammar(solution)
+    def on_gen(self, best_sol, best_val, best_match_idx) -> None:
+        lhs, rhs, axiom = self._solution_to_grammar(best_sol)
         rules = dict(zip(lhs, rhs))
         print(f"lsystem : best grammar : {rules}")
 

@@ -46,8 +46,8 @@ class SuperGGD:
         Runs concurrently with parser compilation. Its return value is forwarded as ``pre_fn_result`` to ``fitness_fn``/``loss_fn``.
 
     on_gen (optional):
-        ``(ga_instance) -> None``
-        User-defined on_generation callback.
+        ``(best_solution, best_solution_fitness, best_match_idx) -> None``
+        User-defined on_generation callback, accepts the output from ga_instance.best_solution.
 
     num_parallel:
         How many parser generators to compile at once. Ideally should match the number of CPU cores, limited by the amount of available memory.
@@ -377,10 +377,15 @@ class SuperGGD:
 
         with self._gen_lock:
             if self._current_gen != gen_id:
-                # new generation
+                if self._current_gen == 0:
+                    # Generation 0 finished; pygad never triggers on_generation for gen 0
+                    elapsed = time.monotonic() - self._gen_start_time
+                    get_applogger().log_gen_elapsed(elapsed, 0)
+                    get_applogger().end_generation(0)
                 self._current_gen = gen_id
                 self._compile_done.clear()
                 self._start_generation(ga_instance)  # blocks until the compilation is done
+
 
         self._compile_done.wait()
 
@@ -439,14 +444,14 @@ class SuperGGD:
         eta_m, eta_s_part = divmod(eta_rem, 60)
         eta_str = f"{eta_h:02d}:{eta_m:02d}:{eta_s_part:02d}"
 
-        best_val = ga_instance.best_solution()[1]
+        best_sol, best_val, best_match_idx = ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)
         if self._mode == "loss":
             best_val *= -1.0
         print(f"Gen {gen_done}/{num_gens} | {self._mode}: {best_val:.6g} | elapsed: {elapsed:.2f}s | avg: {avg:.2f}s/gen | ETA: {eta_str}", file=sys.stderr)
         logger.info(f"Generation %d complete. Best {self._mode}: %.4f", gen_done, best_val)
         if self._on_gen is not None:
             try:
-                self._on_gen(ga_instance)
+                self._on_gen(best_sol, best_val, best_match_idx)
             except Exception as e:
                 logger.exception(f"on_gen callback failed : {e}")
 
