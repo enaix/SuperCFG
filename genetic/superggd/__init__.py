@@ -256,7 +256,7 @@ class SuperGGD:
         get_applogger().set_extra_params({"parser": self._parser_class.__name__, "fallback_parser": (self._fallback_parser_class or type(None)).__name__, "parser_args": self._parser_args, "fallback_parser_args": self._fallback_parser_args})
 
     def run(self) -> pygad.GA:
-        """Start the genetic algorithm. Blocks until completion."""
+        """Start the genetic algorithm, blocks until completion. Avoid calling ga.best_solution() directly, use SuperGGD.best_solution() instead"""
         logger.debug(f"Starting GA, parser class : {self._parser_class}({self._parser_args}), fallback parser : {self._fallback_parser_class}({self._fallback_parser_args})")
         get_applogger().start()
         try:
