@@ -520,26 +520,17 @@ class LSystem:
         return idx2
 
     @staticmethod
-    def _tiling_distance_RE(s: str, sub1: str, sub2: str, a: str, b: str) -> int:
-        # Find how many terms are not fully consumed
+    def _reverse_one_generation_RE(s: str, sub1: str, sub2: str, a: str, b: str, custom_replace_func: Optional[Callable] = None) -> str:
         # ideally O(n)*O(replace), but here it's much worse, works only with D0L
         # We assume that the first reduction we take is the most optimal (11 -> a, 1111 is reduced like [11][11])
 
-        def get_dist(res):
-            dist = 0
-            terms = set(s) - set([a, b])
-            for i in range(len(s)):
-                if s[i] not in terms:
-                    dist += 1
-            return dist
-
         # null rule checks
         if len(a) == 0 and len(b) == 0:
-            return get_dist(s)
+            return s
         if len(a) == 0:
-            return get_dist(s.replace(sub2, b))
+            return s.replace(sub2, b)
         elif len(b) == 0:
-            return get_dist(s.replace(sub1, a))
+            return s.replace(sub1, a)
 
 
         idx1 = [m.start() for m in re.finditer(re.escape(sub1), s)]
@@ -557,25 +548,43 @@ class LSystem:
         # substitute the result (inefficient)
         i = len(idx1) - 1; j = len(idx2) - 1
         n1 = len(sub1); n2 = len(sub2)
-        erase = lambda idx, n: s[:idx] + s[idx + n:]
+
+        if custom_replace_func is not None:
+            replace = custom_replace_func  # we may want custom behavior here
+        else:
+            replace = lambda tgt, idx, lhs, n: tgt[:idx] + lhs + tgt[idx + n:]
 
         while i >= 0 or j >= 0:
             if i >= 0 and j >= 0:
                 # we can do this, since idx are not overlapping
                 if idx1[i] > idx2[j]:  # pick which one is larger, so that we don't corrupt the indices
-                    s = erase(idx1[i], n1)
+                    s = replace(s, idx1[i], a, n1)
                     i -= 1
                 else:
-                    s = erase(idx2[j], n2)
+                    s = replace(s, idx2[j], b, n2)
                     j -= 1
             elif i >= 0:
-                s = erase(idx1[i], n1)
+                s = replace(s, idx1[i], a, n1)
                 i -= 1
             else: # j > 0
-                s = erase(idx2[j], n2)
+                s = replace(s, idx2[j], b, n2)
                 j -= 1
 
-        return get_dist(s)
+        return s
+
+    @staticmethod
+    def _tiling_distance_RE(s: str, sub1: str, sub2: str, a: str, b: str) -> int:
+        # Find how many terms are not fully consumed
+        def get_dist(res):
+            dist = 0
+            terms = set(s) - set([a, b])
+            for i in range(len(s)):
+                if s[i] not in terms:
+                    dist += 1
+            return dist
+
+        erase = lambda tgt, idx, _, n: tgt[:idx] + tgt[idx + n:]   # we need to remove the lhs (consumed) symbol
+        return get_dist(LSystem._reverse_one_generation_RE(s, sub1, sub2, a, b, custom_replace_func=erase))
 
 
 SUPERGGD_MODULE_EXPORT = LSystem()

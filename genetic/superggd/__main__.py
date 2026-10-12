@@ -36,6 +36,7 @@ def main() -> None:
         p.add_argument("--log-dump-every-n", type=int, help="Dump logs every N generations")
         p.add_argument("--log-min-priority", type=str.lower, choices=["debug", "high", "panic"], default="debug", help="Minimum artifact priority to write (debug: all; high: grammar only; panic: no files)")
         p.add_argument("--cli-level", type=str.upper, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], default="WARNING", help="CLI output logging level")
+        p.add_argument("--generations", "-g", type=int, help="Number of generations to run")
 
         s_cfg = p.add_argument_group(title="supercfg parser options")
         s_cfg.add_argument("--cling", "-l", metavar="PATH", default="cling", help="Path to the cling executable")
@@ -113,7 +114,7 @@ def main() -> None:
 
     # We need to make sure that only explicitly-specified arguments are provided, so that the module can supply its own defaults
     # Ideally, the parser should display module-defined defaults
-    kwargs = {"num_parallel": getattr(args, "jobs", None), "compilation_timeout": getattr(args, "compilation_timeout", None)}
+    kwargs = {"num_parallel": getattr(args, "jobs", None), "compilation_timeout": getattr(args, "compilation_timeout", None), "generations": getattr(args, "generations", None)}
     if args.comp_strategy is not None:
         kwargs["compilation_strategy"] = CompilationStrategy(args.comp_strategy)
     if getattr(args, "output_folder", None) is not None:

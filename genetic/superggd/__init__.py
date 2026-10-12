@@ -272,9 +272,11 @@ class SuperGGD:
         """Direct access to the underlying pygad.GA instance."""
         return self._ga
 
-    def best_solution(self):
-        """Convenience wrapper around pygad.GA.best_solution(). Note: in loss mode, value must be multiplied by -1.0 in order to obtain actual loss"""
-        return self._ga.best_solution()
+    def best_solution(self, pop_fitness=None):
+        """Convenience wrapper around pygad.GA.best_solution(), default pop_fitness is obtained from GA.last_generation_fitness. Note: in loss mode, value must be multiplied by -1.0 in order to obtain actual loss"""
+        if pop_fitness is None and hasattr(self._ga, "last_generation_fitness") and self._ga.last_generation_fitness is not None:
+            pop_fitness = self._ga.last_generation_fitness
+        return self._ga.best_solution(pop_fitness=pop_fitness)
 
     @property
     def mode(self):
