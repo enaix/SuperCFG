@@ -288,7 +288,7 @@ class LSystem:
                 tiling_dist = 0.0
             else:
                 consumed_perc = float(len(v)) / float(len(self._target))  # how much % of the string it has consumed, higher - better
-            return (-edit_dist)*self._beta + (-tiling_dist)*self._gamma + self._alpha * consumed_perc + self._sda * simdist + self._omega * sum(depths) / float(len(depths))  # E[depths]
+            return (-edit_dist)*self._beta + (-tiling_dist)*self._gamma + (-simdist)*self._sda + self._alpha * consumed_perc + self._omega * sum(depths) / float(len(depths))  # E[depths]
         # note: it seems that edit_dist rewards longer rules more, which in turn causes us to diverge
         else:
             return 0.0
