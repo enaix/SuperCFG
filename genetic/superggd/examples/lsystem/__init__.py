@@ -78,6 +78,8 @@ class LSystem:
         self._beta: float = 0.0
         self._gamma: float = 0.0
         self._omega: float = 1.0
+        self._sda_punish: float = 1.0
+        self._sda: float = 0.0
         self._map_axiom: bool = False
 
         # Generated
@@ -103,6 +105,8 @@ class LSystem:
         group.add_argument("--beta", type=float, default=self._beta, help="Edit distance multiplier [0.0, 1.0] -> [0.0, b]")
         group.add_argument("--gamma", type=float, default=self._gamma, help="Tiling distance multiplier [0.0, 1.0] -> [0.0, g]")
         group.add_argument("--omega", type=float, default=self._omega, help="Mean AST height multiplier")
+        group.add_argument("--sda-punish", type=float, default=self._sda_punish, help="simdist_alpha distance punishment")
+        group.add_argument("--sda", type=float, default=self._sda, help="simdist_alpha multiplier")
         group.add_argument("--map-axiom", action="store_true", default=self._map_axiom, help="Add axiom genes")
 
     def init_args(self, **kwargs):
@@ -116,7 +120,9 @@ class LSystem:
         self._gamma = kwargs.get("gamma", self._gamma)
         self._omega = kwargs.get("omega", self._omega)
         self._map_axiom = kwargs.get("map_axiom", self._map_axiom)
-        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr, "num_rules": self._num_rules, "alpha": self._alpha, "beta": self._beta, "gamma": self._gamma, "omega": self._omega, "map_axiom": self._map_axiom})
+        self._sda_punish = kwargs.get("sda_punish", self._sda_punish)
+        self._sda = kwargs.get("sda", self._sda)
+        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr, "num_rules": self._num_rules, "alpha": self._alpha, "beta": self._beta, "gamma": self._gamma, "omega": self._omega, "map_axiom": self._map_axiom, "sda_punish": self._sda_punish, "sda": self._sda})
 
     def post_init(self) -> None:
         if self._target is None:
@@ -230,7 +236,7 @@ class LSystem:
             rules.append(Define(NTerm("dummy_axiom"), Term(self._dummy_axiom)))
         return Grammar(NTerm(axiom_name), *rules)
 
-    def pre_fn(self, solution, solution_idx: int, grammar: Grammar) -> tuple[Optional[float], float]:
+    def pre_fn(self, solution, solution_idx: int, grammar: Grammar) -> tuple[Optional[float], float, float]:
         lhs, rhs, axiom = self._solution_to_grammar(solution)
         rules = dict(zip(lhs, rhs))
 
@@ -245,21 +251,25 @@ class LSystem:
 
         if len(rules) == 2:
             tiling_dist = float(LSystem._tiling_distance_RE(copy.deepcopy(self._target), rhs[0], rhs[1], lhs[0], lhs[1])) / len(self._target)
+            simdist = float(LSystem._simdist_alpha(copy.deepcopy(self._target), self._sda_punish, rhs[0], rhs[1], lhs[0], lhs[1])[0])
         else:
-            tiling_dist = 0.0
+            tiling_dist = len(self._target) + 1
+            simdist = len(self._target) + 1
 
-        return (edit_min, tiling_dist)
+        return (edit_min, tiling_dist, simdist)
 
-    def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result: tuple[Optional[float], float]) -> float:
+    def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result: tuple[Optional[float], float, float]) -> float:
         ok, ast = run_parser(self._target)
         get_applogger().log_extra(solution_idx, "match", 1 if ok else 0)
 
         if pre_fn_result is None:
             edit_dist = 0.0
-            tiling_dist = 0.0
+            tiling_dist = len(self._target) + 1
+            simdist = len(self._target) + 1
         else:
             edit_dist = 0.0 if pre_fn_result[0] is None else pre_fn_result[0]
             tiling_dist = pre_fn_result[1]
+            simdist = pre_fn_result[2]
 
         get_applogger().log_extra(solution_idx, "pre_fn_result", f"{edit_dist}.6f {tiling_dist}.6f")
 
@@ -278,7 +288,7 @@ class LSystem:
                 tiling_dist = 0.0
             else:
                 consumed_perc = float(len(v)) / float(len(self._target))  # how much % of the string it has consumed, higher - better
-            return (-edit_dist)*self._beta + (-tiling_dist)*self._gamma + self._alpha * consumed_perc + self._omega * sum(depths) / float(len(depths))  # E[depths]
+            return (-edit_dist)*self._beta + (-tiling_dist)*self._gamma + self._alpha * consumed_perc + self._sda * simdist + self._omega * sum(depths) / float(len(depths))  # E[depths]
         # note: it seems that edit_dist rewards longer rules more, which in turn causes us to diverge
         else:
             return 0.0
@@ -586,5 +596,65 @@ class LSystem:
         erase = lambda tgt, idx, _, n: tgt[:idx] + tgt[idx + n:]   # we need to remove the lhs (consumed) symbol
         return get_dist(LSystem._reverse_one_generation_RE(s, sub1, sub2, a, b, custom_replace_func=erase))
 
+    @staticmethod
+    def _tiling_distance_n_RE(depth: int, s: str, sub1: str, sub2: str, a: str, b: str) -> list[int]:
+        # Find how many terms are not fully consumed on n-th substitution depth
+        def get_dist(res):
+            dist = 0
+            terms = set(res) - set([a, b])
+            for i in range(len(res)):
+                if res[i] not in terms:
+                    dist += 1
+            return dist
+
+        erase = lambda tgt, idx, _, n: tgt[:idx] + tgt[idx + n:]   # we need to remove the lhs (consumed) symbol
+        dist = []
+        for _ in range(depth):
+            s = LSystem._reverse_one_generation_RE(s, sub1, sub2, a, b)
+            dist.append(get_dist(LSystem._reverse_one_generation_RE(s, sub1, sub2, a, b, custom_replace_func=erase)))
+        return dist
+
+    @staticmethod
+    def _simdist_alpha(s, alpha, sub1, sub2, a, b) -> tuple[int, int]:
+        # Simdist alpha algorithm, alpha denotes the distance punishment parameter
+        maxdepth = 20
+
+        metric_default = len(s) + 1
+        best_metrics = [(metric_default) for _ in range(maxdepth + 1)]  # best metric at certain depth
+
+        # Warning: simdist_alpha doesn't work with single-rule grammars!!!
+        # TODO make it work with single-rule grammars
+        if a == '' or b == '':
+            return metric_default, 0
+
+        for depth_a, depth_b in it.product(range(maxdepth // 2 + 1), repeat=2):
+            depth = depth_a + depth_b
+
+            if len(sub1) - depth_a <= 0:
+                break  # first element of it.product is nondecreasing
+            if len(sub2) - depth_b <= 0:
+                continue
+
+            # we take leftmost slices of each rhs
+            metrics_at_n = LSystem._tiling_distance_n_RE(3, s, sub1[:len(sub1) - depth_a], sub2[:len(sub2) - depth_b], a, b)  # calculate metric
+            #print(metric, end=" => ")
+            metric = sum(metrics_at_n)
+            #print(metric)
+            #print()
+
+            if metric < best_metrics[depth]:
+                best_metrics[depth] = metric
+
+        # pick best depth
+        best = metric_default
+        best_depth = 0
+
+        for depth in range(maxdepth + 1):
+            cur = best_metrics[depth] + alpha * depth
+            if cur < best:
+                best = cur
+                best_depth = depth
+
+        return best, best_depth
 
 SUPERGGD_MODULE_EXPORT = LSystem()
