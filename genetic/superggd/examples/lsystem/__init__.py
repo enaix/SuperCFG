@@ -3,6 +3,8 @@ from collections import OrderedDict
 import itertools as it
 import logging
 import json
+import re
+import copy
 
 from superggd.operators import *
 from superggd.base import *
@@ -13,12 +15,72 @@ logger = logging.getLogger(__name__)
 
 type SubstrMap = OrderedDict[str, tuple[int, list[tuple[int, int]]]]
 
+# Helper functions
+# ================
+
+'''
+https://github.com/jamfromouterspace/levenshtein/
+Jamiel Rahi
+GPL 2019
+'''
+def levenshtein(a, b, ratio=False):
+    if a == '' :
+        return len(b)
+    if b == '' :
+        return len(a)
+
+    n = len(a)
+    m = len(b)
+    # lev = np.zeros((n+1,m+1))
+    lev = [[0 for i in range(m+1)] for j in range(n+1)]
+
+    for i in range(0,n+1) :
+        lev[i][0] = i
+    for i in range(0,m+1) :
+        lev[0][i] = i
+
+    for i in range(1,n+1) :
+        for j in range(1,m+1) :
+            insertion = lev[i-1][j] + 1
+            deletion = lev[i][j-1] + 1
+            substitution = lev[i-1][j-1] + (1 if a[i-1]!= b[j-1] else 0)
+            lev[i][j] = min(insertion,deletion,substitution)
+
+    if ratio :
+        return (n+m-lev[n][m])/(n+m)
+    else :
+        return lev[n][m]
+
+
+def get_lsystem_edit_dist(rules: dict, axiom: str, maxdepth: int, target: str, ratio: bool) -> float:
+    s = axiom
+    len_delta = abs(len(target) - len(s))
+    edit_dist = levenshtein(s, target)
+
+    for _ in range(maxdepth):
+        s = "".join(rules.get(ch, ch) for ch in s)  # expand_lsystem
+        new_delta = abs(len(target) - len(s))
+        if new_delta > len_delta:
+            return edit_dist
+        len_delta = new_delta
+        edit_dist = float(levenshtein(s, target, ratio))
+
+    return edit_dist
+
+
 class LSystem:
     def __init__(self) -> None:
         self._target: Optional[str] = None
         self._mapping_type: str = "lex"
         self._all_substr: bool = False
         self._num_rules: int = 2
+        self._alpha: float = 5.0
+        self._beta: float = 0.0
+        self._gamma: float = 0.0
+        self._omega: float = 1.0
+        self._sda_punish: float = 1.0
+        self._sda: float = 0.0
+        self._map_axiom: bool = False
 
         # Generated
         self._groups: list[tuple[int, SubstrMap]] = []  # rule rhs groups
@@ -28,16 +90,24 @@ class LSystem:
         self._gene_groups_idx: list[list[int]] = [] # gene groups idx for each rule
         self._gene_symbols_idx: list[int] = [] # rule (lhs) symbol idx for each rule
         self._gene_axiom_id: int = -1  # axiom idx
+        self._dummy_axiom: str = ""
 
         # Exports
-        self.pygad_params: dict[str, Any] = {"num_generations": 1000, "num_parents_mating": 4, "sol_per_pop": 10, "gene_type": int}
+        self.pygad_params: dict[str, Any] = {"num_generations": 200, "num_parents_mating": 4, "sol_per_pop": 10, "gene_type": int} # , "mutation_num_genes": 2}
         self.parsers_defaults = {"parser_args": {"supercfg_args": [SRConfEnum.EmptyFlag]}}  # Disable lookahead
 
     def populate_argparse_group(self, group: Any) -> None:
         group.add_argument("--lsystem", required=True, help="Target l-system string")
         group.add_argument("--mapping-type", choices=["naive", "lex", "seed"], default=self._mapping_type, help="l-system gene mapping algorithm; naive: merge by inclusion count, lex: merge by lex order, seed: merge by lex order and seed")
         group.add_argument("--all-substr", action="store_true", help="Consider all l-system rule candidates, including those which occur only once")
-        group.add_argument("--num_rules", type=int, default=self._num_rules, help="Max number of lsystem rules")
+        group.add_argument("--num-rules", type=int, default=self._num_rules, help="Max number of lsystem rules")
+        group.add_argument("--alpha", type=float, default=self._alpha, help="Parsed string percentage multiplier [0.0, 1.0] -> [0.0, a]")
+        group.add_argument("--beta", type=float, default=self._beta, help="Edit distance multiplier [0.0, 1.0] -> [0.0, b]")
+        group.add_argument("--gamma", type=float, default=self._gamma, help="Tiling distance multiplier [0.0, 1.0] -> [0.0, g]")
+        group.add_argument("--omega", type=float, default=self._omega, help="Mean AST height multiplier")
+        group.add_argument("--sda-punish", type=float, default=self._sda_punish, help="simdist_alpha distance punishment")
+        group.add_argument("--sda", type=float, default=self._sda, help="simdist_alpha multiplier")
+        group.add_argument("--map-axiom", action="store_true", default=self._map_axiom, help="Add axiom genes")
 
     def init_args(self, **kwargs):
         # Note: some arguments may be missing, argparse is not guaranteed to be called
@@ -45,7 +115,14 @@ class LSystem:
         self._mapping_type = kwargs.get("mapping_type", self._mapping_type)
         self._all_substr = kwargs.get("all_substr", self._all_substr)
         self._num_rules = kwargs.get("num_rules", self._num_rules)
-        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr, "num_rules": self._num_rules})
+        self._alpha = kwargs.get("alpha", self._alpha)
+        self._beta = kwargs.get("beta", self._beta)
+        self._gamma = kwargs.get("gamma", self._gamma)
+        self._omega = kwargs.get("omega", self._omega)
+        self._map_axiom = kwargs.get("map_axiom", self._map_axiom)
+        self._sda_punish = kwargs.get("sda_punish", self._sda_punish)
+        self._sda = kwargs.get("sda", self._sda)
+        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr, "num_rules": self._num_rules, "alpha": self._alpha, "beta": self._beta, "gamma": self._gamma, "omega": self._omega, "map_axiom": self._map_axiom, "sda_punish": self._sda_punish, "sda": self._sda})
 
     def post_init(self) -> None:
         if self._target is None:
@@ -59,7 +136,7 @@ class LSystem:
             pr_f = pr
         mut, cbi, pairs = self._mut_strong(pr_f)  # get mutex
         # Add missing keys to cbi
-        for s1 in set(pr) - set(cbi):
+        for s1 in set(pr) - set(cbi):  # it seems that the stability of cbi is not critical
             cbi[s1] = []
 
         if self._mapping_type == "naive":
@@ -87,7 +164,7 @@ class LSystem:
             self._gene_groups_idx.append([2*i, 2*i+1])  # idx of gene0 and gene1
 
         # Populate rule symbols (lhs), for now we only consider single-symbol rules
-        self._symbols = list(set(self._target))
+        self._symbols = list(sorted(set(self._target)))
         gene2 = range(len(self._symbols) + 1)  # We also add an empty rule
         for i in range(self._num_rules):
             self.pygad_params["gene_space"].append(gene2)
@@ -95,7 +172,10 @@ class LSystem:
 
         # Add axiom (consider up to size 2)
         self._axioms = self._symbols + list(it.product(''.join(self._symbols), repeat=2))  # axioms of size 1 are more likely
-        self.pygad_params["gene_space"].append(range(len(self._axioms)))
+        # Add a dummy axiom which is never parsed (only used if map_axiom is False)
+        self._dummy_axiom = chr(ord(max(self._symbols)) + 1)
+        if self._map_axiom:  # We store axiom candidates, but do not add these genes
+            self.pygad_params["gene_space"].append(range(len(self._axioms)))
         self._gene_axiom_id = len(self.pygad_params["gene_space"]) - 1
 
         get_applogger().save_artifact("lsystem.json", json.dumps({
@@ -105,6 +185,7 @@ class LSystem:
         }))
 
         get_applogger().register_csv_field("match")
+        get_applogger().register_csv_field("pre_fn_result")
 
         self.pygad_params["num_genes"] = len(self.pygad_params["gene_space"])
 
@@ -125,17 +206,105 @@ class LSystem:
                 lambda sol, values: [val for val in values if _check_constraint(self._gene_to_substr(sol[0], sol[1]), self._gene_to_substr(sol[2], val), cbi)],  # Rule 1+i, gene 1:
             ]
             # lhs rule constraint
+            # TODO fix this constraint
             self.pygad_params["gene_constraint"] += [
                 None,  # Rule 1+i, gene 0: any group
-                lambda sol, values: [val for val in values if not (val >= len(self._symbols) and sol[3] >= len(self._symbols))],  # Check that there is at least 1 rule
+                lambda sol, values: [val for val in values if not (val >= len(self._symbols) and sol[4] >= len(self._symbols))],  # Check that there is at least 1 rule
             ]
             # Set the remaining as None
             for i in range(len(self.pygad_params["gene_constraint"]), self.pygad_params["num_genes"]):
                 self.pygad_params["gene_constraint"].append(None)
 
     def grammar_generator(self, solution, solution_idx: int) -> Grammar:
+        lhs, rhs, axiom = self._solution_to_grammar(solution)
+
+        # Generate the ruleset
+        rhs_to_def = lambda x: NTerm(f"rule_{x}") if x in lhs else Term(x)  # Use terminal if symbol is a constant, else use the nterm
+        rules: list[Type[BaseOp]] = []
+        for i in range(self._num_rules):
+            if lhs[i] == "":
+                continue
+            rules.append(Define(NTerm(f"rule_{lhs[i]}"), Alter(Term(lhs[i]), Concat(*[rhs_to_def(x) for x in rhs[i]]))))
+        # Add axiom rule (if needed)
+        if self._map_axiom:
+            axiom_name = f"rule_{axiom}"
+            if axiom not in lhs:
+                rules.append(Define(NTerm(axiom_name), Concat(*[rhs_to_def(x) for x in axiom])))
+        else:
+            # We need to add a dummy rule
+            axiom_name = "dummy_axiom"
+            rules.append(Define(NTerm("dummy_axiom"), Term(self._dummy_axiom)))
+        return Grammar(NTerm(axiom_name), *rules)
+
+    def pre_fn(self, solution, solution_idx: int, grammar: Grammar) -> tuple[Optional[float], float, float]:
+        lhs, rhs, axiom = self._solution_to_grammar(solution)
+        rules = dict(zip(lhs, rhs))
+
+        edit_min = None
+        for a in self._axioms:
+            edit = get_lsystem_edit_dist(rules, a, 7, self._target, True)  # use levenshtein ratio
+            if edit_min is None:
+                edit_min = edit
+            else:
+                if edit < edit_min:
+                    edit_min = edit
+
+        if len(rules) == 2:
+            tiling_dist = float(LSystem._tiling_distance_RE(copy.deepcopy(self._target), rhs[0], rhs[1], lhs[0], lhs[1])) / len(self._target)
+            simdist = float(LSystem._simdist_alpha(copy.deepcopy(self._target), self._sda_punish, rhs[0], rhs[1], lhs[0], lhs[1])[0])
+        else:
+            tiling_dist = len(self._target) + 1
+            simdist = len(self._target) + 1
+
+        return (edit_min, tiling_dist, simdist)
+
+    def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result: tuple[Optional[float], float, float]) -> float:
+        ok, ast = run_parser(self._target)
+        get_applogger().log_extra(solution_idx, "match", 1 if ok else 0)
+
+        if pre_fn_result is None:
+            edit_dist = 0.0
+            tiling_dist = len(self._target) + 1
+            simdist = len(self._target) + 1
+        else:
+            edit_dist = 0.0 if pre_fn_result[0] is None else pre_fn_result[0]
+            tiling_dist = pre_fn_result[1]
+            simdist = pre_fn_result[2]
+
+        get_applogger().log_extra(solution_idx, "pre_fn_result", f"{edit_dist}.6f {tiling_dist}.6f")
+
+        if ok:
+            logger.info("LSystem::run() : matching solution found")
+            # TODO add results logging
+        if ast is not None:
+            # For now we use average AST depth as the target metric
+            depths: list[int] = []
+            values: list[str] = []
+            ast.each(lambda node, depth, is_leaf: depths.append(depth) if is_leaf else None)
+            ast.each(lambda node, depth, is_leaf: values.append(node.value))  # works correctly only with supercfg
+            v = ''.join(values)
+            if len(v) == 0:
+                consumed_perc = 0.0  # set to 0.01 if we multiply
+                tiling_dist = 0.0
+            else:
+                consumed_perc = float(len(v)) / float(len(self._target))  # how much % of the string it has consumed, higher - better
+            return (-edit_dist)*self._beta + (-tiling_dist)*self._gamma + (-simdist)*self._sda + self._alpha * consumed_perc + self._omega * sum(depths) / float(len(depths))  # E[depths]
+        # note: it seems that edit_dist rewards longer rules more, which in turn causes us to diverge
+        else:
+            return 0.0
+
+    def on_gen(self, best_sol, best_val, best_match_idx) -> None:
+        lhs, rhs, axiom = self._solution_to_grammar(best_sol)
+        rules = dict(zip(lhs, rhs))
+        print(f"lsystem : best grammar : {rules}")
+
+    # Gene mapping helpers
+    # ====================
+    def _solution_to_grammar(self, solution) -> tuple[list[str], list[str], str]:
+        """Convert a solution to its lsystem grammar components"""
         rhs: list[str] = []
         lhs: list[str] = []
+
         # Get rule rhs
         for i0, i1 in self._gene_groups_idx:
             rhs.append(self._gene_to_substr(solution[i0], solution[i1]))
@@ -149,44 +318,12 @@ class LSystem:
                 lhs.append(self._symbols[val])
 
         # Get axiom
-        axiom = self._axioms[solution[self._gene_axiom_id]]
-
-        # Generate the ruleset
-        rhs_to_def = lambda x: NTerm(f"rule_{x}") if x in lhs else Term(x)  # Use terminal if symbol is a constant, else use the nterm
-        rules: list[Type[BaseOp]] = []
-        for i in range(self._num_rules):
-            if lhs[i] == "":
-                continue
-            rules.append(Define(NTerm(f"rule_{lhs[i]}"), Alter(Term(lhs[i]), Concat(*[rhs_to_def(x) for x in rhs[i]]))))
-        # Add axiom rule (if needed)
-        if axiom not in lhs:
-            rules.append(Define(NTerm(f"rule_{axiom}"), Concat(*[rhs_to_def(x) for x in axiom])))
-        return Grammar(NTerm(f"rule_{axiom}"), *rules)
-
-    def fitness_fn(self, solution, solution_idx: int, grammar: Grammar, run_parser: Callable, pre_fn_result) -> float:
-        ok, ast = run_parser(self._target)
-        get_applogger().log_extra(solution_idx, "match", 1 if ok else 0)
-        if ok:
-            logger.info("LSystem::run() : matching solution found")
-            # TODO add results logging
-        if ast is not None:
-            # For now we use average AST depth as the target metric
-            depths: list[int] = []
-            values: list[str] = []
-            ast.each(lambda node, depth, is_leaf: depths.append(depth) if is_leaf else None)
-            ast.each(lambda node, depth, is_leaf: values.append(node.value))
-            v = ''.join(values)
-            if v == 0:
-                consumed_perc = 0  # set to 0.01 if we multiply
-            else:
-                consumed_perc = float(len(v)) / float(len(self._target))  # how much % of the string it has consumed, higher - better
-            return 5 * consumed_perc + sum(depths) / float(len(depths))  # E[depths]
+        if self._map_axiom:
+            axiom = self._axioms[solution[self._gene_axiom_id]]
         else:
-            return 0.0
-
-    # Gene mapping helpers
-    # ====================
-
+            axiom = self._dummy_axiom
+        return lhs, rhs, axiom
+    
     def _gene_to_substr(self, gene0: int, gene1: int) -> str:
         """Map the gene value to the rule rhs string"""
         #if self._mapping_type == "lex":
@@ -356,8 +493,168 @@ class LSystem:
                     s1_seeds[s2] = new_seed
 
         # TODO reindex seed ids to be strictly sequential
-        return s1_seeds, next_seed
+        return s1_seeds, next_seed  # these are not guaranteed to be stable
+
+    @staticmethod
+    def _merge_idx_first(rhs1: str, rhs2: str, idx1: list[int], idx2: list[int]) -> list[int]:
+        # merge indices while prioritizing idx1, returns idx2
+        i = 0; j = 0
+        n1 = len(rhs1); n2 = len(rhs2)
+        while i < len(idx1) and j < len(idx2):
+            start1 = idx1[i]
+            start2 = idx2[j]
+            end1 = start1 + n1
+            end2 = start2 + n2
+            # check for intersection  (we need to call this twice to do )
+            # [   ( ]   )  or  [  (   )  ]
+            check_inter = lambda a_start, a_end, b_start, b_end: (b_start < a_end and b_end > a_start) or (a_start < b_end and a_end > b_start)
+
+            if check_inter(start1, end1, start2, end2) or check_inter(start2, end2, start1, end1):  # cfg/base.h : check_intersect_ranges()
+                idx2.pop(j)  # inefficient
+                continue  # do not increment j
+
+            # check which counter to move
+            if i + 1 >= len(idx1):
+                j += 1
+            elif j + 1 >= len(idx2):
+                i += 1
+            else:
+                # check which start will be closer (is this a correct metric???)
+                # do we have to calculate distance here?
+                next1 = idx1[i + 1]
+                next2 = idx2[j + 1]
+                if next1 < next2:
+                    i += 1
+                else:
+                    j += 1
+        return idx2
+
+    @staticmethod
+    def _reverse_one_generation_RE(s: str, sub1: str, sub2: str, a: str, b: str, custom_replace_func: Optional[Callable] = None) -> str:
+        # ideally O(n)*O(replace), but here it's much worse, works only with D0L
+        # We assume that the first reduction we take is the most optimal (11 -> a, 1111 is reduced like [11][11])
+
+        # null rule checks
+        if len(a) == 0 and len(b) == 0:
+            return s
+        if len(a) == 0:
+            return s.replace(sub2, b)
+        elif len(b) == 0:
+            return s.replace(sub1, a)
 
 
+        idx1 = [m.start() for m in re.finditer(re.escape(sub1), s)]
+        idx2 = [m.start() for m in re.finditer(re.escape(sub2), s)]
+        # merge indices
+        # we need a strategy for handling collisions
+        # =============
+
+        # simple strategy: pick the largest rule
+        if sub1 > sub2:
+            idx2 = LSystem._merge_idx_first(sub1, sub2, idx1, idx2)
+        else:
+            idx1 = LSystem._merge_idx_first(sub2, sub1, idx2, idx1)
+
+        # substitute the result (inefficient)
+        i = len(idx1) - 1; j = len(idx2) - 1
+        n1 = len(sub1); n2 = len(sub2)
+
+        if custom_replace_func is not None:
+            replace = custom_replace_func  # we may want custom behavior here
+        else:
+            replace = lambda tgt, idx, lhs, n: tgt[:idx] + lhs + tgt[idx + n:]
+
+        while i >= 0 or j >= 0:
+            if i >= 0 and j >= 0:
+                # we can do this, since idx are not overlapping
+                if idx1[i] > idx2[j]:  # pick which one is larger, so that we don't corrupt the indices
+                    s = replace(s, idx1[i], a, n1)
+                    i -= 1
+                else:
+                    s = replace(s, idx2[j], b, n2)
+                    j -= 1
+            elif i >= 0:
+                s = replace(s, idx1[i], a, n1)
+                i -= 1
+            else: # j > 0
+                s = replace(s, idx2[j], b, n2)
+                j -= 1
+
+        return s
+
+    @staticmethod
+    def _tiling_distance_RE(s: str, sub1: str, sub2: str, a: str, b: str) -> int:
+        # Find how many terms are not fully consumed
+        def get_dist(res):
+            dist = 0
+            terms = set(res) - set([a, b])
+            for i in range(len(res)):
+                if res[i] not in terms:
+                    dist += 1
+            return dist
+
+        erase = lambda tgt, idx, _, n: tgt[:idx] + tgt[idx + n:]   # we need to remove the lhs (consumed) symbol
+        return get_dist(LSystem._reverse_one_generation_RE(s, sub1, sub2, a, b, custom_replace_func=erase))
+
+    @staticmethod
+    def _tiling_distance_n_RE(depth: int, s: str, sub1: str, sub2: str, a: str, b: str) -> list[int]:
+        # Find how many terms are not fully consumed on n-th substitution depth
+        def get_dist(res):
+            dist = 0
+            terms = set(res) - set([a, b])
+            for i in range(len(res)):
+                if res[i] not in terms:
+                    dist += 1
+            return dist
+
+        erase = lambda tgt, idx, _, n: tgt[:idx] + tgt[idx + n:]   # we need to remove the lhs (consumed) symbol
+        dist = []
+        for _ in range(depth):
+            s = LSystem._reverse_one_generation_RE(s, sub1, sub2, a, b)
+            dist.append(get_dist(LSystem._reverse_one_generation_RE(s, sub1, sub2, a, b, custom_replace_func=erase)))
+        return dist
+
+    @staticmethod
+    def _simdist_alpha(s, alpha, sub1, sub2, a, b) -> tuple[int, int]:
+        # Simdist alpha algorithm, alpha denotes the distance punishment parameter
+        maxdepth = 20
+
+        metric_default = len(s) + 1
+        best_metrics = [(metric_default) for _ in range(maxdepth + 1)]  # best metric at certain depth
+
+        # Warning: simdist_alpha doesn't work with single-rule grammars!!!
+        # TODO make it work with single-rule grammars
+        if a == '' or b == '':
+            return metric_default, 0
+
+        for depth_a, depth_b in it.product(range(maxdepth // 2 + 1), repeat=2):
+            depth = depth_a + depth_b
+
+            if len(sub1) - depth_a <= 0:
+                break  # first element of it.product is nondecreasing
+            if len(sub2) - depth_b <= 0:
+                continue
+
+            # we take leftmost slices of each rhs
+            metrics_at_n = LSystem._tiling_distance_n_RE(3, s, sub1[:len(sub1) - depth_a], sub2[:len(sub2) - depth_b], a, b)  # calculate metric
+            #print(metric, end=" => ")
+            metric = sum(metrics_at_n)
+            #print(metric)
+            #print()
+
+            if metric < best_metrics[depth]:
+                best_metrics[depth] = metric
+
+        # pick best depth
+        best = metric_default
+        best_depth = 0
+
+        for depth in range(maxdepth + 1):
+            cur = best_metrics[depth] + alpha * depth
+            if cur < best:
+                best = cur
+                best_depth = depth
+
+        return best, best_depth
 
 SUPERGGD_MODULE_EXPORT = LSystem()

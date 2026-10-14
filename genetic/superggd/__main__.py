@@ -6,6 +6,7 @@ from superggd.parsers import *
 import argparse
 import sys
 import importlib.util
+import logging
 from typing import Callable, Optional, Any
 
 
@@ -28,12 +29,14 @@ def main() -> None:
         p.add_argument("--module", "-m", metavar="PATH",
                        help="Path to the user module. Must expose SUPERGGD_MODULE_EXPORT object")
         p.add_argument("--jobs", "-j", type=int, help="Number of parallel parser generator instances")
-        p.add_argument("--comp-strategy", choices=["die", "skip"], help="Compilation error handling strategy (die: exit on error, skip: continue)")
+        p.add_argument("--comp-strategy", type=str.lower, choices=["die", "skip"], help="Compilation error handling strategy (die: exit on error, skip: continue)")
         p.add_argument("--parser", choices=list(SUPERGGD_PARSER_GENERATORS.keys()), help="Parser backend")
         p.add_argument("--compilation-timeout", type=float, help="Max seconds to wait for batch compilation")
         p.add_argument("--output-folder", "-o", metavar="PATH", help="Folder to write per-generation logs")
         p.add_argument("--log-dump-every-n", type=int, help="Dump logs every N generations")
-        p.add_argument("--log-min-priority", choices=["debug", "high", "panic"], default="debug", help="Minimum artifact priority to write (debug: all; high: grammar only; panic: no files)")
+        p.add_argument("--log-min-priority", type=str.lower, choices=["debug", "high", "panic"], default="debug", help="Minimum artifact priority to write (debug: all; high: grammar only; panic: no files)")
+        p.add_argument("--cli-level", type=str.upper, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], default="WARNING", help="CLI output logging level")
+        p.add_argument("--generations", "-g", type=int, help="Number of generations to run, overrides GA.num_generations provided by the module")
 
         s_cfg = p.add_argument_group(title="supercfg parser options")
         s_cfg.add_argument("--cling", "-l", metavar="PATH", default="cling", help="Path to the cling executable")
@@ -60,6 +63,9 @@ def main() -> None:
     #    pass
     #elif args.command == "grid":
     #    raise NotImplementedError("Grid search is not yet implemented")
+
+    # Set cli loglevel
+    logging.basicConfig(level=args.cli_level)
 
     if args.module is None:
         # Avoid calling ap.error to prevent usage prints
@@ -108,7 +114,7 @@ def main() -> None:
 
     # We need to make sure that only explicitly-specified arguments are provided, so that the module can supply its own defaults
     # Ideally, the parser should display module-defined defaults
-    kwargs = {"num_parallel": getattr(args, "jobs", None), "compilation_timeout": getattr(args, "compilation_timeout", None)}
+    kwargs = {"num_parallel": getattr(args, "jobs", None), "compilation_timeout": getattr(args, "compilation_timeout", None), "num_generations": getattr(args, "generations", None)}
     if args.comp_strategy is not None:
         kwargs["compilation_strategy"] = CompilationStrategy(args.comp_strategy)
     if getattr(args, "output_folder", None) is not None:
@@ -150,9 +156,9 @@ def main() -> None:
     ggd.init_parsers(parser_class, parser_args=parser_args)
 
     ga = ggd.run()
-    solution, fitness, idx = ga.best_solution()
+    solution, s, idx = ggd.best_solution()   # We need to avoid calling ggd.best_solution() directly
     print(f"\nBest solution (index {idx}): {solution}")
-    print(f"Best fitness : {fitness}")
+    print(f"Best {ggd.mode} : {s}")
 
 
 if __name__ == "__main__":
