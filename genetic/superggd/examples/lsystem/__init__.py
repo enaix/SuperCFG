@@ -80,6 +80,7 @@ class LSystem:
         self._omega: float = 1.0
         self._sda_punish: float = 1.0
         self._sda: float = 0.0
+        self._sda_disable_dist: bool = False
         self._map_axiom: bool = False
 
         # Generated
@@ -107,6 +108,7 @@ class LSystem:
         group.add_argument("--omega", type=float, default=self._omega, help="Mean AST height multiplier")
         group.add_argument("--sda-punish", type=float, default=self._sda_punish, help="simdist_alpha distance punishment")
         group.add_argument("--sda", type=float, default=self._sda, help="simdist_alpha multiplier")
+        group.add_argument("--sda-disable-dist", action="store_true", help="Disable simdist_alpha distance calculation")
         group.add_argument("--map-axiom", action="store_true", default=self._map_axiom, help="Add axiom genes")
 
     def init_args(self, **kwargs):
@@ -119,10 +121,14 @@ class LSystem:
         self._beta = kwargs.get("beta", self._beta)
         self._gamma = kwargs.get("gamma", self._gamma)
         self._omega = kwargs.get("omega", self._omega)
-        self._map_axiom = kwargs.get("map_axiom", self._map_axiom)
         self._sda_punish = kwargs.get("sda_punish", self._sda_punish)
         self._sda = kwargs.get("sda", self._sda)
-        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr, "num_rules": self._num_rules, "alpha": self._alpha, "beta": self._beta, "gamma": self._gamma, "omega": self._omega, "map_axiom": self._map_axiom, "sda_punish": self._sda_punish, "sda": self._sda})
+        self._sda_disable_dist = kwargs.get("sda_disable_dist", self._sda_disable_dist)
+        self._map_axiom = kwargs.get("map_axiom", self._map_axiom)
+        get_applogger().set_extra_params({"lsystem": self._target, "mapping_type": self._mapping_type, "all_substr": self._all_substr,
+                                          "num_rules": self._num_rules, "alpha": self._alpha, "beta": self._beta, "gamma": self._gamma,
+                                          "omega": self._omega, "sda_punish": self._sda_punish, "sda": self._sda, "sda_disable_dist": self._sda_disable_dist,
+                                          "map_axiom": self._map_axiom})
 
     def post_init(self) -> None:
         if self._target is None:
@@ -251,7 +257,7 @@ class LSystem:
 
         if len(rules) == 2:
             tiling_dist = float(LSystem._tiling_distance_RE(copy.deepcopy(self._target), rhs[0], rhs[1], lhs[0], lhs[1])) / len(self._target)
-            simdist = float(LSystem._simdist_alpha(copy.deepcopy(self._target), self._sda_punish, rhs[0], rhs[1], lhs[0], lhs[1])[0])
+            simdist = float(self._simdist_alpha(copy.deepcopy(self._target), self._sda_punish, rhs[0], rhs[1], lhs[0], lhs[1])[0])
         else:
             tiling_dist = len(self._target) + 1
             simdist = len(self._target) + 1
@@ -614,8 +620,7 @@ class LSystem:
             dist.append(get_dist(LSystem._reverse_one_generation_RE(s, sub1, sub2, a, b, custom_replace_func=erase)))
         return dist
 
-    @staticmethod
-    def _simdist_alpha(s, alpha, sub1, sub2, a, b) -> tuple[int, int]:
+    def _simdist_alpha(self, s, alpha, sub1, sub2, a, b) -> tuple[int, int]:
         # Simdist alpha algorithm, alpha denotes the distance punishment parameter
         maxdepth = 20
 
@@ -644,6 +649,10 @@ class LSystem:
 
             if metric < best_metrics[depth]:
                 best_metrics[depth] = metric
+
+            # return on depth 0
+            if self._sda_disable_dist:
+                return metric, depth
 
         # pick best depth
         best = metric_default
