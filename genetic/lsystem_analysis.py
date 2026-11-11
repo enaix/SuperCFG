@@ -160,22 +160,24 @@ def plot_top3_genomes(top3: pd.DataFrame, save_to: str) -> None:
 
 def build_commands(angle: float = 45.0, inverse_pm: bool = False, turn_on_push_pop: bool = False):
     """Char -> (op, *params). F/G/A/B draw forward, 'b' moves without drawing, +/- turn by angle
-    (swapped if inverse_pm), X is no-op. [/] push/pop position+angle unless turn_on_push_pop,
-    in which case they turn left/right instead"""
+    (swapped if inverse_pm), X is no-op. [/] push/pop position+angle, additionally turning
+    left/right if turn_on_push_pop"""
     sign = -1.0 if inverse_pm else 1.0
     cmds = {
         "F": ("line",),
         "G": ("line",),
         "A": ("line",),
         "B": ("line",),
+        "1": ("line",),
+        "0": ("line",),
         "b": ("move",),
         "+": ("turn",  sign * angle),
         "-": ("turn", -sign * angle),
         "X": ("nop",),
     }
     if turn_on_push_pop:
-        cmds["["] = ("turn", +angle)
-        cmds["]"] = ("turn", -angle)
+        cmds["["] = ("push_turn", +angle)
+        cmds["]"] = ("pop_turn", -angle)
     else:
         cmds["["] = ("push",)
         cmds["]"] = ("pop",)
@@ -221,6 +223,13 @@ def trace_lsystem(s: str, commands: dict, step: float = 1.0, start_angle: float 
         elif op == "pop":
             if stack:
                 x, y, theta = stack.pop()
+        elif op == "push_turn":
+            stack.append((x, y, theta))
+            theta += cmd[1]
+        elif op == "pop_turn":
+            if stack:
+                x, y, theta = stack.pop()
+            theta += cmd[1]
     return segments
 
 
